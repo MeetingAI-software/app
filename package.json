@@ -1,0 +1,12 @@
+{
+  "name": "meeting-ai",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w api",
+    "test": "npm run test -w api",
+    "typecheck": "npm run typecheck -w api"
+  }
+}
