@@ -1,5 +1,6 @@
 import type { WebhookEventRepository, MeetingRepository } from '../ports/repositories.port';
 import type { ProcessWebhookEventService } from '../application/process-webhook-event.service';
+import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import { db } from '../adapters/db/client';
 import { webhookEvents } from '../adapters/db/schema';
 import { eq } from 'drizzle-orm';
@@ -8,12 +9,14 @@ import { routeRecallEvent } from '../adapters/recall/recall-event.router';
 export class WebhookWorker {
   private isRunning = false;
   private intervalId: NodeJS.Timeout | null = null;
+  private reconcileIntervalId: NodeJS.Timeout | null = null;
   private isProcessing = false;
 
   constructor(
     private readonly webhookRepo: WebhookEventRepository,
     private readonly meetingRepo: MeetingRepository,
-    private readonly processService: ProcessWebhookEventService
+    private readonly processService: ProcessWebhookEventService,
+    private readonly botAdapter: MeetingBotPort
   ) {}
 
   start() {
@@ -26,6 +29,13 @@ export class WebhookWorker {
         console.error('Worker loop error:', err);
       });
     }, 2000);
+
+    // Reconciler runs every 60s
+    this.reconcileIntervalId = setInterval(() => {
+      this.reconcileMeetings().catch(err => {
+        console.error('Reconciler error:', err);
+      });
+    }, 60000);
   }
 
   stop() {
@@ -33,6 +43,10 @@ export class WebhookWorker {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
+    }
+    if (this.reconcileIntervalId) {
+      clearInterval(this.reconcileIntervalId);
+      this.reconcileIntervalId = null;
     }
     console.log('👷 Webhook worker stopped.');
   }
@@ -105,6 +119,53 @@ export class WebhookWorker {
       }
     } finally {
       this.isProcessing = false;
+    }
+  }
+
+  private async reconcileMeetings(): Promise<void> {
+    console.log('👷 Reconciler tick: Checking for stuck meetings...');
+    try {
+      const activeMeetings = await this.meetingRepo.list();
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+      
+      const stuckMeetings = activeMeetings.filter(m => 
+        ['bot_joining', 'recording', 'processing'].includes(m.status) &&
+        m.updatedAt < tenMinutesAgo &&
+        m.botId
+      );
+
+      for (const meeting of stuckMeetings) {
+        const botId = meeting.botId!;
+        console.log(`   Reconciling stuck meeting ${meeting.id} (status: ${meeting.status}, bot: ${botId})`);
+        try {
+          const botStatus = await this.botAdapter.getBotStatus(botId);
+          console.log(`   Recall reported bot status: ${botStatus}`);
+          
+          if (botStatus === 'joining') {
+            if (meeting.status !== 'bot_joining') {
+              await this.meetingRepo.updateStatus(meeting.id, 'bot_joining');
+            }
+          } else if (botStatus === 'in_call') {
+            if (meeting.status !== 'recording') {
+              await this.meetingRepo.updateStatus(meeting.id, 'recording');
+            }
+          } else if (botStatus === 'done') {
+            console.log(`   Triggering recovery transcript processing for bot: ${botId}`);
+            await this.processService.processEvent('transcript_ready', {
+              bot_id: botId,
+              meeting_id: meeting.id,
+            });
+          } else if (botStatus === 'fatal') {
+            await this.meetingRepo.updateStatus(meeting.id, 'failed', {
+              errorMessage: 'Reconciler: Bot provider reported fatal status',
+            });
+          }
+        } catch (botErr: any) {
+          console.error(`❌ Reconciler failed to check bot ${botId} status:`, botErr.message);
+        }
+      }
+    } catch (err: any) {
+      console.error('❌ Reconciler tick error:', err.message);
     }
   }
 }

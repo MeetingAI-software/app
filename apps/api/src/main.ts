@@ -40,7 +40,7 @@ async function bootstrap() {
   const processService = new ProcessWebhookEventService(meetingRepo, transcriptRepo, usageRepo, botAdapter);
 
   // 4. Web Worker
-  const worker = new WebhookWorker(webhookRepo, meetingRepo, processService);
+  const worker = new WebhookWorker(webhookRepo, meetingRepo, processService, botAdapter);
   worker.start();
 
   // 5. Server Routes
