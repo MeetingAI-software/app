@@ -3,6 +3,7 @@ import type { ProcessWebhookEventService } from '../application/process-webhook-
 import { db } from '../adapters/db/client';
 import { webhookEvents } from '../adapters/db/schema';
 import { eq } from 'drizzle-orm';
+import { routeRecallEvent } from '../adapters/recall/recall-event.router';
 
 export class WebhookWorker {
   private isRunning = false;
@@ -47,10 +48,18 @@ export class WebhookWorker {
         return;
       }
 
-      console.log(`👷 Processing event ${event.id} of type ${event.eventType}`);
+      const action = routeRecallEvent(event.eventType);
+      if (action === 'ignore') {
+        console.log(`   Ignoring event ${event.id} of type ${event.eventType}`);
+        await this.webhookRepo.markProcessed(event.id);
+        this.isProcessing = false;
+        return;
+      }
+
+      console.log(`👷 Processing event ${event.id} mapped to action ${action}`);
 
       try {
-        await this.processService.processEvent(event.eventType, event.payload);
+        await this.processService.processEvent(action, event.payload);
         await this.webhookRepo.markProcessed(event.id);
         console.log(`   Event ${event.id} processed successfully.`);
       } catch (err: any) {
@@ -68,10 +77,21 @@ export class WebhookWorker {
           console.error(`❌ Event ${event.id} failed after 5 attempts. Marking processed and failing meeting.`);
           await this.webhookRepo.markProcessed(event.id);
 
-          // Mark meeting as failed if meeting_id is present
+          // Find meeting by meeting_id or bot_id in payload to mark it failed
           const payload = event.payload as any;
-          if (payload && payload.meeting_id) {
-            await this.meetingRepo.updateStatus(payload.meeting_id, 'failed', {
+          const botId = payload?.bot_id || payload?.data?.bot_id;
+          const meetingId = payload?.meeting_id || payload?.data?.meeting_id;
+          
+          let meeting = null;
+          if (meetingId) {
+            meeting = await this.meetingRepo.findById(meetingId);
+          }
+          if (!meeting && botId) {
+            meeting = await this.meetingRepo.findByBotId(botId);
+          }
+
+          if (meeting) {
+            await this.meetingRepo.updateStatus(meeting.id, 'failed', {
               errorMessage: err?.message || 'Processing failed after max retries',
             });
           }

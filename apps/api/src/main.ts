@@ -12,6 +12,7 @@ import { WebhookWorker } from './jobs/worker';
 import { createMeetingRoutes } from './adapters/http/routes/meetings.routes';
 import { createHealthRoutes } from './adapters/http/routes/health.routes';
 import { createWebhookRoutes } from './adapters/http/routes/webhooks.routes';
+import { RecallAdapter } from './adapters/recall/recall.adapter';
 import type { MeetingBotPort } from './ports/meeting-bot.port';
 
 async function bootstrap() {
@@ -30,9 +31,7 @@ async function bootstrap() {
     botAdapter = new FakeBotAdapter(webhookRepo);
   } else {
     console.log('🤖 Using Recall Bot Adapter');
-    // AbdulRehman will replace this with the real RecallAdapter.
-    // For now we instantiate a placeholder to prevent boot crash.
-    botAdapter = new FakeBotAdapter(webhookRepo);
+    botAdapter = new RecallAdapter();
   }
 
   // 3. Services
