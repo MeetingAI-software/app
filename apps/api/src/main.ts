@@ -4,6 +4,7 @@ import { DrizzleMeetingRepository } from './adapters/db/repositories/meeting.rep
 import { DrizzleTranscriptRepository } from './adapters/db/repositories/transcript.repository';
 import { DrizzleWebhookEventRepository } from './adapters/db/repositories/webhook-event.repository';
 import { DrizzleUsageRepository } from './adapters/db/repositories/usage.repository';
+import { DrizzleDocumentRepository } from './adapters/db/repositories/document.repository';
 import { FakeBotAdapter } from './adapters/fake/fake-bot.adapter';
 import { UsageMeterService } from './application/usage-meter.service';
 import { StartMeetingService } from './application/start-meeting.service';
@@ -13,7 +14,10 @@ import { createMeetingRoutes } from './adapters/http/routes/meetings.routes';
 import { createHealthRoutes } from './adapters/http/routes/health.routes';
 import { createWebhookRoutes } from './adapters/http/routes/webhooks.routes';
 import { RecallAdapter } from './adapters/recall/recall.adapter';
+import { FakeDocumentGeneratorAdapter } from './adapters/fake/fake-document-generator.adapter';
+import { ClaudeDocumentGeneratorAdapter } from './adapters/claude/claude-document-generator.adapter';
 import type { MeetingBotPort } from './ports/meeting-bot.port';
+import type { DocumentGeneratorPort } from './ports/document-generator.port';
 
 async function bootstrap() {
   console.log(`🚀 Bootstrapping MeetingAI (Env: ${config.NODE_ENV}, Port: ${config.PORT})`);
@@ -23,6 +27,7 @@ async function bootstrap() {
   const transcriptRepo = new DrizzleTranscriptRepository();
   const webhookRepo = new DrizzleWebhookEventRepository();
   const usageRepo = new DrizzleUsageRepository();
+  const documentRepo = new DrizzleDocumentRepository();
 
   // 2. Select Bot Adapter
   let botAdapter: MeetingBotPort;
@@ -32,6 +37,16 @@ async function bootstrap() {
   } else {
     console.log('🤖 Using Recall Bot Adapter');
     botAdapter = new RecallAdapter();
+  }
+
+  // Select Document Generator Adapter
+  let documentGenerator: DocumentGeneratorPort;
+  if (config.DOC_PROVIDER === 'fake') {
+    console.log('📝 Using Fake Document Generator');
+    documentGenerator = new FakeDocumentGeneratorAdapter();
+  } else {
+    console.log('📝 Using Claude Document Generator');
+    documentGenerator = new ClaudeDocumentGeneratorAdapter();
   }
 
   // 3. Services
@@ -46,7 +61,7 @@ async function bootstrap() {
   // 5. Server Routes
   const routes = [
     createHealthRoutes(),
-    createMeetingRoutes(meetingRepo, transcriptRepo, startMeetingService),
+    createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, documentGenerator),
     createWebhookRoutes(webhookRepo)
   ];
 
@@ -74,3 +89,4 @@ bootstrap().catch(err => {
   console.error('❌ Bootstrap failed:', err);
   process.exit(1);
 });
+

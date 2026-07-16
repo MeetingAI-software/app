@@ -13,10 +13,13 @@ describe('UsageMeterService', () => {
       create: vi.fn(),
       findById: vi.fn(),
       findByBotId: vi.fn(),
+      findByShareToken: vi.fn(),
       updateStatus: vi.fn(),
+      setSummary: vi.fn(),
       countActive: vi.fn(),
       list: vi.fn(),
     };
+
 
     mockUsageRepo = {
       addSeconds: vi.fn(),
