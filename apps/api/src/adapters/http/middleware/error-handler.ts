@@ -1,6 +1,12 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
-import { CapExceededError, BotProviderError, InvalidTransitionError } from '../../../domain/errors';
+import {
+  CapExceededError,
+  BotProviderError,
+  InvalidTransitionError,
+  DocumentGenerationError,
+  MeetingNotReadyError,
+} from '../../../domain/errors';
 
 export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
   const reqId = req.headers['x-request-id'];
@@ -28,6 +34,24 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(502).json({
       error: {
         code: 'BOT_PROVIDER_ERROR',
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof MeetingNotReadyError) {
+    return res.status(409).json({
+      error: {
+        code: 'MEETING_NOT_READY',
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof DocumentGenerationError) {
+    return res.status(502).json({
+      error: {
+        code: 'DOCUMENT_GENERATION_ERROR',
         message: err.message,
       },
     });
