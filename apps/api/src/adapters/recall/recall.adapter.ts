@@ -167,9 +167,23 @@ export class RecallAdapter implements MeetingBotPort {
     return normalizeTranscript(data);
   }
 
-  async deleteRecording(_botId: string): Promise<void> {
-    // Implemented in Step 6, against the verified Recall delete-media endpoint.
-    // The worker treats deletion failure as a warning, so this never breaks the pipeline.
-    throw new BotProviderError('deleteRecording not implemented for Recall yet');
+  async deleteRecording(botId: string): Promise<void> {
+    // POST /api/v1/bot/{id}/delete_media/ — irreversible at the provider.
+    const url = `${this.getBaseUrl()}/api/v1/bot/${botId}/delete_media/`;
+
+    const response = await fetchWithRetry(url, {
+      method: 'POST',
+    });
+
+    // Idempotent per the port contract: media that is already gone is a success,
+    // not an error. 404 = unknown bot/media, 409 = conflict (already deleted).
+    if (response.ok || response.status === 404 || response.status === 409) {
+      return;
+    }
+
+    const errorText = await response.text().catch(() => '');
+    throw new BotProviderError(
+      `Failed to delete recording: ${response.status} ${response.statusText}. Response: ${errorText}`
+    );
   }
 }
