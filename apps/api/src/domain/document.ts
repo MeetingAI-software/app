@@ -1,4 +1,6 @@
+// domain/document.ts
 export interface ActionPoint {
+
   task: string;
   owner: string | null;        // MUST be a speaker name from the transcript, or null. Never invented.
   deadlineIso: string | null;  // "2026-07-18" — ONLY if a date was explicitly said. Never invented.

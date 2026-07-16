@@ -62,6 +62,7 @@ export class FakeBotAdapter implements MeetingBotPort {
 
   async deleteRecording(botId: string): Promise<void> {
     // Fake deletion: delete from in-memory bots or just log
+    console.log(`🗑️  [fake] deleteRecording called for bot ${botId}`);
     this.bots.delete(botId);
   }
 }

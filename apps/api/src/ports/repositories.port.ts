@@ -13,6 +13,12 @@ export interface MeetingRepository {
   list(): Promise<Meeting[]>;
 }
 
+export interface DocumentRepository {
+  upsertForMeeting(meetingId: string, content: DocumentContent,
+    meta: { model: string; inputTokens: number; outputTokens: number }): Promise<{ id: string }>;
+  getByMeetingId(meetingId: string): Promise<{ content: DocumentContent; createdAt: Date } | null>;
+}
+
 export interface TranscriptRepository {
   save(meetingId: string, segments: TranscriptSegment[], rawPayload: unknown): Promise<void>;
   getByMeetingId(meetingId: string): Promise<TranscriptSegment[] | null>;
