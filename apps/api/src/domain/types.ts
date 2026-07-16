@@ -20,6 +20,9 @@ export interface Meeting {
   botId: string | null;
   durationSeconds: number | null;
   errorMessage: string | null;
+  summary: string | null;
+  shareToken: string;
   createdAt: Date;
   updatedAt: Date;
 }
+

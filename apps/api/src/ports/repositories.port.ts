@@ -1,11 +1,14 @@
 import type { Meeting, MeetingStatus, TranscriptSegment } from '../domain/types';
+import type { DocumentContent } from '../domain/document';
 
 export interface MeetingRepository {
   create(input: { meetingUrl: string }): Promise<Meeting>;
   findById(id: string): Promise<Meeting | null>;
   findByBotId(botId: string): Promise<Meeting | null>;
+  findByShareToken(token: string): Promise<Meeting | null>;
   updateStatus(id: string, to: MeetingStatus,
     patch?: Partial<Pick<Meeting, 'botId' | 'durationSeconds' | 'errorMessage'>>): Promise<Meeting>;
+  setSummary(id: string, summary: string): Promise<void>;
   countActive(): Promise<number>;   // status in (bot_joining, recording, processing)
   list(): Promise<Meeting[]>;
 }
@@ -28,3 +31,10 @@ export interface UsageRepository {
   addSeconds(meetingId: string, seconds: number): Promise<void>;
   monthlyTotalSeconds(): Promise<number>;   // current calendar month
 }
+
+export interface DocumentRepository {
+  upsertForMeeting(meetingId: string, content: DocumentContent,
+    meta: { model: string; inputTokens: number; outputTokens: number }): Promise<{ id: string }>;
+  getByMeetingId(meetingId: string): Promise<{ content: DocumentContent; createdAt: Date } | null>;
+}
+
