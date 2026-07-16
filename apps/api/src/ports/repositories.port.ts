@@ -37,3 +37,10 @@ export interface UsageRepository {
   addSeconds(meetingId: string, seconds: number): Promise<void>;
   monthlyTotalSeconds(): Promise<number>;   // current calendar month
 }
+
+export interface DocumentRepository {
+  upsertForMeeting(meetingId: string, content: DocumentContent,
+    meta: { model: string; inputTokens: number; outputTokens: number }): Promise<{ id: string }>;
+  getByMeetingId(meetingId: string): Promise<{ content: DocumentContent; createdAt: Date } | null>;
+}
+

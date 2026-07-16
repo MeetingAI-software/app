@@ -3,15 +3,18 @@ import { meetings } from '../schema';
 import { eq, inArray, desc } from 'drizzle-orm';
 import type { MeetingRepository } from '../../../ports/repositories.port';
 import type { Meeting, MeetingStatus } from '../../../domain/types';
+import crypto from 'crypto';
 
 export class DrizzleMeetingRepository implements MeetingRepository {
   async create(input: { meetingUrl: string }): Promise<Meeting> {
+    const shareToken = crypto.randomBytes(16).toString('base64url');
     const [row] = await db
       .insert(meetings)
       .values({
         meetingUrl: input.meetingUrl,
         platform: 'zoom',
         status: 'pending',
+        shareToken,
       })
       .returning();
     return row as Meeting;
@@ -33,14 +36,12 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     return (row as Meeting) || null;
   }
 
-  // STUB — Alper: implement with the Day 2 migration (share_token column).
-  async findByShareToken(_token: string): Promise<Meeting | null> {
-    throw new Error('findByShareToken not implemented — awaiting Day 2 migration');
-  }
-
-  // STUB — Alper: implement with the Day 2 migration (summary column).
-  async setSummary(_id: string, _summary: string): Promise<void> {
-    throw new Error('setSummary not implemented — awaiting Day 2 migration');
+  async findByShareToken(token: string): Promise<Meeting | null> {
+    const [row] = await db
+      .select()
+      .from(meetings)
+      .where(eq(meetings.shareToken, token));
+    return (row as Meeting) || null;
   }
 
   async updateStatus(
@@ -67,6 +68,16 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     return row as Meeting;
   }
 
+  async setSummary(id: string, summary: string): Promise<void> {
+    await db
+      .update(meetings)
+      .set({
+        summary,
+        updatedAt: new Date(),
+      })
+      .where(eq(meetings.id, id));
+  }
+
   async countActive(): Promise<number> {
     const rows = await db
       .select()
@@ -83,3 +94,4 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     return rows as Meeting[];
   }
 }
+

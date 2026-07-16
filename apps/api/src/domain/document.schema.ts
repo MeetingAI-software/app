@@ -1,6 +1,7 @@
 // domain/document.schema.ts  (Zod — the gate Claude's output must pass)
 import { z } from 'zod';
 
+
 export const actionPointSchema = z.object({
   task: z.string().min(3),
   owner: z.string().min(1).nullable(),

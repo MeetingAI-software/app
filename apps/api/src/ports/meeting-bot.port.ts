@@ -10,3 +10,4 @@ export interface MeetingBotPort {
   /** Delete the recording media at the provider. Idempotent; never throws on "already gone". */
   deleteRecording(botId: string): Promise<void>;
 }
+

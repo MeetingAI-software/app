@@ -9,6 +9,8 @@ export const meetings = pgTable('meetings', {
   botId: text('bot_id'),
   durationSeconds: integer('duration_seconds'),
   errorMessage: text('error_message'),
+  summary: text('summary'),
+  shareToken: text('share_token').notNull().unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -46,9 +48,13 @@ export const usageLedger = pgTable('usage_ledger', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const documents = pgTable('documents', {               // Day 2 uses this; schema ready now
+export const documents = pgTable('documents', {
   id: uuid('id').primaryKey().defaultRandom(),
-  meetingId: uuid('meeting_id').notNull().references(() => meetings.id),
-  contentMd: text('content_md').notNull(),
+  meetingId: uuid('meeting_id').notNull().references(() => meetings.id).unique(),
+  content: jsonb('content').notNull(),
+  model: text('model').notNull(),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+

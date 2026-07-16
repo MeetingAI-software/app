@@ -7,6 +7,6 @@
   "scripts": {
     "dev": "npm run dev -w api",
     "test": "npm run test -w api",
-    "typecheck": "npm run typecheck -w api"
+    "typecheck": "npm run typecheck -w api && npm run typecheck -w web"
   }
 }

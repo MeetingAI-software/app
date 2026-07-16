@@ -4,6 +4,7 @@ import { DrizzleMeetingRepository } from './adapters/db/repositories/meeting.rep
 import { DrizzleTranscriptRepository } from './adapters/db/repositories/transcript.repository';
 import { DrizzleWebhookEventRepository } from './adapters/db/repositories/webhook-event.repository';
 import { DrizzleUsageRepository } from './adapters/db/repositories/usage.repository';
+import { DrizzleDocumentRepository } from './adapters/db/repositories/document.repository';
 import { FakeBotAdapter } from './adapters/fake/fake-bot.adapter';
 import { UsageMeterService } from './application/usage-meter.service';
 import { StartMeetingService } from './application/start-meeting.service';
@@ -26,6 +27,7 @@ async function bootstrap() {
   const transcriptRepo = new DrizzleTranscriptRepository();
   const webhookRepo = new DrizzleWebhookEventRepository();
   const usageRepo = new DrizzleUsageRepository();
+  const documentRepo = new DrizzleDocumentRepository();
 
   // 2. Select Bot Adapter
   let botAdapter: MeetingBotPort;
@@ -59,7 +61,7 @@ async function bootstrap() {
   // 5. Server Routes
   const routes = [
     createHealthRoutes(),
-    createMeetingRoutes(meetingRepo, transcriptRepo, startMeetingService),
+    createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen),
     createWebhookRoutes(webhookRepo)
   ];
 
@@ -87,3 +89,4 @@ bootstrap().catch(err => {
   console.error('❌ Bootstrap failed:', err);
   process.exit(1);
 });
+

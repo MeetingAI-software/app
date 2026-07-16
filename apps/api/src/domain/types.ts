@@ -25,3 +25,4 @@ export interface Meeting {
   createdAt: Date;
   updatedAt: Date;
 }
+

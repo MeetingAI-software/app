@@ -20,6 +20,7 @@ describe('UsageMeterService', () => {
       list: vi.fn(),
     };
 
+
     mockUsageRepo = {
       addSeconds: vi.fn(),
       monthlyTotalSeconds: vi.fn(),
