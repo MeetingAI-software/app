@@ -166,4 +166,10 @@ export class RecallAdapter implements MeetingBotPort {
     const data = await response.json();
     return normalizeTranscript(data);
   }
+
+  async deleteRecording(_botId: string): Promise<void> {
+    // Implemented in Step 6, against the verified Recall delete-media endpoint.
+    // The worker treats deletion failure as a warning, so this never breaks the pipeline.
+    throw new BotProviderError('deleteRecording not implemented for Recall yet');
+  }
 }

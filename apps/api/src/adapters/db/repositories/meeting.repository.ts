@@ -33,6 +33,16 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     return (row as Meeting) || null;
   }
 
+  // STUB — Alper: implement with the Day 2 migration (share_token column).
+  async findByShareToken(_token: string): Promise<Meeting | null> {
+    throw new Error('findByShareToken not implemented — awaiting Day 2 migration');
+  }
+
+  // STUB — Alper: implement with the Day 2 migration (summary column).
+  async setSummary(_id: string, _summary: string): Promise<void> {
+    throw new Error('setSummary not implemented — awaiting Day 2 migration');
+  }
+
   async updateStatus(
     id: string,
     to: MeetingStatus,

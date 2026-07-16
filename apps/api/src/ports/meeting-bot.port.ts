@@ -7,4 +7,6 @@ export interface MeetingBotPort {
   getBotStatus(botId: string): Promise<'joining' | 'in_call' | 'done' | 'fatal'>;
   /** Fetch + NORMALIZE transcript. Timestamps and speakers are mandatory. */
   fetchTranscript(botId: string): Promise<TranscriptSegment[]>;
+  /** Delete the recording media at the provider. Idempotent; never throws on "already gone". */
+  deleteRecording(botId: string): Promise<void>;
 }
