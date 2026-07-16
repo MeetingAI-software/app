@@ -13,7 +13,10 @@ import { createMeetingRoutes } from './adapters/http/routes/meetings.routes';
 import { createHealthRoutes } from './adapters/http/routes/health.routes';
 import { createWebhookRoutes } from './adapters/http/routes/webhooks.routes';
 import { RecallAdapter } from './adapters/recall/recall.adapter';
+import { FakeDocumentGenerator } from './adapters/fake/fake-document.generator';
+import { ClaudeAdapter } from './adapters/claude/claude.adapter';
 import type { MeetingBotPort } from './ports/meeting-bot.port';
+import type { DocumentGeneratorPort } from './ports/document-generator.port';
 
 async function bootstrap() {
   console.log(`🚀 Bootstrapping MeetingAI (Env: ${config.NODE_ENV}, Port: ${config.PORT})`);
@@ -34,10 +37,20 @@ async function bootstrap() {
     botAdapter = new RecallAdapter();
   }
 
-  // 3. Services
+  // 3. Select Document Generator
+  let docGen: DocumentGeneratorPort;
+  if (config.DOC_PROVIDER === 'fake') {
+    console.log('📝 Using Fake Document Generator');
+    docGen = new FakeDocumentGenerator();
+  } else {
+    console.log(`📝 Using Claude Document Generator (${config.CLAUDE_MODEL})`);
+    docGen = new ClaudeAdapter();
+  }
+
+  // 4. Services
   const usageMeter = new UsageMeterService(meetingRepo, usageRepo);
   const startMeetingService = new StartMeetingService(meetingRepo, usageMeter, botAdapter);
-  const processService = new ProcessWebhookEventService(meetingRepo, transcriptRepo, usageRepo, botAdapter);
+  const processService = new ProcessWebhookEventService(meetingRepo, transcriptRepo, usageRepo, botAdapter, docGen);
 
   // 4. Web Worker
   const worker = new WebhookWorker(webhookRepo, meetingRepo, processService, botAdapter);
