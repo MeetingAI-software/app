@@ -59,4 +59,9 @@ export class FakeBotAdapter implements MeetingBotPort {
     if (!bot) throw new Error(`Bot ${botId} not found`);
     return bot.segments;
   }
+
+  async deleteRecording(botId: string): Promise<void> {
+    // No-op: the fake bot holds no media. Idempotent by construction.
+    console.log(`🗑️  [fake] deleteRecording called for bot ${botId}`);
+  }
 }

@@ -19,3 +19,17 @@ export class BotProviderError extends Error {
     this.name = 'BotProviderError';
   }
 }
+
+export class DocumentGenerationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DocumentGenerationError';
+  }
+}
+
+export class MeetingNotReadyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MeetingNotReadyError';
+  }
+}

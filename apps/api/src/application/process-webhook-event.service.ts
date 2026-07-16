@@ -4,8 +4,10 @@ import type {
   UsageRepository,
 } from '../ports/repositories.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
+import type { DocumentGeneratorPort } from '../ports/document-generator.port';
 import { assertTransition } from '../domain/state-machine';
-import type { MeetingStatus } from '../domain/types';
+import type { MeetingStatus, TranscriptSegment } from '../domain/types';
+import { logger } from '../config/logger';
 
 function mapRecallStatusToMeetingStatus(statusCode: string): MeetingStatus | null {
   switch (statusCode) {
@@ -32,8 +34,19 @@ export class ProcessWebhookEventService {
     private readonly meetingRepo: MeetingRepository,
     private readonly transcriptRepo: TranscriptRepository,
     private readonly usageRepo: UsageRepository,
-    private readonly botAdapter: MeetingBotPort
+    private readonly botAdapter: MeetingBotPort,
+    private readonly docGen: DocumentGeneratorPort
   ) {}
+
+  /** One retry. The caller treats a thrown error as "leave summary null and carry on". */
+  private async generateSummaryWithRetry(segments: TranscriptSegment[]): Promise<string> {
+    try {
+      return await this.docGen.generateSummary(segments);
+    } catch (err: any) {
+      logger.warn({ err: err?.message }, 'Summary generation failed, retrying once');
+      return await this.docGen.generateSummary(segments);
+    }
+  }
 
   async processEvent(action: 'transcript_ready' | 'bot_status_change', payload: any): Promise<void> {
     const parsedPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
@@ -133,6 +146,38 @@ export class ProcessWebhookEventService {
 
       // Add to usage ledger
       await this.usageRepo.addSeconds(meeting.id, durationSeconds);
+
+      // Summary. A missing summary must never block markProcessed or the document button.
+      let summarySucceeded = false;
+      try {
+        const summary = await this.generateSummaryWithRetry(segments);
+        await this.meetingRepo.setSummary(meeting.id, summary);
+        summarySucceeded = true;
+        logger.info({ meetingId: meeting.id }, 'Summary generated');
+      } catch (err: any) {
+        logger.error(
+          { meetingId: meeting.id, err: err?.message },
+          'Summary generation failed after retry — leaving summary null and continuing'
+        );
+      }
+
+      // The GDPR promise. Audio is deleted ONLY after the transcript is stored and the
+      // summary has proven the pipeline can read it. If anything upstream failed, the
+      // audio survives for reprocessing. Deletion failure is non-fatal by design.
+      if (summarySucceeded) {
+        try {
+          await this.botAdapter.deleteRecording(botId);
+          logger.info(
+            { meetingId: meeting.id, botId },
+            'Recording deleted at provider'
+          );
+        } catch (err: any) {
+          logger.warn(
+            { meetingId: meeting.id, botId, err: err?.message },
+            'Failed to delete recording at provider — a sweep job will retry'
+          );
+        }
+      }
     }
   }
 }

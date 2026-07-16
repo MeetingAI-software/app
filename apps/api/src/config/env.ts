@@ -17,6 +17,12 @@ const envSchema = z.object({
   MONTHLY_CAP_SECONDS: z.coerce.number().default(14400),
   MAX_MEETING_SECONDS: z.coerce.number().default(3600),
   MAX_CONCURRENT_BOTS: z.coerce.number().default(1),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  CLAUDE_MODEL: z.string().default('claude-sonnet-4-6'),
+  CLAUDE_TIMEOUT_MS: z.coerce.number().default(60000),
+  MAX_TRANSCRIPT_CHARS: z.coerce.number().default(180000),
+  DOC_PROVIDER: z.enum(['fake', 'claude']).default('fake'),
+  WEB_ORIGIN: z.string().default('http://localhost:3001'),
 });
 
 const parsed = envSchema.safeParse(process.env);
