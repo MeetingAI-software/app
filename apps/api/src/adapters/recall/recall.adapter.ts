@@ -166,4 +166,19 @@ export class RecallAdapter implements MeetingBotPort {
     const data = await response.json();
     return normalizeTranscript(data);
   }
+
+  async deleteRecording(botId: string): Promise<void> {
+    const url = `${this.getBaseUrl()}/api/v1/bot/${botId}/delete_media/`;
+
+    const response = await fetchWithRetry(url, {
+      method: 'POST',
+    });
+
+    // Idempotent: do not throw if response is 404 or already deleted
+    if (!response.ok && response.status !== 404) {
+      const errorText = await response.text().catch(() => '');
+      throw new BotProviderError(`Failed to delete recording: ${response.status} ${response.statusText}. Response: ${errorText}`);
+    }
+  }
 }
+

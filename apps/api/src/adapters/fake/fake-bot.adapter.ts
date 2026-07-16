@@ -59,4 +59,10 @@ export class FakeBotAdapter implements MeetingBotPort {
     if (!bot) throw new Error(`Bot ${botId} not found`);
     return bot.segments;
   }
+
+  async deleteRecording(botId: string): Promise<void> {
+    // Fake deletion: delete from in-memory bots or just log
+    this.bots.delete(botId);
+  }
 }
+
