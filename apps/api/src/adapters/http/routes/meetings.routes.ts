@@ -5,6 +5,7 @@ import type { StartMeetingService } from '../../../application/start-meeting.ser
 import type { DocumentGeneratorPort } from '../../../ports/document-generator.port';
 import { documentContentSchema } from '../../../domain/document.schema';
 import { MeetingNotReadyError, DocumentGenerationError } from '../../../domain/errors';
+import { toShareResponse } from './share-response';
 
 export function createMeetingRoutes(
   meetingRepo: MeetingRepository,
@@ -141,17 +142,7 @@ export function createMeetingRoutes(
       const transcript = await transcriptRepo.getByMeetingId(meeting.id);
       const document = await documentRepo.getByMeetingId(meeting.id);
 
-      return res.status(200).json({
-        meeting: {
-          status: meeting.status,
-          createdAt: meeting.createdAt,
-          durationSeconds: meeting.durationSeconds,
-          summary: meeting.summary,
-          shareToken: meeting.shareToken,
-        },
-        document,
-        transcript: transcript || [],
-      });
+      return res.status(200).json(toShareResponse(meeting, document, transcript || []));
     } catch (err) {
       return next(err);
     }
