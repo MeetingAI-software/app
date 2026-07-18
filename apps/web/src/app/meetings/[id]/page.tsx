@@ -14,6 +14,7 @@ import {
 } from '@/lib/api';
 import { msToClock } from '@/lib/format';
 import DocumentView from '@/components/DocumentView';
+import ChatPanel from '@/components/ChatPanel';
 
 export default function MeetingDetailPage() {
   const params = useParams();
@@ -290,6 +291,9 @@ export default function MeetingDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Chat Panel — internal only, never on the public /s/[token] page */}
+            <ChatPanel meetingId={meeting.id} />
 
             {/* Transcript Accordion */}
             {transcript.length > 0 && (
