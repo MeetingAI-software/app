@@ -5,19 +5,31 @@ import { DrizzleTranscriptRepository } from './adapters/db/repositories/transcri
 import { DrizzleWebhookEventRepository } from './adapters/db/repositories/webhook-event.repository';
 import { DrizzleUsageRepository } from './adapters/db/repositories/usage.repository';
 import { DrizzleDocumentRepository } from './adapters/db/repositories/document.repository';
+import { DrizzleChatMessageRepository } from './adapters/db/repositories/chat-message.repository';
 import { FakeBotAdapter } from './adapters/fake/fake-bot.adapter';
 import { UsageMeterService } from './application/usage-meter.service';
 import { StartMeetingService } from './application/start-meeting.service';
 import { ProcessWebhookEventService } from './application/process-webhook-event.service';
+import { ProcessUploadEventService } from './application/process-upload-event.service';
+import { ChatService } from './application/chat.service';
 import { WebhookWorker } from './jobs/worker';
 import { createMeetingRoutes } from './adapters/http/routes/meetings.routes';
 import { createHealthRoutes } from './adapters/http/routes/health.routes';
 import { createWebhookRoutes } from './adapters/http/routes/webhooks.routes';
+import { createChatRoutes } from './adapters/http/routes/chat.routes';
+import { createUploadRoutes } from './adapters/http/routes/upload.routes';
+import { SupabaseStorageAdapter } from './adapters/supabase/supabase-storage.adapter';
 import { RecallAdapter } from './adapters/recall/recall.adapter';
 import { FakeDocumentGenerator } from './adapters/fake/fake-document.generator';
 import { ClaudeAdapter } from './adapters/claude/claude.adapter';
+import { FakeChatAdapter } from './adapters/fake/fake-chat.adapter';
+import { ClaudeChatAdapter } from './adapters/claude/claude-chat.adapter';
+import { FakeTranscriptionAdapter } from './adapters/fake/fake-transcription.adapter';
+import { AssemblyAIAdapter } from './adapters/assemblyai/assemblyai.adapter';
 import type { MeetingBotPort } from './ports/meeting-bot.port';
 import type { DocumentGeneratorPort } from './ports/document-generator.port';
+import type { MeetingChatPort } from './ports/chat.port';
+import type { TranscriptionPort } from './ports/transcription.port';
 
 async function bootstrap() {
   console.log(`🚀 Bootstrapping MeetingAI (Env: ${config.NODE_ENV}, Port: ${config.PORT})`);
@@ -28,6 +40,7 @@ async function bootstrap() {
   const webhookRepo = new DrizzleWebhookEventRepository();
   const usageRepo = new DrizzleUsageRepository();
   const documentRepo = new DrizzleDocumentRepository();
+  const chatRepo = new DrizzleChatMessageRepository();
 
   // 2. Select Bot Adapter
   let botAdapter: MeetingBotPort;
@@ -49,19 +62,46 @@ async function bootstrap() {
     docGen = new ClaudeAdapter();
   }
 
+  // 3b. Select Chat Adapter
+  let chatAdapter: MeetingChatPort;
+  if (config.CHAT_PROVIDER === 'fake') {
+    console.log('💬 Using Fake Chat Adapter');
+    chatAdapter = new FakeChatAdapter();
+  } else {
+    console.log(`💬 Using Claude Chat Adapter (${config.CLAUDE_MODEL})`);
+    chatAdapter = new ClaudeChatAdapter();
+  }
+
+  // 3c. Audio storage (uploads). Always Supabase; construction is tolerant if unconfigured.
+  const audioStorage = new SupabaseStorageAdapter();
+
+  // 3d. Select Transcription Adapter (uploads)
+  let transcription: TranscriptionPort;
+  if (config.TRANSCRIPTION_PROVIDER === 'fake') {
+    console.log('🎙️  Using Fake Transcription Adapter');
+    transcription = new FakeTranscriptionAdapter(webhookRepo);
+  } else {
+    console.log('🎙️  Using AssemblyAI Transcription Adapter');
+    transcription = new AssemblyAIAdapter();
+  }
+
   // 4. Services
   const usageMeter = new UsageMeterService(meetingRepo, usageRepo);
   const startMeetingService = new StartMeetingService(meetingRepo, usageMeter, botAdapter);
   const processService = new ProcessWebhookEventService(meetingRepo, transcriptRepo, usageRepo, botAdapter, docGen);
+  const uploadService = new ProcessUploadEventService(meetingRepo, transcriptRepo, usageRepo, transcription, audioStorage, docGen);
+  const chatService = new ChatService(transcriptRepo, chatRepo, chatAdapter, config.MAX_CHAT_QUESTIONS_PER_MEETING);
 
   // 4. Web Worker
-  const worker = new WebhookWorker(webhookRepo, meetingRepo, processService, botAdapter);
+  const worker = new WebhookWorker(webhookRepo, meetingRepo, processService, uploadService, botAdapter);
   worker.start();
 
   // 5. Server Routes
   const routes = [
     createHealthRoutes(),
     createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen),
+    createChatRoutes(chatService),
+    createUploadRoutes(meetingRepo, webhookRepo, usageMeter, audioStorage),
     createWebhookRoutes(webhookRepo)
   ];
 

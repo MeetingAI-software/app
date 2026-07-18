@@ -23,6 +23,15 @@ const envSchema = z.object({
   MAX_TRANSCRIPT_CHARS: z.coerce.number().default(180000),
   DOC_PROVIDER: z.enum(['fake', 'claude']).default('fake'),
   WEB_ORIGIN: z.string().default('http://localhost:3001'),
+  // --- Day 3: in-room recording + chat ---
+  ASSEMBLYAI_API_KEY: z.string().optional(),
+  TRANSCRIPTION_PROVIDER: z.enum(['fake', 'assemblyai']).default('fake'),
+  TRANSCRIPTION_WEBHOOK_SECRET: z.string().optional(),
+  SUPABASE_URL: z.string().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  MAX_CHAT_QUESTIONS_PER_MEETING: z.coerce.number().default(20),
+  MAX_UPLOAD_MB: z.coerce.number().default(200),
+  CHAT_PROVIDER: z.enum(['fake', 'claude']).default('fake'),
 });
 
 const parsed = envSchema.safeParse(process.env);

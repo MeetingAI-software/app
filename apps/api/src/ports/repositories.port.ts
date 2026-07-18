@@ -1,15 +1,19 @@
-import type { Meeting, MeetingStatus, TranscriptSegment } from '../domain/types';
+import type { Meeting, MeetingSource, MeetingStatus, TranscriptSegment } from '../domain/types';
 import type { DocumentContent } from '../domain/document';
 import type { ChatMessage } from './chat.port';
 
 export interface MeetingRepository {
-  create(input: { meetingUrl: string }): Promise<Meeting>;
+  create(input: { source: MeetingSource; meetingUrl?: string;
+    participantNames?: string[] }): Promise<Meeting>;
   findById(id: string): Promise<Meeting | null>;
   findByBotId(botId: string): Promise<Meeting | null>;
   findByShareToken(token: string): Promise<Meeting | null>;
+  findByTranscriptionJobId(jobId: string): Promise<Meeting | null>;   // Day 3: map a transcription webhook back to its meeting
   updateStatus(id: string, to: MeetingStatus,
     patch?: Partial<Pick<Meeting, 'botId' | 'durationSeconds' | 'errorMessage'>>): Promise<Meeting>;
   setSummary(id: string, summary: string): Promise<void>;
+  setUploadInfo(id: string, patch: { audioStoragePath?: string;
+    transcriptionJobId?: string }): Promise<void>;                    // Day 3: upload path
   countActive(): Promise<number>;   // status in (bot_joining, recording, processing)
   list(): Promise<Meeting[]>;
 }

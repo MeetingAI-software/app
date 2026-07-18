@@ -17,7 +17,7 @@ export class StartMeetingService {
     await this.usageMeter.assertCanStartMeeting();
 
     // 2. Create the pending meeting row in database
-    const meeting = await this.meetingRepo.create({ meetingUrl });
+    const meeting = await this.meetingRepo.create({ source: 'bot', meetingUrl });
 
     try {
       // 3. Request the bot join the meeting

@@ -1,0 +1,73 @@
+import type { TranscriptRepository, ChatMessageRepository } from '../ports/repositories.port';
+import type { MeetingChatPort, ChatMessage } from '../ports/chat.port';
+import { MeetingNotReadyError, CapExceededError } from '../domain/errors';
+import { logger } from '../config/logger';
+
+export interface ChatAnswer {
+  answer: string;
+  remaining: number;   // questions left for this meeting after this one
+}
+
+export interface ChatHistory {
+  messages: ChatMessage[];
+  remaining: number;
+}
+
+/**
+ * Grounded meeting chat. Answers come ONLY from the transcript (the adapter enforces that);
+ * this service owns the business rules: transcript must exist (409) and the per-meeting
+ * question cap (429). The cap is injected so it is trivially testable.
+ */
+export class ChatService {
+  constructor(
+    private readonly transcriptRepo: TranscriptRepository,
+    private readonly chatRepo: ChatMessageRepository,
+    private readonly chatAdapter: MeetingChatPort,
+    private readonly maxQuestionsPerMeeting: number
+  ) {}
+
+  async ask(meetingId: string, question: string): Promise<ChatAnswer> {
+    // 1. The chat is grounded — no transcript, nothing to answer from.
+    const segments = await this.transcriptRepo.getByMeetingId(meetingId);
+    if (!segments || segments.length === 0) {
+      throw new MeetingNotReadyError('Transcript is not ready for this meeting yet');
+    }
+
+    // 2. Enforce the per-meeting cap (each question re-reads the whole meeting — it costs money).
+    const asked = await this.chatRepo.countUserMessages(meetingId);
+    if (asked >= this.maxQuestionsPerMeeting) {
+      throw new CapExceededError('Question limit reached for this meeting');
+    }
+
+    // 3. Prior turns become the model's conversation memory (oldest first).
+    const history = await this.chatRepo.listByMeeting(meetingId);
+
+    // 4. Persist the user's question, then answer it, then persist the answer.
+    await this.chatRepo.add(meetingId, 'user', question);
+    const { answer, inputTokens, outputTokens } = await this.chatAdapter.answerQuestion(
+      segments,
+      question,
+      history
+    );
+    await this.chatRepo.add(meetingId, 'assistant', answer, {
+      input: inputTokens,
+      output: outputTokens,
+    });
+
+    const remaining = Math.max(0, this.maxQuestionsPerMeeting - (asked + 1));
+
+    logger.info(
+      { meetingId, inputTokens, outputTokens, remaining },
+      'Chat question answered'
+    );
+
+    return { answer, remaining };
+  }
+
+  async getHistory(meetingId: string): Promise<ChatHistory> {
+    const messages = await this.chatRepo.listByMeeting(meetingId);
+    const asked = await this.chatRepo.countUserMessages(meetingId);
+    const remaining = Math.max(0, this.maxQuestionsPerMeeting - asked);
+    return { messages, remaining };
+  }
+}

@@ -2,18 +2,24 @@ import { db } from '../client';
 import { meetings } from '../schema';
 import { eq, inArray, desc } from 'drizzle-orm';
 import type { MeetingRepository } from '../../../ports/repositories.port';
-import type { Meeting, MeetingStatus } from '../../../domain/types';
+import type { Meeting, MeetingSource, MeetingStatus } from '../../../domain/types';
 import crypto from 'crypto';
 
 export class DrizzleMeetingRepository implements MeetingRepository {
-  async create(input: { meetingUrl: string }): Promise<Meeting> {
+  async create(input: {
+    source: MeetingSource;
+    meetingUrl?: string;
+    participantNames?: string[];
+  }): Promise<Meeting> {
     const shareToken = crypto.randomBytes(16).toString('base64url');
     const [row] = await db
       .insert(meetings)
       .values({
-        meetingUrl: input.meetingUrl,
+        meetingUrl: input.meetingUrl ?? null,
         platform: 'zoom',
         status: 'pending',
+        source: input.source,
+        participantNames: input.participantNames ?? null,
         shareToken,
       })
       .returning();
@@ -41,6 +47,14 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       .select()
       .from(meetings)
       .where(eq(meetings.shareToken, token));
+    return (row as Meeting) || null;
+  }
+
+  async findByTranscriptionJobId(jobId: string): Promise<Meeting | null> {
+    const [row] = await db
+      .select()
+      .from(meetings)
+      .where(eq(meetings.transcriptionJobId, jobId));
     return (row as Meeting) || null;
   }
 
@@ -75,6 +89,20 @@ export class DrizzleMeetingRepository implements MeetingRepository {
         summary,
         updatedAt: new Date(),
       })
+      .where(eq(meetings.id, id));
+  }
+
+  async setUploadInfo(
+    id: string,
+    patch: { audioStoragePath?: string; transcriptionJobId?: string }
+  ): Promise<void> {
+    const updateFields: Record<string, unknown> = { updatedAt: new Date() };
+    if (patch.audioStoragePath !== undefined) updateFields.audioStoragePath = patch.audioStoragePath;
+    if (patch.transcriptionJobId !== undefined) updateFields.transcriptionJobId = patch.transcriptionJobId;
+
+    await db
+      .update(meetings)
+      .set(updateFields)
       .where(eq(meetings.id, id));
   }
 

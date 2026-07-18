@@ -1,17 +1,25 @@
 import Link from 'next/link';
 import { getMeetings, type Meeting } from '@/lib/api';
 import { msToClock } from '@/lib/format';
+import NewMeetingPanel from '@/components/NewMeetingPanel';
+
+/** Upload meetings have no URL — label them by their participants instead. */
+function meetingTitle(meeting: Meeting): string {
+  if (meeting.meetingUrl) return meeting.meetingUrl;
+  const names = meeting.participantNames ?? [];
+  return names.length > 0 ? `In-room recording — ${names.join(', ')}` : 'In-room recording';
+}
 
 export const dynamic = 'force-dynamic';
 
 export default async function MeetingsPage() {
   let meetings: Meeting[] = [];
-  let error = null;
+  let error: string | null = null;
 
   try {
     meetings = await getMeetings();
-  } catch (err: any) {
-    error = err.message || 'Failed to fetch meetings';
+  } catch (err) {
+    error = err instanceof Error ? err.message : 'Failed to fetch meetings';
   }
 
   const getStatusBadge = (status: string) => {
@@ -37,13 +45,9 @@ export default async function MeetingsPage() {
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-white">Your Meetings</h1>
-          <a
-            href="/"
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-sm transition-colors"
-          >
-            Create Meeting
-          </a>
         </div>
+
+        <NewMeetingPanel />
 
         {error && (
           <div className="bg-red-950 border border-red-800 text-red-200 p-4 rounded-lg mb-6">
@@ -65,11 +69,14 @@ export default async function MeetingsPage() {
                 <div>
                   <div className="flex items-center gap-3 mb-2">
                     <span className={getStatusBadge(meeting.status)}>{meeting.status}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-gray-800 text-gray-300">
+                      {meeting.source === 'upload' ? 'In-room' : 'Online'}
+                    </span>
                     <span className="text-xs text-gray-500">
                       {new Date(meeting.createdAt).toLocaleString()}
                     </span>
                   </div>
-                  <h2 className="text-lg font-semibold text-white break-all">{meeting.meetingUrl}</h2>
+                  <h2 className="text-lg font-semibold text-white break-all">{meetingTitle(meeting)}</h2>
                   {meeting.durationSeconds && (
                     <p className="text-sm text-gray-400 mt-1">
                       Duration: {msToClock(meeting.durationSeconds * 1000)}

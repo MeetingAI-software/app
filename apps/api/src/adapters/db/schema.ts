@@ -3,14 +3,18 @@ import { pgTable, uuid, text, integer, timestamp, jsonb, uniqueIndex, index } fr
 
 export const meetings = pgTable('meetings', {
   id: uuid('id').primaryKey().defaultRandom(),
-  meetingUrl: text('meeting_url').notNull(),
+  meetingUrl: text('meeting_url'),                                  // Day 3: nullable — uploads have no URL
   platform: text('platform').notNull().default('zoom'),
   status: text('status').notNull().default('pending'),
+  source: text('source').notNull().default('bot'),                 // Day 3: 'bot' | 'upload'
   botId: text('bot_id'),
   durationSeconds: integer('duration_seconds'),
   errorMessage: text('error_message'),
   summary: text('summary'),
   shareToken: text('share_token').notNull().unique(),
+  participantNames: jsonb('participant_names'),                    // Day 3: string[] entered before an in-room recording
+  audioStoragePath: text('audio_storage_path'),                   // Day 3: Supabase Storage path for uploads
+  transcriptionJobId: text('transcription_job_id'),               // Day 3: AssemblyAI job id for uploads
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -57,4 +61,16 @@ export const documents = pgTable('documents', {
   outputTokens: integer('output_tokens').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const chatMessages = pgTable('chat_messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  meetingId: uuid('meeting_id').notNull().references(() => meetings.id),
+  role: text('role').notNull(),                 // 'user' | 'assistant'
+  content: text('content').notNull(),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  chatMessagesMeetingIdx: index('chat_messages_meeting_id_created_at_idx').on(t.meetingId, t.createdAt),
+}));
 
