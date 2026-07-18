@@ -15,6 +15,13 @@
       "when": 1784217673045,
       "tag": "0001_unknown_archangel",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784365780552,
+      "tag": "0002_dry_stick",
+      "breakpoints": true
     }
   ]
 }
