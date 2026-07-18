@@ -16,7 +16,7 @@ async function main() {
   
   // 1. Create meeting
   console.log('1. Creating meeting...');
-  const meeting = await meetingRepo.create({ meetingUrl: 'https://zoom.us/j/123456789' });
+  const meeting = await meetingRepo.create({ source: 'bot', meetingUrl: 'https://zoom.us/j/123456789' });
   console.log('   Created meeting with ID:', meeting.id);
   console.log('   Share token:', meeting.shareToken);
   
@@ -25,7 +25,7 @@ async function main() {
   }
 
   // Create second meeting to verify uniqueness of share tokens
-  const meeting2 = await meetingRepo.create({ meetingUrl: 'https://zoom.us/j/987654321' });
+  const meeting2 = await meetingRepo.create({ source: 'bot', meetingUrl: 'https://zoom.us/j/987654321' });
   console.log('   Created second meeting, Share token:', meeting2.shareToken);
   if (meeting.shareToken === meeting2.shareToken) {
     throw new Error('Share tokens must be unique!');

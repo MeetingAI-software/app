@@ -50,8 +50,10 @@ describe('GenerateDocumentService', () => {
       findById: vi.fn(),
       findByBotId: vi.fn(),
       findByShareToken: vi.fn(),
+      findByTranscriptionJobId: vi.fn(),
       updateStatus: vi.fn(),
       setSummary: vi.fn(),
+      setUploadInfo: vi.fn(),
       countActive: vi.fn(),
       list: vi.fn(),
     };
