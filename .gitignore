@@ -6,7 +6,7 @@
 ._*
 
 # Custom folder icons
-Icon
+Icon
 
 # Volume root files
 .DocumentRevisions-V100
@@ -56,9 +56,20 @@ coverage/
 logs/
 *.log
 
-# Workspace workflow docs (local only)
+# Workspace workflow docs (local only) — architecture + day task files, mine only
 /ARCHITECTURE.md
-/DAY1-ALPER.md
+/ARCHITECTURE-*.md
+/DAY*.md
+
+# AI assistant tooling — keep off GitHub (local only)
+CLAUDE.md
+AGENT.md
+AGENTS.md
+MEMORY.md
+.claude/
+.cursor/
+.cursorrules
+.aider*
 
 ### VS Code
 # VSCode settings (keep shared configuration)

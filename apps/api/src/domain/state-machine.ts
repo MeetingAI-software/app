@@ -2,7 +2,7 @@ import type { MeetingStatus } from './types';
 import { InvalidTransitionError } from './errors';
 
 export const ALLOWED_TRANSITIONS: Record<MeetingStatus, MeetingStatus[]> = {
-  pending:     ['bot_joining', 'failed'],
+  pending:     ['bot_joining', 'processing', 'failed'],   // 'processing' = upload path skips the bot states
   bot_joining: ['recording', 'failed'],
   recording:   ['processing', 'failed'],
   processing:  ['transcribed', 'failed'],
