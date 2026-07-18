@@ -1,5 +1,6 @@
 import type { Meeting, MeetingStatus, TranscriptSegment } from '../domain/types';
 import type { DocumentContent } from '../domain/document';
+import type { ChatMessage } from './chat.port';
 
 export interface MeetingRepository {
   create(input: { meetingUrl: string }): Promise<Meeting>;
@@ -38,9 +39,10 @@ export interface UsageRepository {
   monthlyTotalSeconds(): Promise<number>;   // current calendar month
 }
 
-export interface DocumentRepository {
-  upsertForMeeting(meetingId: string, content: DocumentContent,
-    meta: { model: string; inputTokens: number; outputTokens: number }): Promise<{ id: string }>;
-  getByMeetingId(meetingId: string): Promise<{ content: DocumentContent; createdAt: Date } | null>;
+export interface ChatMessageRepository {
+  add(meetingId: string, role: 'user' | 'assistant', content: string,
+      tokens?: { input: number; output: number }): Promise<void>;
+  listByMeeting(meetingId: string): Promise<ChatMessage[]>;     // oldest first
+  countUserMessages(meetingId: string): Promise<number>;        // the cap counter
 }
 
