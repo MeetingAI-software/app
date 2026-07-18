@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import crypto from 'crypto';
+import { config } from '../../../config/env';
 import type { WebhookEventRepository } from '../../../ports/repositories.port';
 import { verifyWebhookSignature } from '../../recall/recall-webhook.verifier';
+import {
+  verifyTranscriptionSecret,
+  TRANSCRIPTION_WEBHOOK_HEADER,
+} from '../../assemblyai/transcription-webhook.verifier';
 
 export function createWebhookRoutes(webhookRepo: WebhookEventRepository): Router {
   const router = Router();
@@ -34,6 +39,35 @@ export function createWebhookRoutes(webhookRepo: WebhookEventRepository): Router
       });
 
       // 5. Respond 200 within <1s
+      return res.status(200).json({ received: true });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  // AssemblyAI calls this when an upload's transcription finishes. Verify the shared secret,
+  // enqueue a `transcription_ready` job keyed by the transcript id (idempotent), respond fast.
+  router.post('/webhooks/transcription', async (req, res, next) => {
+    try {
+      if (!verifyTranscriptionSecret(config.TRANSCRIPTION_WEBHOOK_SECRET, req.headers[TRANSCRIPTION_WEBHOOK_HEADER])) {
+        console.warn('⚠️ Webhook secret verification failed for /webhooks/transcription');
+        return res.status(401).json({ error: 'Invalid webhook secret' });
+      }
+
+      const transcriptId = req.body?.transcript_id;
+      if (!transcriptId) {
+        return res.status(400).json({ error: 'Missing transcript_id' });
+      }
+
+      // externalEventId = the transcript id → replaying the same webhook yields exactly one job.
+      // The worker resolves the meeting via findByTranscriptionJobId(jobId).
+      await webhookRepo.insertIfNew({
+        provider: 'assemblyai',
+        externalEventId: String(transcriptId),
+        eventType: 'transcription_ready',
+        payload: { jobId: String(transcriptId), status: req.body?.status },
+      });
+
       return res.status(200).json({ received: true });
     } catch (err) {
       return next(err);
