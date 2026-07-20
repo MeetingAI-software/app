@@ -25,6 +25,7 @@ const envSchema = z.object({
   WEB_ORIGIN: z.string().default('http://localhost:3001'),
   // --- Day 3: in-room recording + chat ---
   ASSEMBLYAI_API_KEY: z.string().optional(),
+  ASSEMBLYAI_BASE_URL: z.string().url().default('https://api.assemblyai.com'),
   TRANSCRIPTION_PROVIDER: z.enum(['fake', 'assemblyai']).default('fake'),
   TRANSCRIPTION_WEBHOOK_SECRET: z.string().optional(),
   SUPABASE_URL: z.string().optional(),
@@ -32,7 +33,14 @@ const envSchema = z.object({
   MAX_CHAT_QUESTIONS_PER_MEETING: z.coerce.number().default(20),
   MAX_UPLOAD_MB: z.coerce.number().default(200),
   CHAT_PROVIDER: z.enum(['fake', 'claude']).default('fake'),
-});
+  ADMIN_API_KEY: z.string().optional(),
+}).refine(
+  (data) => data.NODE_ENV !== 'production' || !!data.ADMIN_API_KEY,
+  {
+    message: 'ADMIN_API_KEY is required in production mode',
+    path: ['ADMIN_API_KEY'],
+  }
+);
 
 const parsed = envSchema.safeParse(process.env);
 

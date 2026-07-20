@@ -35,7 +35,7 @@ export default function DocumentView({ content, createdAt }: DocumentViewProps) 
               key={idx}
               className="bg-[#13171c] border border-gray-800 rounded-xl p-5 flex gap-4 items-start print:bg-white print:border-black print:p-3"
             >
-              <span className="text-2xl font-black text-indigo-500/30 select-none leading-none print:text-black">
+              <span className="text-2xl font-black text-indigo-500/30 select-none leading-none shrink-0 print:text-black">
                 {String(idx + 1).padStart(2, '0')}
               </span>
               <p className="text-base text-gray-200 leading-relaxed font-normal print:text-black">

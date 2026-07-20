@@ -82,6 +82,30 @@ export interface ChatAnswer {
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const ACCESS_CODE_KEY = 'meeting_ai_access_code';
+
+export function getStoredAccessCode(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(ACCESS_CODE_KEY);
+}
+
+export function setStoredAccessCode(code: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (code) {
+    localStorage.setItem(ACCESS_CODE_KEY, code);
+  } else {
+    localStorage.removeItem(ACCESS_CODE_KEY);
+  }
+}
+
+function getHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = { ...extraHeaders };
+  const code = getStoredAccessCode();
+  if (code) {
+    headers['Authorization'] = `Bearer ${code}`;
+  }
+  return headers;
+}
 
 /** Carries the HTTP status so callers can tell 409 (not ready) from 429 (at cap). */
 export class ApiError extends Error {
@@ -95,6 +119,12 @@ export class ApiError extends Error {
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
+    if (response.status === 401) {
+      setStoredAccessCode(null);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('unauthorized-api-call'));
+      }
+    }
     let errorMessage = `HTTP error! Status: ${response.status}`;
     try {
       const data = await response.json();
@@ -110,14 +140,17 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 export async function getMeetings(): Promise<Meeting[]> {
-  const res = await fetch(`${API_BASE}/api/meetings`, { cache: 'no-store' });
+  const res = await fetch(`${API_BASE}/api/meetings`, {
+    headers: getHeaders(),
+    cache: 'no-store',
+  });
   return handleResponse<Meeting[]>(res);
 }
 
 export async function createMeeting(meetingUrl: string): Promise<Meeting> {
   const res = await fetch(`${API_BASE}/api/meetings`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ meetingUrl }),
     cache: 'no-store',
   });
@@ -125,17 +158,26 @@ export async function createMeeting(meetingUrl: string): Promise<Meeting> {
 }
 
 export async function getMeeting(id: string): Promise<Meeting> {
-  const res = await fetch(`${API_BASE}/api/meetings/${id}`, { cache: 'no-store' });
+  const res = await fetch(`${API_BASE}/api/meetings/${id}`, {
+    headers: getHeaders(),
+    cache: 'no-store',
+  });
   return handleResponse<Meeting>(res);
 }
 
 export async function getTranscript(id: string): Promise<TranscriptSegment[]> {
-  const res = await fetch(`${API_BASE}/api/meetings/${id}/transcript`, { cache: 'no-store' });
+  const res = await fetch(`${API_BASE}/api/meetings/${id}/transcript`, {
+    headers: getHeaders(),
+    cache: 'no-store',
+  });
   return handleResponse<TranscriptSegment[]>(res);
 }
 
 export async function getDocument(id: string): Promise<Document> {
-  const res = await fetch(`${API_BASE}/api/meetings/${id}/document`, { cache: 'no-store' });
+  const res = await fetch(`${API_BASE}/api/meetings/${id}/document`, {
+    headers: getHeaders(),
+    cache: 'no-store',
+  });
   return handleResponse<Document>(res);
 }
 
@@ -143,12 +185,14 @@ export async function generateDocument(id: string, regenerate = false): Promise<
   const url = `${API_BASE}/api/meetings/${id}/document${regenerate ? '?regenerate=true' : ''}`;
   const res = await fetch(url, {
     method: 'POST',
+    headers: getHeaders(),
     cache: 'no-store',
   });
   return handleResponse<{ document: Document }>(res);
 }
 
 export async function getShare(token: string): Promise<ShareResponse> {
+  // Share links do not require authorization headers
   const res = await fetch(`${API_BASE}/api/share/${token}`, { cache: 'no-store' });
   return handleResponse<ShareResponse>(res);
 }
@@ -170,6 +214,11 @@ export function uploadMeeting(
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API_BASE}/api/meetings/upload`);
 
+    const code = getStoredAccessCode();
+    if (code) {
+      xhr.setRequestHeader('Authorization', `Bearer ${code}`);
+    }
+
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
     };
@@ -182,6 +231,12 @@ export function uploadMeeting(
           reject(new Error('The server returned a malformed response.'));
         }
         return;
+      }
+      if (xhr.status === 401) {
+        setStoredAccessCode(null);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('unauthorized-api-call'));
+        }
       }
       let message = `Upload failed (${xhr.status})`;
       try {
@@ -199,14 +254,17 @@ export function uploadMeeting(
 }
 
 export async function getChat(id: string): Promise<ChatHistory> {
-  const res = await fetch(`${API_BASE}/api/meetings/${id}/chat`, { cache: 'no-store' });
+  const res = await fetch(`${API_BASE}/api/meetings/${id}/chat`, {
+    headers: getHeaders(),
+    cache: 'no-store',
+  });
   return handleResponse<ChatHistory>(res);
 }
 
 export async function askChat(id: string, question: string): Promise<ChatAnswer> {
   const res = await fetch(`${API_BASE}/api/meetings/${id}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ question }),
     cache: 'no-store',
   });

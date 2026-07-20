@@ -2,8 +2,8 @@ import express from 'express';
 import pinoHttp from 'pino-http';
 import { requestIdMiddleware } from './middleware/request-id';
 import { errorHandler } from './middleware/error-handler';
+import { requireAdmin } from './middleware/require-admin';
 import { config } from '../../config/env';
-
 
 export function createServer(routes: express.Router[]): express.Application {
   const app = express();
@@ -30,6 +30,14 @@ export function createServer(routes: express.Router[]): express.Application {
       return;
     }
     next();
+  });
+
+  // Protect /api/* endpoints EXCEPT GET /api/share/:token
+  app.use('/api', (req, res, next) => {
+    if (req.method === 'GET' && req.path.startsWith('/share/')) {
+      return next();
+    }
+    requireAdmin(req, res, next);
   });
 
   // Capture raw body for signature verification while parsing JSON
