@@ -171,6 +171,17 @@ export default function MeetingDetailPage() {
   return (
     <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-4 md:p-8 print:bg-white print:p-0">
       <div className="max-w-4xl mx-auto">
+        {/* Navigation Header */}
+        <div className="flex justify-between items-center mb-8 print:hidden border-b border-gray-800 pb-4">
+          <Link href="/" className="font-bold text-xl tracking-tight text-indigo-400 flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
+            MeetingAI
+          </Link>
+          <Link href="/meetings" className="text-sm text-gray-400 hover:text-white transition-colors">
+            Console
+          </Link>
+        </div>
+
         {/* Back and Action header */}
         <div className="flex justify-between items-center mb-8 print:hidden">
           <Link href="/meetings" className="text-indigo-400 hover:text-indigo-300 font-medium text-sm flex items-center gap-1.5 transition-colors">

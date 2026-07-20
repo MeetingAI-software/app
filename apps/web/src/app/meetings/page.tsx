@@ -70,6 +70,17 @@ export default function MeetingsPage() {
   return (
     <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-8">
       <div className="max-w-4xl mx-auto">
+        {/* Navigation Header */}
+        <div className="flex justify-between items-center mb-12 border-b border-gray-800 pb-4">
+          <Link href="/" className="font-bold text-xl tracking-tight text-indigo-400 flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
+            MeetingAI
+          </Link>
+          <Link href="/" className="text-sm text-gray-400 hover:text-white transition-colors">
+            Home
+          </Link>
+        </div>
+
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-white">Your Meetings</h1>
         </div>
