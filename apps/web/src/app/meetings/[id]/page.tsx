@@ -139,13 +139,13 @@ export default function MeetingDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0d0f12] text-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-transparent text-slate-900 flex items-center justify-center">
         <div className="text-center">
-          <svg className="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24">
+          <svg className="animate-spin h-8 w-8 text-slate-950 mx-auto mb-4" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <p className="text-gray-400">Loading meeting info...</p>
+          <p className="text-slate-500 font-medium">Loading meeting info...</p>
         </div>
       </div>
     );
@@ -153,12 +153,12 @@ export default function MeetingDetailPage() {
 
   if (error || !meeting) {
     return (
-      <div className="min-h-screen bg-[#0d0f12] text-gray-100 flex items-center justify-center p-6">
-        <div className="bg-[#13171c] border border-gray-800 rounded-2xl p-8 max-w-md w-full text-center">
+      <div className="min-h-screen bg-transparent text-slate-900 flex items-center justify-center p-6">
+        <div className="bg-white border border-slate-200 rounded-xl p-8 max-w-md w-full text-center shadow-sm">
           <div className="text-red-500 text-4xl mb-4">⚠️</div>
-          <h1 className="text-xl font-bold text-white mb-2">Error Loading Meeting</h1>
-          <p className="text-gray-400 mb-6">{error || 'Meeting not found'}</p>
-          <Link href="/meetings" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors inline-block">
+          <h1 className="text-xl font-bold text-slate-900 mb-2">Error Loading Meeting</h1>
+          <p className="text-slate-500 mb-6">{error || 'Meeting not found'}</p>
+          <Link href="/meetings" className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition-colors inline-block font-semibold shadow-sm">
             Back to Meetings
           </Link>
         </div>
@@ -169,22 +169,22 @@ export default function MeetingDetailPage() {
   const isProcessing = ['pending', 'bot_joining', 'recording', 'processing'].includes(meeting.status);
 
   return (
-    <main className="min-h-screen bg-[#0d0f12] text-gray-100 p-4 md:p-8 print:bg-white print:p-0">
+    <main className="min-h-screen bg-transparent text-slate-950 p-4 md:p-8 print:bg-white print:p-0">
       <div className="max-w-4xl mx-auto">
         {/* Navigation Header */}
-        <div className="flex justify-between items-center mb-8 print:hidden border-b border-gray-800 pb-4">
-          <Link href="/" className="font-bold text-xl tracking-tight text-indigo-400 flex items-center gap-2 hover:opacity-80 transition-opacity">
+        <div className="flex justify-between items-center mb-8 print:hidden border-b border-slate-200 pb-4">
+          <Link href="/" className="font-bold text-xl tracking-tight text-slate-900 flex items-center gap-2 hover:opacity-80 transition-opacity">
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
             MeetingAI
           </Link>
-          <Link href="/meetings" className="text-sm text-gray-400 hover:text-white transition-colors">
+          <Link href="/meetings" className="text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors">
             Console
           </Link>
         </div>
 
         {/* Back and Action header */}
         <div className="flex justify-between items-center mb-8 print:hidden">
-          <Link href="/meetings" className="text-indigo-400 hover:text-indigo-300 font-medium text-sm flex items-center gap-1.5 transition-colors">
+          <Link href="/meetings" className="text-slate-600 hover:text-slate-900 font-semibold text-sm flex items-center gap-1.5 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
             </svg>
@@ -196,13 +196,13 @@ export default function MeetingDetailPage() {
               <>
                 <button
                   onClick={handleCopyShare}
-                  className="px-4 py-2 bg-[#13171c] hover:bg-gray-800 border border-gray-850 text-white rounded-lg font-medium text-sm transition-colors flex items-center gap-1.5"
+                  className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
                 >
                   {copied ? 'Copied ✓' : 'Share Link'}
                 </button>
                 <button
                   onClick={handlePrint}
-                  className="px-4 py-2 bg-[#13171c] hover:bg-gray-800 border border-gray-850 text-white rounded-lg font-medium text-sm transition-colors flex items-center gap-1.5"
+                  className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
                 >
                   Print PDF
                 </button>
@@ -213,61 +213,60 @@ export default function MeetingDetailPage() {
 
         {/* Processing State Card */}
         {isProcessing && (
-          <div className="bg-[#13171c] border border-gray-800 rounded-2xl p-8 mb-8 text-center flex flex-col items-center">
+          <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-8 mb-8 text-center flex flex-col items-center shadow-sm">
             <div className="relative flex items-center justify-center mb-4">
-              <span className="animate-ping absolute inline-flex h-4 w-4 rounded-full bg-indigo-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+              <span className="animate-ping absolute inline-flex h-4 w-4 rounded-full bg-slate-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-slate-900"></span>
             </div>
-            <h2 className="text-lg font-bold text-white mb-2">Processing Meeting</h2>
-            <p className="text-sm text-gray-400 max-w-sm mb-4">
-              The bot is in the call or we are generating transcripts. Status is currently: <span className="font-semibold text-indigo-400 capitalize">{meeting.status.replace('_', ' ')}</span>
+            <h2 className="text-lg font-bold text-slate-900 mb-2">Processing Meeting</h2>
+            <p className="text-sm text-slate-600 max-w-sm mb-4">
+              The bot is in the call or we are generating transcripts. Status is currently: <span className="font-bold text-slate-900 capitalize">{meeting.status.replace('_', ' ')}</span>
             </p>
-            <p className="text-xs text-gray-600">Polled automatically every 3 seconds...</p>
+            <p className="text-xs text-slate-500">Polled automatically every 3 seconds...</p>
           </div>
         )}
 
         {/* Failed State Card */}
         {meeting.status === 'failed' && (
-          <div className="bg-red-950/20 border border-red-900/50 rounded-2xl p-8 mb-8 text-center">
+          <div className="bg-red-50 border border-red-200/50 rounded-xl p-8 mb-8 text-center shadow-sm">
             <div className="text-red-500 text-3xl mb-3">⚠️</div>
-            <h2 className="text-lg font-bold text-white mb-2">Meeting Processing Failed</h2>
-            <p className="text-sm text-red-200/80 mb-4 max-w-md mx-auto">
+            <h2 className="text-lg font-bold text-red-950 mb-2">Meeting Processing Failed</h2>
+            <p className="text-sm text-red-700 mb-4 max-w-md mx-auto">
               Error details: {meeting.errorMessage || 'No specific error message was reported.'}
             </p>
-            <button onClick={fetchInitialData} className="px-4 py-2 bg-red-900 hover:bg-red-850 text-white text-sm font-semibold rounded-lg transition-colors">
+            <button onClick={fetchInitialData} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
               Retry Load
             </button>
           </div>
         )}
 
-        {/* Transcribed State - Core Content */}
         {meeting.status === 'transcribed' && (
           <div className="space-y-8">
             {/* Auto-summary Card */}
-            <div className="bg-[#13171c] border border-gray-800 rounded-2xl p-6 md:p-8 print:hidden">
+            <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-6 md:p-8 print:hidden shadow-sm">
               <div className="flex items-center gap-2 mb-4">
-                <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs px-2.5 py-1 rounded-md font-bold uppercase tracking-wider">
+                <span className="bg-slate-100 text-slate-700 border border-slate-200 text-xs px-2.5 py-1 rounded-md font-bold uppercase tracking-wider">
                   Summary
                 </span>
               </div>
               {meeting.summary ? (
-                <p className="text-gray-300 text-base leading-relaxed">{meeting.summary}</p>
+                <p className="text-slate-700 text-base leading-relaxed">{meeting.summary}</p>
               ) : (
-                <p className="text-gray-500 text-sm italic">Summary is being generated...</p>
+                <p className="text-slate-500 text-sm italic">Summary is being generated...</p>
               )}
             </div>
 
             {/* Document Section */}
-            <div className="bg-[#13171c] border border-gray-800 rounded-2xl overflow-hidden print:border-none print:bg-white">
+            <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl overflow-hidden mb-8 print:border-none print:bg-white shadow-sm">
               {!document ? (
                 <div className="p-12 text-center print:hidden">
-                  <h3 className="text-lg font-bold text-white mb-3">Meeting Notes Document</h3>
-                  <p className="text-sm text-gray-400 max-w-md mx-auto mb-6">
+                  <h3 className="text-lg font-bold text-slate-900 mb-3">Meeting Notes Document</h3>
+                  <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
                     A beautiful, structured document with missed takeaways, checkmarked decisions, action items, and open questions.
                   </p>
                   
                   {genError && (
-                    <div className="bg-red-950/40 border border-red-900/50 text-red-300 p-4 rounded-xl text-sm mb-6 max-w-md mx-auto">
+                    <div className="bg-red-50 border border-red-200/50 text-red-700 p-4 rounded-xl text-sm mb-6 max-w-md mx-auto font-medium">
                       {genError}
                     </div>
                   )}
@@ -275,7 +274,7 @@ export default function MeetingDetailPage() {
                   <button
                     onClick={() => handleGenerateDoc(false)}
                     disabled={generating}
-                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-750 disabled:bg-indigo-600/50 text-white font-semibold text-sm rounded-xl transition-all shadow-lg hover:shadow-indigo-500/20 disabled:opacity-50"
+                    className="px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-900/50 text-white font-semibold text-sm rounded-xl transition-all shadow-sm disabled:opacity-50"
                   >
                     {generating ? 'Writing your document — up to 30 seconds...' : 'Generate Document'}
                   </button>
@@ -286,14 +285,14 @@ export default function MeetingDetailPage() {
                     <button
                       onClick={() => handleGenerateDoc(true)}
                       disabled={generating}
-                      className="px-3 py-1.5 bg-[#0d0f12] hover:bg-gray-800 text-gray-300 border border-gray-800 rounded-md text-xs font-semibold transition-colors disabled:opacity-50"
+                      className="px-3 py-1.5 bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 rounded-md text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
                     >
                       {generating ? 'Regenerating...' : 'Regenerate'}
                     </button>
                   </div>
                   
                   {genError && (
-                    <div className="mx-6 mt-6 bg-red-950/40 border border-red-900/50 text-red-300 p-4 rounded-xl text-sm mb-6 print:hidden">
+                    <div className="mx-6 mt-6 bg-red-50 border border-red-200/50 text-red-700 p-4 rounded-xl text-sm mb-6 print:hidden font-medium">
                       {genError}
                     </div>
                   )}
@@ -303,19 +302,19 @@ export default function MeetingDetailPage() {
               )}
             </div>
 
-            {/* Chat Panel — internal only, never on the public /s/[token] page */}
+            {/* Chat Panel */}
             <ChatPanel meetingId={meeting.id} />
 
             {/* Transcript Accordion */}
             {transcript.length > 0 && (
-              <div className="border border-gray-850 rounded-2xl overflow-hidden print:hidden bg-[#13171c]/30">
+              <div className="border border-slate-200 rounded-xl overflow-hidden print:hidden bg-white/80 backdrop-blur-sm mb-12 shadow-sm">
                 <button
                   onClick={() => setIsAccordionOpen(!isAccordionOpen)}
-                  className="w-full px-6 py-4 flex justify-between items-center hover:bg-gray-900/30 transition-colors"
+                  className="w-full px-6 py-4 flex justify-between items-center hover:bg-slate-50/50 transition-colors cursor-pointer"
                 >
-                  <span className="text-sm font-semibold text-gray-300">Transcript ({transcript.length} utterances)</span>
+                  <span className="text-sm font-semibold text-slate-700">Transcript ({transcript.length} utterances)</span>
                   <svg
-                    className={`w-5 h-5 text-gray-500 transform transition-transform ${isAccordionOpen ? 'rotate-180' : ''}`}
+                    className={`w-5 h-5 text-slate-500 transform transition-transform ${isAccordionOpen ? 'rotate-180' : ''}`}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -325,14 +324,14 @@ export default function MeetingDetailPage() {
                 </button>
 
                 {isAccordionOpen && (
-                  <div className="px-6 pb-6 pt-2 border-t border-gray-850/30 bg-[#0d0f12]/30 max-h-[400px] overflow-y-auto space-y-4">
+                  <div className="px-6 pb-6 pt-2 border-t border-slate-200 bg-slate-50/30 max-h-[400px] overflow-y-auto space-y-4">
                     {transcript.map((seg, idx) => (
                       <div key={idx} className="text-sm">
                         <div className="flex gap-2 mb-1 items-center">
-                          <span className="text-xs text-gray-500 font-mono">[{msToClock(seg.startMs)}]</span>
-                          <span className="font-semibold text-indigo-400">{seg.speaker}</span>
+                          <span className="text-xs text-slate-400 font-mono">[{msToClock(seg.startMs)}]</span>
+                          <span className="font-semibold text-slate-900">{seg.speaker}</span>
                         </div>
-                        <p className="text-gray-300 pl-4">{seg.text}</p>
+                        <p className="text-slate-600 pl-4">{seg.text}</p>
                       </div>
                     ))}
                   </div>
