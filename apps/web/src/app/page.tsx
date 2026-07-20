@@ -188,26 +188,30 @@ export default function Home() {
     container.appendChild(renderer.domElement);
 
     const group = new THREE.Group();
-    const geometry = new THREE.BoxGeometry(1.5, 0.1, 1.5);
-    const material = new THREE.MeshPhongMaterial({ 
-      color: 0x0f172a, 
-      transparent: true, 
-      opacity: 0.6,
-      shininess: 100 
-    });
+    const barCount = 24;
+    const bars: any[] = [];
+    const geometry = new THREE.BoxGeometry(0.04, 0.3, 0.04);
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < barCount; i++) {
+      const material = new THREE.MeshPhongMaterial({ 
+        color: 0x0051d5, 
+        transparent: true, 
+        opacity: 0.7,
+        shininess: 80 
+      });
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.y = (i - 3.5) * 0.4;
-      mesh.rotation.y = i * 0.2;
+      mesh.position.x = (i - barCount / 2) * 0.08;
+      mesh.position.y = 0;
+      mesh.position.z = 0;
       group.add(mesh);
+      bars.push(mesh);
     }
     scene.add(group);
 
     const light = new THREE.DirectionalLight(0xffffff, 1);
     light.position.set(5, 5, 5);
     scene.add(light);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
     let mouseX = 0, mouseY = 0;
     const handleMouseMove = (e: MouseEvent) => {
@@ -220,11 +224,33 @@ export default function Home() {
     function animate() {
       animationFrameId = requestAnimationFrame(animate);
       
-      group.rotation.y += 0.005;
-      group.rotation.x = THREE.MathUtils.lerp(group.rotation.x, mouseY * 0.2, 0.05);
-      group.rotation.z = THREE.MathUtils.lerp(group.rotation.z, mouseX * 0.2, 0.05);
-      
-      material.opacity = 0.5 + Math.sin(Date.now() * 0.001) * 0.1;
+      const time = Date.now() * 0.003; // Moderately active speed
+      bars.forEach((bar, i) => {
+        // Multi-frequency formants simulating speech vocal cords
+        const voiceFormant1 = Math.sin(time * 2.5 + i * 0.4) * 0.35;
+        const voiceFormant2 = Math.cos(time * 1.2 - i * 0.7) * 0.25;
+        const voiceFormant3 = Math.sin(time * 4.0 + i * 0.9) * 0.15;
+        
+        // Bell-curve envelope to focus the wave energy in the center
+        const centerDist = Math.abs(i - barCount / 2) / (barCount / 2);
+        const envelope = Math.max(0.15, 1 - centerDist * centerDist);
+        
+        const barX = bar.position.x;
+        const targetX = mouseX * 1.5;
+        const dist = Math.abs(barX - targetX);
+        const mouseForce = Math.max(0, 1 - dist / 1.0) * 0.8;
+        
+        const speechActivity = Math.abs(voiceFormant1 + voiceFormant2 + voiceFormant3) * (0.8 + mouseForce);
+        const amplitude = 0.15 + speechActivity * envelope * 2.0;
+        
+        bar.scale.y = THREE.MathUtils.lerp(bar.scale.y, amplitude * 3.5, 0.12); // Responsive but smooth
+        
+        const colorMix = Math.min(1, amplitude / 1.5);
+        bar.material.color.setHSL(0.61 - colorMix * 0.08, 0.9, 0.42 + colorMix * 0.18);
+        bar.material.opacity = 0.5 + (amplitude * 0.25);
+      });
+
+      group.rotation.y = THREE.MathUtils.lerp(group.rotation.y, mouseX * 0.25, 0.04);
       
       renderer.render(scene, camera);
     }
