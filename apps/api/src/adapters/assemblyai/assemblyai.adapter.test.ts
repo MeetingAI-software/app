@@ -80,6 +80,45 @@ describe('AssemblyAIAdapter', () => {
     });
   });
 
+  describe('retry and timeout', () => {
+    it('retries once on a 5xx and returns the second response', async () => {
+      fetchFn.mockResolvedValueOnce(makeRes(503, 'busy')).mockResolvedValueOnce(makeRes(200, { id: 't2' }));
+      const adapter = new AssemblyAIAdapter({ apiKey: 'k', retryDelayMs: 0, fetchFn: fetchFn as unknown as typeof fetch });
+
+      const res = await adapter.submit('u', { meetingId: 'm' });
+
+      expect(res).toEqual({ jobId: 't2' });
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('gives up after a single retry on a persistent 5xx', async () => {
+      fetchFn.mockResolvedValue(makeRes(500, 'down'));
+      const adapter = new AssemblyAIAdapter({ apiKey: 'k', retryDelayMs: 0, fetchFn: fetchFn as unknown as typeof fetch });
+
+      await expect(adapter.submit('u', { meetingId: 'm' })).rejects.toThrow(/submit failed: 500/);
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries once after a network error', async () => {
+      fetchFn.mockRejectedValueOnce(new Error('socket hang up')).mockResolvedValueOnce(makeRes(200, { id: 't3' }));
+      const adapter = new AssemblyAIAdapter({ apiKey: 'k', retryDelayMs: 0, fetchFn: fetchFn as unknown as typeof fetch });
+
+      const res = await adapter.submit('u', { meetingId: 'm' });
+
+      expect(res).toEqual({ jobId: 't3' });
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('passes an abort signal so a slow request can time out', async () => {
+      fetchFn.mockResolvedValue(makeRes(200, { id: 't4' }));
+      const adapter = new AssemblyAIAdapter({ apiKey: 'k', fetchFn: fetchFn as unknown as typeof fetch });
+
+      await adapter.submit('u', { meetingId: 'm' });
+
+      expect(fetchFn.mock.calls[0][1].signal).toBeDefined();
+    });
+  });
+
   describe('configuration', () => {
     it('throws when used without an API key, without calling fetch', async () => {
       const adapter = new AssemblyAIAdapter({ apiKey: '', fetchFn: fetchFn as unknown as typeof fetch });

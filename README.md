@@ -1,1 +1,27 @@
-# app
+# MeetingAI
+
+Turns meetings into shareable documents and a grounded chat. Two recording paths feed the same
+pipeline — bot-joined online meetings (Recall) and in-room recordings (browser mic → AssemblyAI) —
+producing a transcript, a summary, a structured document, and a chat that answers only from the
+transcript with `[mm:ss]` citations.
+
+- `apps/api` — Node/Express API, background worker, and provider adapters (hexagonal / ports-and-adapters).
+- `apps/web` — Next.js frontend.
+
+Providers are swappable via env vars (`BOT_PROVIDER`, `DOC_PROVIDER`, `TRANSCRIPTION_PROVIDER`,
+`CHAT_PROVIDER`), each with a `fake` implementation so the whole app runs end-to-end without any real
+vendor or spend.
+
+## Data residency & GDPR
+
+The EU is the data-residency baseline: the Postgres database and the Supabase Storage bucket are
+created in an EU region, and **both** recording paths delete the audio once the summary succeeds —
+the transcript is the source of truth from that point on.
+
+**Known gap — AssemblyAI region (verify before go-live).** In-room recordings are transcribed by
+AssemblyAI. AssemblyAI offers an EU endpoint (`https://api.eu.assemblyai.com`) that requires an
+EU-provisioned account and API key. The adapter defaults to the standard endpoint
+(`https://api.assemblyai.com`); to keep transcription in the EU, point `AssemblyAIAdapter`'s
+`baseUrl` option at the EU endpoint and use an EU key. **Until that is confirmed on our plan, audio
+sent for transcription may be processed outside the EU** — a known gap in the GDPR story to close at
+go-live.

@@ -16,7 +16,8 @@ ${renderTranscript(segments)}
 RULES — these are absolute:
 - Answer ONLY from the transcript above. Never use outside knowledge and never infer beyond what was actually said.
 - Cite the moment for every factual claim with the [mm:ss] timestamp of the line(s) it comes from.
+- Attribute every quote or statement to the speaker who actually said it, never to anyone else.
 - If the answer is not in this meeting, say so plainly — for example: "That wasn't discussed in this meeting." Never guess, never fabricate.
 - Answer in the same language the question is asked in.
-- Be concise and direct. No preamble. No markdown headings or bullet syntax unless the user explicitly asks for a list.`;
+- Keep answers short — 2 to 5 sentences — unless the question genuinely calls for a list. No preamble. No markdown headings or bullet syntax unless the user explicitly asks for a list.`;
 }

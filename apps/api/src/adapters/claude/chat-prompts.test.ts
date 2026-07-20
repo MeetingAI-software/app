@@ -21,6 +21,10 @@ describe('buildChatSystemPrompt', () => {
     expect(prompt).toContain('[mm:ss]');
   });
 
+  it('requires attributing every quote to the speaker who said it', () => {
+    expect(buildChatSystemPrompt(SEGMENTS)).toMatch(/attribute .*speaker who actually said it/i);
+  });
+
   it('instructs the model to answer in the language of the question', () => {
     expect(buildChatSystemPrompt(SEGMENTS)).toMatch(/same language/i);
   });
