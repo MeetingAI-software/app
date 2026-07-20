@@ -4,10 +4,11 @@ import { logger } from '../../config/logger';
 import type { MeetingChatPort, ChatMessage } from '../../ports/chat.port';
 import type { TranscriptSegment } from '../../domain/types';
 import { buildChatSystemPrompt } from './chat-prompts';
+import { renderTranscript } from './prompts';
 
 /** Grounded answers must be factual and consistent, not creative. */
 const TEMPERATURE = 0.2;
-const CHAT_MAX_TOKENS = 1024;
+const CHAT_MAX_TOKENS = 500;
 
 function extractText(message: Anthropic.Message): string {
   return message.content
@@ -29,11 +30,23 @@ export class ClaudeChatAdapter implements MeetingChatPort {
       });
   }
 
+  /** Never silently truncate a customer's meeting — same guard as the Day 2 document adapter. */
+  private guardTranscriptSize(segments: TranscriptSegment[]): void {
+    const rendered = renderTranscript(segments);
+    if (rendered.length > config.MAX_TRANSCRIPT_CHARS) {
+      throw new Error(
+        `transcript too large: ${rendered.length} chars exceeds MAX_TRANSCRIPT_CHARS of ${config.MAX_TRANSCRIPT_CHARS}`
+      );
+    }
+  }
+
   async answerQuestion(
     segments: TranscriptSegment[],
     question: string,
     history: ChatMessage[]
   ): Promise<{ answer: string; inputTokens: number; outputTokens: number }> {
+    this.guardTranscriptSize(segments);
+
     // Transcript = grounding source, in the system prompt. Prior turns + the new question = messages.
     const system = buildChatSystemPrompt(segments);
     const messages: Anthropic.MessageParam[] = [

@@ -80,7 +80,7 @@ describe('ClaudeChatAdapter.answerQuestion', () => {
     await new ClaudeChatAdapter(client).answerQuestion(SEGMENTS, 'q', []);
 
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ temperature: 0.2, max_tokens: 1024 })
+      expect.objectContaining({ temperature: 0.2, max_tokens: 500 })
     );
   });
 
@@ -90,6 +90,18 @@ describe('ClaudeChatAdapter.answerQuestion', () => {
     await expect(
       new ClaudeChatAdapter(client).answerQuestion(SEGMENTS, 'q', [])
     ).rejects.toThrow(/empty/i);
+  });
+
+  it('rejects an oversized transcript rather than calling the API', async () => {
+    const { client, create } = clientReturning('answer');
+    const huge: TranscriptSegment[] = [
+      { startMs: 0, endMs: 1000, speaker: 'Speaker A', text: 'x'.repeat(200_000) },
+    ];
+
+    await expect(new ClaudeChatAdapter(client).answerQuestion(huge, 'q', [])).rejects.toThrow(
+      /transcript too large/
+    );
+    expect(create).not.toHaveBeenCalled();
   });
 });
 
