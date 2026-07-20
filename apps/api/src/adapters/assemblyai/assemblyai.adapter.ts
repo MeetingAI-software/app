@@ -8,6 +8,11 @@ import { TRANSCRIPTION_WEBHOOK_HEADER } from './transcription-webhook.verifier';
 // account/key — see README (Architecture-Day3 §2: verify the EU option, don't assume it).
 const DEFAULT_BASE_URL = 'https://api.assemblyai.com';
 
+// Same HTTP discipline as the Day 1 Recall adapter: abort a slow request, retry once on a transient
+// failure, then let the worker's event-level backoff take over.
+const REQUEST_TIMEOUT_MS = 15000;
+const RETRY_DELAY_MS = 2000;
+
 type FetchFn = typeof fetch;
 
 export interface AssemblyAIOptions {
@@ -16,6 +21,8 @@ export interface AssemblyAIOptions {
   webhookUrl?: string;
   webhookSecret?: string;
   fetchFn?: FetchFn;
+  timeoutMs?: number;
+  retryDelayMs?: number;
 }
 
 /**
@@ -30,6 +37,8 @@ export class AssemblyAIAdapter implements TranscriptionPort {
   private readonly webhookUrl?: string;
   private readonly webhookSecret?: string;
   private readonly fetchFn: FetchFn;
+  private readonly timeoutMs: number;
+  private readonly retryDelayMs: number;
 
   constructor(opts: AssemblyAIOptions = {}) {
     this.apiKey = opts.apiKey ?? config.ASSEMBLYAI_API_KEY ?? '';
@@ -41,6 +50,8 @@ export class AssemblyAIAdapter implements TranscriptionPort {
         : undefined);
     this.webhookSecret = opts.webhookSecret ?? config.TRANSCRIPTION_WEBHOOK_SECRET;
     this.fetchFn = opts.fetchFn ?? fetch;
+    this.timeoutMs = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
+    this.retryDelayMs = opts.retryDelayMs ?? RETRY_DELAY_MS;
   }
 
   private ensureConfigured(): void {
@@ -51,6 +62,36 @@ export class AssemblyAIAdapter implements TranscriptionPort {
 
   private headers(): Record<string, string> {
     return { Authorization: this.apiKey, 'Content-Type': 'application/json' };
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** One HTTP attempt with a hard timeout. */
+  private async attempt(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      return await this.fetchFn(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** 15s timeout per request; one retry on a 5xx response or a network/timeout error. */
+  private async fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+    try {
+      const response = await this.attempt(url, init);
+      if (response.status >= 500) {
+        await this.delay(this.retryDelayMs);
+        return await this.attempt(url, init);
+      }
+      return response;
+    } catch {
+      await this.delay(this.retryDelayMs);
+      return await this.attempt(url, init);
+    }
   }
 
   async submit(audioUrl: string, _meta: { meetingId: string }): Promise<{ jobId: string }> {
@@ -69,7 +110,7 @@ export class AssemblyAIAdapter implements TranscriptionPort {
       }
     }
 
-    const res = await this.fetchFn(`${this.baseUrl}/v2/transcript`, {
+    const res = await this.fetchWithRetry(`${this.baseUrl}/v2/transcript`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
@@ -90,7 +131,7 @@ export class AssemblyAIAdapter implements TranscriptionPort {
   async fetchResult(jobId: string): Promise<TranscriptSegment[]> {
     this.ensureConfigured();
 
-    const res = await this.fetchFn(`${this.baseUrl}/v2/transcript/${jobId}`, {
+    const res = await this.fetchWithRetry(`${this.baseUrl}/v2/transcript/${jobId}`, {
       method: 'GET',
       headers: this.headers(),
     });
