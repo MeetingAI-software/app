@@ -13,6 +13,7 @@ import { ProcessWebhookEventService } from './application/process-webhook-event.
 import { ProcessUploadEventService } from './application/process-upload-event.service';
 import { ChatService } from './application/chat.service';
 import { WebhookWorker } from './jobs/worker';
+import { SweepJob } from './jobs/sweep';
 import { createMeetingRoutes } from './adapters/http/routes/meetings.routes';
 import { createHealthRoutes } from './adapters/http/routes/health.routes';
 import { createWebhookRoutes } from './adapters/http/routes/webhooks.routes';
@@ -96,6 +97,10 @@ async function bootstrap() {
   const worker = new WebhookWorker(webhookRepo, meetingRepo, processService, uploadService, botAdapter);
   worker.start();
 
+  // 4b. Sweep Job (runs on boot + every 6 hours)
+  const sweepJob = new SweepJob(meetingRepo, audioStorage, botAdapter);
+  sweepJob.start();
+
   // 5. Server Routes
   const routes = [
     createHealthRoutes(),
@@ -116,6 +121,7 @@ async function bootstrap() {
     console.log('🛑 Shutting down server...');
     server.close(() => {
       worker.stop();
+      sweepJob.stop();
       console.log('👋 Clean exit.');
       process.exit(0);
     });

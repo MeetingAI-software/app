@@ -1,6 +1,6 @@
 import { db } from '../client';
 import { meetings } from '../schema';
-import { eq, inArray, desc } from 'drizzle-orm';
+import { eq, inArray, desc, and, lt } from 'drizzle-orm';
 import type { MeetingRepository } from '../../../ports/repositories.port';
 import type { Meeting, MeetingSource, MeetingStatus } from '../../../domain/types';
 import crypto from 'crypto';
@@ -94,7 +94,7 @@ export class DrizzleMeetingRepository implements MeetingRepository {
 
   async setUploadInfo(
     id: string,
-    patch: { audioStoragePath?: string; transcriptionJobId?: string }
+    patch: { audioStoragePath?: string | null; transcriptionJobId?: string }
   ): Promise<void> {
     const updateFields: Record<string, unknown> = { updatedAt: new Date() };
     if (patch.audioStoragePath !== undefined) updateFields.audioStoragePath = patch.audioStoragePath;
@@ -120,6 +120,32 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       .from(meetings)
       .orderBy(desc(meetings.createdAt));
     return rows as Meeting[];
+  }
+
+  async findTranscribedOlderThan(hours: number): Promise<Meeting[]> {
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+    return (await db
+      .select()
+      .from(meetings)
+      .where(
+        and(
+          eq(meetings.status, 'transcribed'),
+          lt(meetings.updatedAt, cutoff)
+        )
+      )) as Meeting[];
+  }
+
+  async findStuckActiveOlderThan(minutes: number): Promise<Meeting[]> {
+    const cutoff = new Date(Date.now() - minutes * 60 * 1000);
+    return (await db
+      .select()
+      .from(meetings)
+      .where(
+        and(
+          inArray(meetings.status, ['bot_joining', 'recording', 'processing']),
+          lt(meetings.updatedAt, cutoff)
+        )
+      )) as Meeting[];
   }
 }
 
