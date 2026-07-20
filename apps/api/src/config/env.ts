@@ -25,6 +25,7 @@ const envSchema = z.object({
   WEB_ORIGIN: z.string().default('http://localhost:3001'),
   // --- Day 3: in-room recording + chat ---
   ASSEMBLYAI_API_KEY: z.string().optional(),
+  ASSEMBLYAI_BASE_URL: z.string().url().default('https://api.assemblyai.com'),
   TRANSCRIPTION_PROVIDER: z.enum(['fake', 'assemblyai']).default('fake'),
   TRANSCRIPTION_WEBHOOK_SECRET: z.string().optional(),
   SUPABASE_URL: z.string().optional(),

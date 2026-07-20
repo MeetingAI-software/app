@@ -83,7 +83,7 @@ async function bootstrap() {
     transcription = new FakeTranscriptionAdapter(webhookRepo);
   } else {
     console.log('🎙️  Using AssemblyAI Transcription Adapter');
-    transcription = new AssemblyAIAdapter();
+    transcription = new AssemblyAIAdapter({ baseUrl: config.ASSEMBLYAI_BASE_URL });
   }
 
   // 4. Services
