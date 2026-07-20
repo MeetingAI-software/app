@@ -3,19 +3,27 @@
 import { useEffect, useState, useRef, Fragment } from 'react';
 import { getChat, askChat, ApiError, type ChatMessage } from '@/lib/api';
 
-/** Render "[mm:ss]" timestamps inside an answer as subtle badges. */
+/** Render "[mm:ss]" timestamps as subtle badges and **bold** as actual bold text. */
 function renderAnswer(text: string) {
-  const parts = text.split(/(\[\d{1,2}:\d{2}\])/g);
+  const parts = text.split(/(\[\d{1,2}:\d{2}\]|\*\*[^*]+\*\*)/g);
   return parts.map((part, i) => {
-    const match = part.match(/^\[(\d{1,2}:\d{2})\]$/);
-    if (match) {
+    const timestamp = part.match(/^\[(\d{1,2}:\d{2})\]$/);
+    if (timestamp) {
       return (
         <span
           key={i}
           className="inline-block bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded px-1.5 py-0.5 text-xs font-mono mx-0.5 align-baseline"
         >
-          {match[1]}
+          {timestamp[1]}
         </span>
+      );
+    }
+    const bold = part.match(/^\*\*([^*]+)\*\*$/);
+    if (bold) {
+      return (
+        <strong key={i} className="font-semibold text-white">
+          {bold[1]}
+        </strong>
       );
     }
     return <Fragment key={i}>{part}</Fragment>;
