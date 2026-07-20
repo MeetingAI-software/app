@@ -297,7 +297,7 @@ export default function Home() {
         {/* TopNavBar */}
         <header className="bg-surface-container-lowest/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 border-b border-slate-200 shadow-sm content-layer">
           <div className="flex justify-between items-center px-margin-page py-4 max-w-container-max mx-auto">
-            <Link href="#" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2">
               <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
               MeetingAI
             </Link>
@@ -555,10 +555,10 @@ export default function Home() {
         <footer className="bg-surface-container-low/90 backdrop-blur-md font-body-md text-body-md w-full py-section-gap border-t border-slate-200 content-layer relative z-10" id="pricing">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter px-margin-page max-w-container-max mx-auto">
             <div className="col-span-1 md:col-span-2 lg:col-span-1 flex flex-col gap-4">
-              <div className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2">
+              <Link href="/" className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2 hover:text-secondary transition-colors duration-200">
                 <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
                 MeetingAI
-              </div>
+              </Link>
               <p className="text-on-surface text-sm mt-2">
                 © 2024 MeetingAI. All rights reserved. Precise summaries for high-performing teams.
               </p>
