@@ -47,4 +47,8 @@ export class DrizzleDocumentRepository implements DocumentRepository {
       createdAt: row.createdAt,
     };
   }
+
+  async deleteByMeeting(meetingId: string): Promise<void> {
+    await db.delete(documents).where(eq(documents.meetingId, meetingId));
+  }
 }

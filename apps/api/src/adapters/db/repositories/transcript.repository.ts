@@ -22,4 +22,8 @@ export class DrizzleTranscriptRepository implements TranscriptRepository {
       .where(eq(transcripts.meetingId, meetingId));
     return row ? (row.segments as TranscriptSegment[]) : null;
   }
+
+  async deleteByMeeting(meetingId: string): Promise<void> {
+    await db.delete(transcripts).where(eq(transcripts.meetingId, meetingId));
+  }
 }
