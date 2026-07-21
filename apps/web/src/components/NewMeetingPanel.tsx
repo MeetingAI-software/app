@@ -31,15 +31,15 @@ export default function NewMeetingPanel() {
   }
 
   const tabClass = (active: boolean) =>
-    `px-4 py-2 rounded-md text-sm font-semibold transition-colors ${
-      active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
+    `px-5 py-1.5 rounded-full text-sm font-semibold transition-all ${
+      active ? 'bg-[#0F172A] text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
     }`;
 
   return (
-    <section className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-lg p-6 mb-8 shadow-sm">
-      <h2 className="text-lg font-bold text-slate-900 mb-4">New meeting</h2>
+    <section className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-8 mb-8 shadow-sm">
+      <h2 className="text-xl font-bold text-slate-900 mb-6">New meeting</h2>
 
-      <div className="inline-flex gap-1 mb-6 bg-slate-100 p-1 rounded-md border border-slate-200">
+      <div className="inline-flex gap-1 mb-6 bg-slate-100/80 p-1 rounded-full border border-slate-200">
         <button type="button" onClick={() => setTab('online')} className={tabClass(tab === 'online')}>
           Online
         </button>

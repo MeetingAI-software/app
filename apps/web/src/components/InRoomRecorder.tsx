@@ -144,7 +144,7 @@ export default function InRoomRecorder() {
     <div className="space-y-6">
       {/* Participant names */}
       <div>
-        <label className="block text-sm font-semibold text-slate-700 mb-2">Who is in the room?</label>
+        <label className="block font-label-mono text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-widest">Participant List</label>
         <div className="flex gap-2">
           <input
             type="text"
@@ -157,14 +157,14 @@ export default function InRoomRecorder() {
               }
             }}
             disabled={busy}
-            placeholder="Add a name and press Enter"
-            className="flex-1 bg-white/90 border border-slate-200 rounded-lg px-4 py-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 transition-colors disabled:opacity-50 text-sm"
+            placeholder="Enter name..."
+            className="flex-1 bg-white border border-slate-200 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 transition-colors disabled:opacity-50 text-sm"
           />
           <button
             type="button"
             onClick={addName}
             disabled={busy || !nameInput.trim()}
-            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm cursor-pointer"
+            className="px-6 py-3 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-lg text-sm font-semibold transition-colors shadow-sm cursor-pointer"
           >
             Add
           </button>
@@ -190,34 +190,35 @@ export default function InRoomRecorder() {
             ))}
           </div>
         )}
-        <p className="text-xs text-slate-500 mt-2 font-medium">
-          Names are matched to speakers in the order they first talk. Extra speakers stay labelled generically.
-        </p>
+        <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-2 font-medium">
+          <span className="material-symbols-outlined text-[16px] text-slate-400">info</span>
+          <span>Names are matched to speakers in the order they first talk.</span>
+        </div>
       </div>
 
       {/* Recorder */}
-      <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-lg p-6 flex flex-col items-center gap-4 shadow-sm">
+      <div className="border-t border-slate-100 pt-6 flex flex-col items-center justify-center gap-4">
         {phase === 'idle' && (
           <button
             type="button"
             onClick={startRecording}
-            className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white rounded-lg px-6 py-3 font-semibold text-sm transition-colors shadow-sm cursor-pointer"
+            className="inline-flex items-center gap-2 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg px-8 py-3.5 font-bold text-sm transition-all shadow-md hover:shadow-lg cursor-pointer transform hover:-translate-y-0.5"
           >
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-white" />
-            Start recording
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />
+            Start Recording Session
           </button>
         )}
 
         {phase === 'recording' && (
           <>
-            <div className="flex items-center gap-2 text-slate-600">
+            <div className="flex items-center gap-2 text-slate-600 mb-2">
               <span className="inline-block h-3 w-3 rounded-full bg-red-500 animate-pulse" />
               <span className="font-mono text-2xl tabular-nums text-slate-900 font-bold">{msToClock(elapsedMs)}</span>
             </div>
             <button
               type="button"
               onClick={stopRecording}
-              className="bg-slate-900 hover:bg-slate-800 text-white rounded-lg px-6 py-3 font-semibold text-sm transition-colors shadow-sm cursor-pointer"
+              className="inline-flex items-center gap-2 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg px-8 py-3.5 font-bold text-sm transition-all shadow-md hover:shadow-lg cursor-pointer transform hover:-translate-y-0.5"
             >
               Stop recording
             </button>
