@@ -26,7 +26,7 @@ export function createMeetingRoutes(
   router.post('/api/meetings', async (req, res, next) => {
     try {
       const parsed = createMeetingSchema.parse(req.body);
-      const meeting = await startMeetingService.start(parsed.meetingUrl);
+      const meeting = await startMeetingService.start(req.userId!, parsed.meetingUrl);
       return res.status(201).json(meeting);
     } catch (err) {
       return next(err);
@@ -36,7 +36,7 @@ export function createMeetingRoutes(
   // GET /api/meetings
   router.get('/api/meetings', async (req, res, next) => {
     try {
-      const list = await meetingRepo.list();
+      const list = await meetingRepo.listForUser(req.userId!);
       return res.status(200).json(list);
     } catch (err) {
       return next(err);
@@ -46,7 +46,7 @@ export function createMeetingRoutes(
   // GET /api/meetings/:id
   router.get('/api/meetings/:id', async (req, res, next) => {
     try {
-      const meeting = await meetingRepo.findById(req.params.id);
+      const meeting = await meetingRepo.findByIdForUser(req.params.id, req.userId!);
       if (!meeting) {
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
       }
@@ -59,6 +59,10 @@ export function createMeetingRoutes(
   // GET /api/meetings/:id/transcript
   router.get('/api/meetings/:id/transcript', async (req, res, next) => {
     try {
+      const meeting = await meetingRepo.findByIdForUser(req.params.id, req.userId!);
+      if (!meeting) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
+      }
       const transcript = await transcriptRepo.getByMeetingId(req.params.id);
       if (!transcript) {
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Transcript not found' } });
@@ -72,7 +76,7 @@ export function createMeetingRoutes(
   // POST /api/meetings/:id/document
   router.post('/api/meetings/:id/document', async (req, res, next) => {
     try {
-      const meeting = await meetingRepo.findById(req.params.id);
+      const meeting = await meetingRepo.findByIdForUser(req.params.id, req.userId!);
       if (!meeting) {
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
       }
@@ -121,6 +125,10 @@ export function createMeetingRoutes(
   // GET /api/meetings/:id/document
   router.get('/api/meetings/:id/document', async (req, res, next) => {
     try {
+      const meeting = await meetingRepo.findByIdForUser(req.params.id, req.userId!);
+      if (!meeting) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
+      }
       const doc = await documentRepo.getByMeetingId(req.params.id);
       if (!doc) {
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document not found' } });

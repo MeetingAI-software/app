@@ -67,10 +67,10 @@ export function createUploadRoutes(
     // Throws ZodError (→ 400) on a malformed participantNames field.
     const participantNames = parseParticipantNames(req.body?.participantNames);
 
-    // Monthly hours protect the wallet on BOTH the bot and the upload path (→ 429).
-    await usageMeter.assertCanStartMeeting();
+    // Monthly hours protect the wallet on BOTH the bot and the upload path (→ 429), per user.
+    await usageMeter.assertCanStartMeeting(req.userId!);
 
-    const meeting = await meetingRepo.create({ source: 'upload', participantNames });
+    const meeting = await meetingRepo.create({ ownerUserId: req.userId!, source: 'upload', participantNames });
 
     try {
       const { path } = await storage.upload(meeting.id, file.buffer, file.mimetype);
