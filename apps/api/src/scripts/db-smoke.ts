@@ -3,6 +3,7 @@ import { DrizzleTranscriptRepository } from '../adapters/db/repositories/transcr
 import { DrizzleWebhookEventRepository } from '../adapters/db/repositories/webhook-event.repository';
 import { DrizzleUsageRepository } from '../adapters/db/repositories/usage.repository';
 import { DrizzleDocumentRepository } from '../adapters/db/repositories/document.repository';
+import { DrizzleUserRepository } from '../adapters/db/repositories/user.repository';
 import { assertTransition } from '../domain/state-machine';
 
 async function main() {
@@ -13,10 +14,14 @@ async function main() {
   const webhookRepo = new DrizzleWebhookEventRepository();
   const usageRepo = new DrizzleUsageRepository();
   const documentRepo = new DrizzleDocumentRepository();
-  
+  const userRepo = new DrizzleUserRepository();
+
+  // 0. Create an owner — meetings are per-user since Day 5
+  const owner = await userRepo.create({ email: `smoke-${Date.now()}@example.test`, passwordHash: 'x' });
+
   // 1. Create meeting
   console.log('1. Creating meeting...');
-  const meeting = await meetingRepo.create({ source: 'bot', meetingUrl: 'https://zoom.us/j/123456789' });
+  const meeting = await meetingRepo.create({ ownerUserId: owner.id, source: 'bot', meetingUrl: 'https://zoom.us/j/123456789' });
   console.log('   Created meeting with ID:', meeting.id);
   console.log('   Share token:', meeting.shareToken);
   
@@ -25,7 +30,7 @@ async function main() {
   }
 
   // Create second meeting to verify uniqueness of share tokens
-  const meeting2 = await meetingRepo.create({ source: 'bot', meetingUrl: 'https://zoom.us/j/987654321' });
+  const meeting2 = await meetingRepo.create({ ownerUserId: owner.id, source: 'bot', meetingUrl: 'https://zoom.us/j/987654321' });
   console.log('   Created second meeting, Share token:', meeting2.shareToken);
   if (meeting.shareToken === meeting2.shareToken) {
     throw new Error('Share tokens must be unique!');
@@ -96,7 +101,7 @@ async function main() {
   // 5. Test usage
   console.log('5. Adding usage ledger entry...');
   await usageRepo.addSeconds(meeting.id, 120);
-  const monthlyTotal = await usageRepo.monthlyTotalSeconds();
+  const monthlyTotal = await usageRepo.monthlyTotalSeconds(owner.id);
   console.log('   Monthly total seconds recorded:', monthlyTotal);
   
   // 6. Test Webhook idempotency
