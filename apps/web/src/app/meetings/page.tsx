@@ -68,19 +68,26 @@ export default function MeetingsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-transparent text-slate-950 p-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Navigation Header */}
-        <div className="flex justify-between items-center mb-12 border-b border-slate-200 pb-4">
-          <Link href="/" className="font-bold text-xl tracking-tight text-slate-900 flex items-center gap-2 hover:opacity-80 transition-opacity">
+    <main className="min-h-screen bg-transparent text-slate-950 pt-28 pb-12 px-6">
+      {/* TopNavBar */}
+      <header className="bg-white/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 border-b border-slate-200 shadow-sm">
+        <div className="flex justify-between items-center px-6 py-4 max-w-4xl mx-auto">
+          <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2 hover:opacity-90 transition-opacity">
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
             MeetingAI
           </Link>
-          <Link href="/" className="text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors">
-            Home
-          </Link>
+          <nav className="flex items-center gap-4">
+            <Link href="/" className="text-slate-600 hover:text-slate-900 font-medium text-sm transition-colors">
+              Home
+            </Link>
+            <Link href="/meetings" className="text-slate-900 font-bold text-sm transition-colors">
+              Console
+            </Link>
+          </nav>
         </div>
+      </header>
 
+      <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Your Meetings</h1>
         </div>
@@ -129,7 +136,7 @@ export default function MeetingsPage() {
                 <div className="flex items-center gap-3 w-full md:w-auto">
                   <Link
                     href={`/meetings/${meeting.id}`}
-                    className="w-full md:w-auto text-center px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
+                    className="w-full md:w-auto text-center px-4 py-2 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 border border-slate-200 rounded-lg font-semibold text-sm transition-all shadow-sm"
                   >
                     View Details
                   </Link>

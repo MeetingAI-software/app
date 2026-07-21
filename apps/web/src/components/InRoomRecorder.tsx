@@ -158,13 +158,13 @@ export default function InRoomRecorder() {
             }}
             disabled={busy}
             placeholder="Add a name and press Enter"
-            className="flex-1 bg-white/90 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 transition-colors disabled:opacity-50 text-sm"
+            className="flex-1 bg-white/90 border border-slate-200 rounded-lg px-4 py-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 transition-colors disabled:opacity-50 text-sm"
           />
           <button
             type="button"
             onClick={addName}
             disabled={busy || !nameInput.trim()}
-            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm"
+            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm cursor-pointer"
           >
             Add
           </button>
@@ -196,12 +196,12 @@ export default function InRoomRecorder() {
       </div>
 
       {/* Recorder */}
-      <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-6 flex flex-col items-center gap-4 shadow-sm">
+      <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-lg p-6 flex flex-col items-center gap-4 shadow-sm">
         {phase === 'idle' && (
           <button
             type="button"
             onClick={startRecording}
-            className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white rounded-xl px-6 py-3 font-semibold text-sm transition-colors shadow-sm"
+            className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white rounded-lg px-6 py-3 font-semibold text-sm transition-colors shadow-sm cursor-pointer"
           >
             <span className="inline-block h-2.5 w-2.5 rounded-full bg-white" />
             Start recording
@@ -217,7 +217,7 @@ export default function InRoomRecorder() {
             <button
               type="button"
               onClick={stopRecording}
-              className="bg-slate-900 hover:bg-slate-800 text-white rounded-xl px-6 py-3 font-semibold text-sm transition-colors shadow-sm"
+              className="bg-slate-900 hover:bg-slate-800 text-white rounded-lg px-6 py-3 font-semibold text-sm transition-colors shadow-sm cursor-pointer"
             >
               Stop recording
             </button>
@@ -229,19 +229,19 @@ export default function InRoomRecorder() {
             <div className="text-center text-sm text-slate-500 font-medium">
               Recorded {msToClock(elapsedMs)} — have a listen before uploading.
             </div>
-            <audio controls src={audioUrl} className="w-full rounded-xl border border-slate-200 p-1 bg-slate-50" />
+            <audio controls src={audioUrl} className="w-full rounded-lg border border-slate-200 p-1 bg-slate-50" />
             <div className="flex flex-col sm:flex-row gap-3">
               <button
                 type="button"
                 onClick={handleUpload}
-                className="flex-1 bg-slate-900 hover:bg-slate-800 text-white rounded-xl px-6 py-3 font-semibold text-sm transition-colors shadow-sm"
+                className="flex-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg px-6 py-3 font-semibold text-sm transition-colors shadow-sm cursor-pointer"
               >
                 Upload and process
               </button>
               <button
                 type="button"
                 onClick={discardRecording}
-                className="px-6 py-3 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl text-sm font-semibold transition-colors shadow-sm"
+                className="px-6 py-3 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-lg text-sm font-semibold transition-colors shadow-sm cursor-pointer"
               >
                 Re-record
               </button>
@@ -263,7 +263,7 @@ export default function InRoomRecorder() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200/50 text-red-700 p-3 rounded-xl text-sm font-medium">{error}</div>
+        <div className="bg-red-50 border border-red-200/50 text-red-700 p-3 rounded-lg text-sm font-medium">{error}</div>
       )}
     </div>
   );
