@@ -169,26 +169,33 @@ export default function MeetingDetailPage() {
   const isProcessing = ['pending', 'bot_joining', 'recording', 'processing'].includes(meeting.status);
 
   return (
-    <main className="min-h-screen bg-transparent text-slate-950 p-4 md:p-8 print:bg-white print:p-0">
-      <div className="max-w-4xl mx-auto">
-        {/* Navigation Header */}
-        <div className="flex justify-between items-center mb-8 print:hidden border-b border-slate-200 pb-4">
-          <Link href="/" className="font-bold text-xl tracking-tight text-slate-900 flex items-center gap-2 hover:opacity-80 transition-opacity">
+    <main className="min-h-screen bg-transparent text-slate-950 pt-28 pb-12 px-4 md:px-8 print:bg-white print:p-0">
+      {/* TopNavBar */}
+      <header className="bg-white/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 border-b border-slate-200 shadow-sm print:hidden">
+        <div className="flex justify-between items-center px-6 py-4 max-w-4xl mx-auto">
+          <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2 hover:opacity-90 transition-opacity">
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
             MeetingAI
           </Link>
-          <Link href="/meetings" className="text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors">
-            Console
-          </Link>
+          <nav className="flex items-center gap-4">
+            <Link href="/" className="text-slate-600 hover:text-slate-900 font-medium text-sm transition-colors">
+              Home
+            </Link>
+            <Link href="/meetings" className="text-slate-900 font-bold text-sm transition-colors">
+              Console
+            </Link>
+          </nav>
         </div>
+      </header>
 
+      <div className="max-w-4xl mx-auto">
         {/* Back and Action header */}
         <div className="flex justify-between items-center mb-8 print:hidden">
           <Link href="/meetings" className="text-slate-600 hover:text-slate-900 font-semibold text-sm flex items-center gap-1.5 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
             </svg>
-            Meetings
+            Back to Console
           </Link>
 
           <div className="flex gap-2">
@@ -196,13 +203,13 @@ export default function MeetingDetailPage() {
               <>
                 <button
                   onClick={handleCopyShare}
-                  className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-lg font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
                 >
                   {copied ? 'Copied ✓' : 'Share Link'}
                 </button>
                 <button
                   onClick={handlePrint}
-                  className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-xl font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-lg font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
                 >
                   Print PDF
                 </button>
@@ -213,7 +220,7 @@ export default function MeetingDetailPage() {
 
         {/* Processing State Card */}
         {isProcessing && (
-          <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-8 mb-8 text-center flex flex-col items-center shadow-sm">
+          <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-lg p-8 mb-8 text-center flex flex-col items-center shadow-sm">
             <div className="relative flex items-center justify-center mb-4">
               <span className="animate-ping absolute inline-flex h-4 w-4 rounded-full bg-slate-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-3 w-3 bg-slate-900"></span>
@@ -228,13 +235,13 @@ export default function MeetingDetailPage() {
 
         {/* Failed State Card */}
         {meeting.status === 'failed' && (
-          <div className="bg-red-50 border border-red-200/50 rounded-xl p-8 mb-8 text-center shadow-sm">
+          <div className="bg-red-50 border border-red-200/50 rounded-lg p-8 mb-8 text-center shadow-sm">
             <div className="text-red-500 text-3xl mb-3">⚠️</div>
             <h2 className="text-lg font-bold text-red-950 mb-2">Meeting Processing Failed</h2>
             <p className="text-sm text-red-700 mb-4 max-w-md mx-auto">
               Error details: {meeting.errorMessage || 'No specific error message was reported.'}
             </p>
-            <button onClick={fetchInitialData} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
+            <button onClick={fetchInitialData} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg transition-colors shadow-sm cursor-pointer">
               Retry Load
             </button>
           </div>
@@ -243,7 +250,7 @@ export default function MeetingDetailPage() {
         {meeting.status === 'transcribed' && (
           <div className="space-y-8">
             {/* Auto-summary Card */}
-            <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-6 md:p-8 print:hidden shadow-sm">
+            <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-lg p-6 md:p-8 print:hidden shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <span className="bg-slate-100 text-slate-700 border border-slate-200 text-xs px-2.5 py-1 rounded-md font-bold uppercase tracking-wider">
                   Summary
@@ -257,7 +264,7 @@ export default function MeetingDetailPage() {
             </div>
 
             {/* Document Section */}
-            <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl overflow-hidden mb-8 print:border-none print:bg-white shadow-sm">
+            <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-lg overflow-hidden mb-8 print:border-none print:bg-white shadow-sm">
               {!document ? (
                 <div className="p-12 text-center print:hidden">
                   <h3 className="text-lg font-bold text-slate-900 mb-3">Meeting Notes Document</h3>
@@ -266,7 +273,7 @@ export default function MeetingDetailPage() {
                   </p>
                   
                   {genError && (
-                    <div className="bg-red-50 border border-red-200/50 text-red-700 p-4 rounded-xl text-sm mb-6 max-w-md mx-auto font-medium">
+                    <div className="bg-red-50 border border-red-200/50 text-red-700 p-4 rounded-lg text-sm mb-6 max-w-md mx-auto font-medium">
                       {genError}
                     </div>
                   )}
@@ -274,7 +281,7 @@ export default function MeetingDetailPage() {
                   <button
                     onClick={() => handleGenerateDoc(false)}
                     disabled={generating}
-                    className="px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-900/50 text-white font-semibold text-sm rounded-xl transition-all shadow-sm disabled:opacity-50"
+                    className="px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-900/50 text-white font-semibold text-sm rounded-lg transition-all shadow-sm disabled:opacity-50 cursor-pointer"
                   >
                     {generating ? 'Writing your document — up to 30 seconds...' : 'Generate Document'}
                   </button>
@@ -292,7 +299,7 @@ export default function MeetingDetailPage() {
                   </div>
                   
                   {genError && (
-                    <div className="mx-6 mt-6 bg-red-50 border border-red-200/50 text-red-700 p-4 rounded-xl text-sm mb-6 print:hidden font-medium">
+                    <div className="mx-6 mt-6 bg-red-50 border border-red-200/50 text-red-700 p-4 rounded-lg text-sm mb-6 print:hidden font-medium">
                       {genError}
                     </div>
                   )}
@@ -307,7 +314,7 @@ export default function MeetingDetailPage() {
 
             {/* Transcript Accordion */}
             {transcript.length > 0 && (
-              <div className="border border-slate-200 rounded-xl overflow-hidden print:hidden bg-white/80 backdrop-blur-sm mb-12 shadow-sm">
+              <div className="border border-slate-200 rounded-lg overflow-hidden print:hidden bg-white/80 backdrop-blur-sm mb-12 shadow-sm">
                 <button
                   onClick={() => setIsAccordionOpen(!isAccordionOpen)}
                   className="w-full px-6 py-4 flex justify-between items-center hover:bg-slate-50/50 transition-colors cursor-pointer"
