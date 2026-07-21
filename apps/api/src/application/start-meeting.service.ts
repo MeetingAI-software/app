@@ -12,12 +12,12 @@ export class StartMeetingService {
     private readonly botAdapter: MeetingBotPort
   ) {}
 
-  async start(meetingUrl: string): Promise<Meeting> {
-    // 1. Assert we have budget/quota
-    await this.usageMeter.assertCanStartMeeting();
+  async start(userId: string, meetingUrl: string): Promise<Meeting> {
+    // 1. Assert we have budget/quota (per user)
+    await this.usageMeter.assertCanStartMeeting(userId);
 
-    // 2. Create the pending meeting row in database
-    const meeting = await this.meetingRepo.create({ source: 'bot', meetingUrl });
+    // 2. Create the pending meeting row, owned by this user
+    const meeting = await this.meetingRepo.create({ ownerUserId: userId, source: 'bot', meetingUrl });
 
     try {
       // 3. Request the bot join the meeting
