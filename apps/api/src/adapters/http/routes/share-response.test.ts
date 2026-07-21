@@ -10,6 +10,7 @@ const MEETING: Meeting = {
   status: 'transcribed',
   source: 'upload',
   botId: 'bot-SECRET',
+  ownerUserId: 'owner-SECRET',
   durationSeconds: 120,
   errorMessage: null,
   summary: 'A public-safe summary.',

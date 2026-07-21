@@ -36,4 +36,8 @@ export class DrizzleChatMessageRepository implements ChatMessageRepository {
       .where(sql`${chatMessages.meetingId} = ${meetingId} AND ${chatMessages.role} = 'user'`);
     return row?.count ?? 0;
   }
+
+  async deleteByMeeting(meetingId: string): Promise<void> {
+    await db.delete(chatMessages).where(eq(chatMessages.meetingId, meetingId));
+  }
 }

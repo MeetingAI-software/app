@@ -8,15 +8,15 @@ export class UsageMeterService {
     private readonly usageRepo: UsageRepository
   ) {}
 
-  async assertCanStartMeeting(): Promise<void> {
-    // 1. Check concurrent bot limit
-    const activeBots = await this.meetingRepo.countActive();
+  async assertCanStartMeeting(userId: string): Promise<void> {
+    // 1. Check concurrent bot limit (per user)
+    const activeBots = await this.meetingRepo.countActiveForUser(userId);
     if (activeBots >= config.MAX_CONCURRENT_BOTS) {
       throw new CapExceededError('concurrent bot limit');
     }
 
-    // 2. Check monthly usage cap. Reserve worst-case max meeting duration
-    const monthlySeconds = await this.usageRepo.monthlyTotalSeconds();
+    // 2. Check monthly usage cap (per user). Reserve worst-case max meeting duration
+    const monthlySeconds = await this.usageRepo.monthlyTotalSeconds(userId);
     if (monthlySeconds + config.MAX_MEETING_SECONDS > config.MONTHLY_CAP_SECONDS) {
       throw new CapExceededError('monthly cap');
     }

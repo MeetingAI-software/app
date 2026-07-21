@@ -33,14 +33,9 @@ const envSchema = z.object({
   MAX_CHAT_QUESTIONS_PER_MEETING: z.coerce.number().default(20),
   MAX_UPLOAD_MB: z.coerce.number().default(200),
   CHAT_PROVIDER: z.enum(['fake', 'claude']).default('fake'),
-  ADMIN_API_KEY: z.string().optional(),
-}).refine(
-  (data) => data.NODE_ENV !== 'production' || !!data.ADMIN_API_KEY,
-  {
-    message: 'ADMIN_API_KEY is required in production mode',
-    path: ['ADMIN_API_KEY'],
-  }
-);
+  // --- Day 5: accounts + sessions ---
+  SESSION_TTL_DAYS: z.coerce.number().int().default(30),
+});
 
 const parsed = envSchema.safeParse(process.env);
 

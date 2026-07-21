@@ -7,6 +7,7 @@ import crypto from 'crypto';
 
 export class DrizzleMeetingRepository implements MeetingRepository {
   async create(input: {
+    ownerUserId: string;
     source: MeetingSource;
     meetingUrl?: string;
     participantNames?: string[];
@@ -15,6 +16,7 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     const [row] = await db
       .insert(meetings)
       .values({
+        ownerUserId: input.ownerUserId,
         meetingUrl: input.meetingUrl ?? null,
         platform: 'zoom',
         status: 'pending',
@@ -31,6 +33,14 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       .select()
       .from(meetings)
       .where(eq(meetings.id, id));
+    return (row as Meeting) || null;
+  }
+
+  async findByIdForUser(id: string, userId: string): Promise<Meeting | null> {
+    const [row] = await db
+      .select()
+      .from(meetings)
+      .where(and(eq(meetings.id, id), eq(meetings.ownerUserId, userId)));
     return (row as Meeting) || null;
   }
 
@@ -114,12 +124,36 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     return rows.length;
   }
 
+  async countActiveForUser(userId: string): Promise<number> {
+    const rows = await db
+      .select()
+      .from(meetings)
+      .where(and(
+        eq(meetings.ownerUserId, userId),
+        inArray(meetings.status, ['bot_joining', 'recording', 'processing'])
+      ));
+    return rows.length;
+  }
+
   async list(): Promise<Meeting[]> {
     const rows = await db
       .select()
       .from(meetings)
       .orderBy(desc(meetings.createdAt));
     return rows as Meeting[];
+  }
+
+  async listForUser(userId: string): Promise<Meeting[]> {
+    const rows = await db
+      .select()
+      .from(meetings)
+      .where(eq(meetings.ownerUserId, userId))
+      .orderBy(desc(meetings.createdAt));
+    return rows as Meeting[];
+  }
+
+  async deleteById(id: string): Promise<void> {
+    await db.delete(meetings).where(eq(meetings.id, id));
   }
 
   async findTranscribedOlderThan(hours: number): Promise<Meeting[]> {

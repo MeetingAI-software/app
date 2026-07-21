@@ -6,12 +6,15 @@ import { DrizzleWebhookEventRepository } from './adapters/db/repositories/webhoo
 import { DrizzleUsageRepository } from './adapters/db/repositories/usage.repository';
 import { DrizzleDocumentRepository } from './adapters/db/repositories/document.repository';
 import { DrizzleChatMessageRepository } from './adapters/db/repositories/chat-message.repository';
+import { DrizzleUserRepository } from './adapters/db/repositories/user.repository';
+import { DrizzleSessionRepository } from './adapters/db/repositories/session.repository';
 import { FakeBotAdapter } from './adapters/fake/fake-bot.adapter';
 import { UsageMeterService } from './application/usage-meter.service';
 import { StartMeetingService } from './application/start-meeting.service';
 import { ProcessWebhookEventService } from './application/process-webhook-event.service';
 import { ProcessUploadEventService } from './application/process-upload-event.service';
 import { ChatService } from './application/chat.service';
+import { AuthService } from './application/auth.service';
 import { WebhookWorker } from './jobs/worker';
 import { SweepJob } from './jobs/sweep';
 import { createMeetingRoutes } from './adapters/http/routes/meetings.routes';
@@ -19,6 +22,8 @@ import { createHealthRoutes } from './adapters/http/routes/health.routes';
 import { createWebhookRoutes } from './adapters/http/routes/webhooks.routes';
 import { createChatRoutes } from './adapters/http/routes/chat.routes';
 import { createUploadRoutes } from './adapters/http/routes/upload.routes';
+import { createAuthRoutes } from './adapters/http/routes/auth.routes';
+import { createMeRoutes } from './adapters/http/routes/me.routes';
 import { SupabaseStorageAdapter } from './adapters/supabase/supabase-storage.adapter';
 import { RecallAdapter } from './adapters/recall/recall.adapter';
 import { FakeDocumentGenerator } from './adapters/fake/fake-document.generator';
@@ -27,6 +32,7 @@ import { FakeChatAdapter } from './adapters/fake/fake-chat.adapter';
 import { ClaudeChatAdapter } from './adapters/claude/claude-chat.adapter';
 import { FakeTranscriptionAdapter } from './adapters/fake/fake-transcription.adapter';
 import { AssemblyAIAdapter } from './adapters/assemblyai/assemblyai.adapter';
+import { Argon2Hasher } from './adapters/auth/argon2.hasher';
 import type { MeetingBotPort } from './ports/meeting-bot.port';
 import type { DocumentGeneratorPort } from './ports/document-generator.port';
 import type { MeetingChatPort } from './ports/chat.port';
@@ -93,6 +99,15 @@ async function bootstrap() {
   const uploadService = new ProcessUploadEventService(meetingRepo, transcriptRepo, usageRepo, transcription, audioStorage, docGen);
   const chatService = new ChatService(transcriptRepo, chatRepo, chatAdapter, config.MAX_CHAT_QUESTIONS_PER_MEETING);
 
+  // 4c. Auth (Day 5): accounts + sessions + GDPR erasure
+  const userRepo = new DrizzleUserRepository();
+  const sessionRepo = new DrizzleSessionRepository();
+  const passwordHasher = new Argon2Hasher();
+  const authService = new AuthService(
+    userRepo, sessionRepo, passwordHasher, config.SESSION_TTL_DAYS,
+    meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter
+  );
+
   // 4. Web Worker
   const worker = new WebhookWorker(webhookRepo, meetingRepo, processService, uploadService, botAdapter);
   worker.start();
@@ -104,14 +119,16 @@ async function bootstrap() {
   // 5. Server Routes
   const routes = [
     createHealthRoutes(),
+    createAuthRoutes(authService),
+    createMeRoutes(usageRepo),
     createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen),
-    createChatRoutes(chatService),
+    createChatRoutes(meetingRepo, chatService),
     createUploadRoutes(meetingRepo, webhookRepo, usageMeter, audioStorage),
     createWebhookRoutes(webhookRepo)
   ];
 
   // 6. HTTP Server
-  const app = createServer(routes);
+  const app = createServer(routes, (token) => authService.getUserForToken(token));
   const server = app.listen(config.PORT, () => {
     console.log(`📡 HTTP Server running on http://localhost:${config.PORT}`);
   });

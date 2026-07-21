@@ -21,6 +21,7 @@ export interface Meeting {
   status: MeetingStatus;
   source: MeetingSource;                  // Day 3: 'bot' | 'upload'
   botId: string | null;
+  ownerUserId: string | null;             // Day 5: null = unclaimed legacy row (invisible to all users)
   durationSeconds: number | null;
   errorMessage: string | null;
   summary: string | null;
@@ -30,5 +31,19 @@ export interface Meeting {
   transcriptionJobId: string | null;      // Day 3: AssemblyAI job id for uploads
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Day 5: accounts + sessions
+export interface User {
+  id: string;
+  email: string;          // stored lowercase; unique
+  createdAt: Date;
+}
+
+export interface Session {
+  id: string;
+  userId: string;
+  expiresAt: Date;
+  createdAt: Date;
 }
 

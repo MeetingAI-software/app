@@ -6,6 +6,9 @@ import {
   InvalidTransitionError,
   DocumentGenerationError,
   MeetingNotReadyError,
+  InvalidCredentialsError,
+  EmailTakenError,
+  WeakPasswordError,
 } from '../../../domain/errors';
 
 export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
@@ -15,6 +18,33 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(429).json({
       error: {
         code: 'CAP_EXCEEDED',
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof InvalidCredentialsError) {
+    return res.status(401).json({
+      error: {
+        code: 'INVALID_CREDENTIALS',
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof EmailTakenError) {
+    return res.status(409).json({
+      error: {
+        code: 'EMAIL_TAKEN',
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof WeakPasswordError) {
+    return res.status(400).json({
+      error: {
+        code: 'WEAK_PASSWORD',
         message: err.message,
       },
     });

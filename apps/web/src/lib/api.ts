@@ -82,29 +82,16 @@ export interface ChatAnswer {
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-const ACCESS_CODE_KEY = 'meeting_ai_access_code';
 
-export function getStoredAccessCode(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(ACCESS_CODE_KEY);
+export interface User {
+  id: string;
+  email: string;
+  createdAt: string;
 }
 
-export function setStoredAccessCode(code: string | null): void {
-  if (typeof window === 'undefined') return;
-  if (code) {
-    localStorage.setItem(ACCESS_CODE_KEY, code);
-  } else {
-    localStorage.removeItem(ACCESS_CODE_KEY);
-  }
-}
-
-function getHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
-  const headers: Record<string, string> = { ...extraHeaders };
-  const code = getStoredAccessCode();
-  if (code) {
-    headers['Authorization'] = `Bearer ${code}`;
-  }
-  return headers;
+export interface UsageSummary {
+  secondsUsed: number;
+  secondsCap: number;
 }
 
 /** Carries the HTTP status so callers can tell 409 (not ready) from 429 (at cap). */
@@ -117,84 +104,112 @@ export class ApiError extends Error {
   }
 }
 
+/** All API calls send the session cookie. Auth is cookie-based since Day 5 — no tokens in JS. */
+function api(path: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, { ...init, credentials: 'include', cache: 'no-store' });
+}
+
+async function extractMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const data = await response.json();
+    if (data?.error?.message) return data.error.message as string;
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    if (response.status === 401) {
-      setStoredAccessCode(null);
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('unauthorized-api-call'));
-      }
+    // A 401 on a data call means the session lapsed — let the shell bounce to /login.
+    if (response.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('unauthorized-api-call'));
     }
-    let errorMessage = `HTTP error! Status: ${response.status}`;
-    try {
-      const data = await response.json();
-      if (data?.error?.message) {
-        errorMessage = data.error.message;
-      }
-    } catch {
-      // ignore
-    }
-    throw new ApiError(errorMessage, response.status);
+    throw new ApiError(await extractMessage(response, `HTTP error! Status: ${response.status}`), response.status);
   }
   return response.json() as Promise<T>;
 }
 
-export async function getMeetings(): Promise<Meeting[]> {
-  const res = await fetch(`${API_BASE}/api/meetings`, {
-    headers: getHeaders(),
-    cache: 'no-store',
+/** For 204/no-body endpoints (logout, delete account). Never dispatches the global 401 — a 401
+ *  here means "wrong password", which the calling page shows itself. */
+async function handleVoid(response: Response): Promise<void> {
+  if (!response.ok) {
+    throw new ApiError(await extractMessage(response, `HTTP error! Status: ${response.status}`), response.status);
+  }
+}
+
+// --- Auth (Day 5) ---
+export async function signup(email: string, password: string): Promise<{ user: User }> {
+  const res = await api('/api/auth/signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
   });
-  return handleResponse<Meeting[]>(res);
+  return handleResponse<{ user: User }>(res);
+}
+
+export async function login(email: string, password: string): Promise<{ user: User }> {
+  const res = await api('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  return handleResponse<{ user: User }>(res);
+}
+
+export async function logout(): Promise<void> {
+  return handleVoid(await api('/api/auth/logout', { method: 'POST' }));
+}
+
+export async function getMe(): Promise<{ user: User }> {
+  return handleResponse<{ user: User }>(await api('/api/auth/me'));
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  return handleVoid(await api('/api/auth/account', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  }));
+}
+
+export async function getUsage(): Promise<UsageSummary> {
+  return handleResponse<UsageSummary>(await api('/api/me/usage'));
+}
+
+export async function getMeetings(): Promise<Meeting[]> {
+  return handleResponse<Meeting[]>(await api('/api/meetings'));
 }
 
 export async function createMeeting(meetingUrl: string): Promise<Meeting> {
-  const res = await fetch(`${API_BASE}/api/meetings`, {
+  const res = await api('/api/meetings', {
     method: 'POST',
-    headers: getHeaders({ 'Content-Type': 'application/json' }),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ meetingUrl }),
-    cache: 'no-store',
   });
   return handleResponse<Meeting>(res);
 }
 
 export async function getMeeting(id: string): Promise<Meeting> {
-  const res = await fetch(`${API_BASE}/api/meetings/${id}`, {
-    headers: getHeaders(),
-    cache: 'no-store',
-  });
-  return handleResponse<Meeting>(res);
+  return handleResponse<Meeting>(await api(`/api/meetings/${id}`));
 }
 
 export async function getTranscript(id: string): Promise<TranscriptSegment[]> {
-  const res = await fetch(`${API_BASE}/api/meetings/${id}/transcript`, {
-    headers: getHeaders(),
-    cache: 'no-store',
-  });
-  return handleResponse<TranscriptSegment[]>(res);
+  return handleResponse<TranscriptSegment[]>(await api(`/api/meetings/${id}/transcript`));
 }
 
 export async function getDocument(id: string): Promise<Document> {
-  const res = await fetch(`${API_BASE}/api/meetings/${id}/document`, {
-    headers: getHeaders(),
-    cache: 'no-store',
-  });
-  return handleResponse<Document>(res);
+  return handleResponse<Document>(await api(`/api/meetings/${id}/document`));
 }
 
 export async function generateDocument(id: string, regenerate = false): Promise<{ document: Document }> {
-  const url = `${API_BASE}/api/meetings/${id}/document${regenerate ? '?regenerate=true' : ''}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: getHeaders(),
-    cache: 'no-store',
-  });
+  const res = await api(`/api/meetings/${id}/document${regenerate ? '?regenerate=true' : ''}`, { method: 'POST' });
   return handleResponse<{ document: Document }>(res);
 }
 
 export async function getShare(token: string): Promise<ShareResponse> {
-  // Share links do not require authorization headers
-  const res = await fetch(`${API_BASE}/api/share/${token}`, { cache: 'no-store' });
-  return handleResponse<ShareResponse>(res);
+  // Public — no session required; any cookie is simply ignored server-side.
+  return handleResponse<ShareResponse>(await api(`/api/share/${token}`));
 }
 
 /**
@@ -213,11 +228,7 @@ export function uploadMeeting(
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API_BASE}/api/meetings/upload`);
-
-    const code = getStoredAccessCode();
-    if (code) {
-      xhr.setRequestHeader('Authorization', `Bearer ${code}`);
-    }
+    xhr.withCredentials = true; // send the session cookie
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
@@ -232,11 +243,8 @@ export function uploadMeeting(
         }
         return;
       }
-      if (xhr.status === 401) {
-        setStoredAccessCode(null);
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new Event('unauthorized-api-call'));
-        }
+      if (xhr.status === 401 && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('unauthorized-api-call'));
       }
       let message = `Upload failed (${xhr.status})`;
       try {
@@ -254,19 +262,14 @@ export function uploadMeeting(
 }
 
 export async function getChat(id: string): Promise<ChatHistory> {
-  const res = await fetch(`${API_BASE}/api/meetings/${id}/chat`, {
-    headers: getHeaders(),
-    cache: 'no-store',
-  });
-  return handleResponse<ChatHistory>(res);
+  return handleResponse<ChatHistory>(await api(`/api/meetings/${id}/chat`));
 }
 
 export async function askChat(id: string, question: string): Promise<ChatAnswer> {
-  const res = await fetch(`${API_BASE}/api/meetings/${id}/chat`, {
+  const res = await api(`/api/meetings/${id}/chat`, {
     method: 'POST',
-    headers: getHeaders({ 'Content-Type': 'application/json' }),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question }),
-    cache: 'no-store',
   });
   return handleResponse<ChatAnswer>(res);
 }
