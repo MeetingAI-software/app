@@ -1,9 +1,9 @@
-import type { Meeting, MeetingSource, MeetingStatus, TranscriptSegment } from '../domain/types';
+import type { Meeting, MeetingSource, MeetingStatus, TranscriptSegment, User, Session } from '../domain/types';
 import type { DocumentContent } from '../domain/document';
 import type { ChatMessage } from './chat.port';
 
 export interface MeetingRepository {
-  create(input: { source: MeetingSource; meetingUrl?: string;
+  create(input: { ownerUserId: string; source: MeetingSource; meetingUrl?: string;
     participantNames?: string[] }): Promise<Meeting>;
   findById(id: string): Promise<Meeting | null>;
   findByBotId(botId: string): Promise<Meeting | null>;
@@ -16,6 +16,10 @@ export interface MeetingRepository {
     transcriptionJobId?: string }): Promise<void>;                    // Day 3: upload path
   countActive(): Promise<number>;   // status in (bot_joining, recording, processing)
   list(): Promise<Meeting[]>;
+  findByIdForUser(id: string, userId: string): Promise<Meeting | null>;   // Day 5: owner-scoped read (HTTP uses ONLY this)
+  listForUser(userId: string): Promise<Meeting[]>;   // Day 5: owner-scoped, newest first
+  countActiveForUser(userId: string): Promise<number>;   // Day 5: per-user concurrency cap
+  deleteById(id: string): Promise<void>;             // Day 5: account erasure
   findTranscribedOlderThan?(hours: number): Promise<Meeting[]>;
   findStuckActiveOlderThan?(minutes: number): Promise<Meeting[]>;
 }
@@ -24,11 +28,13 @@ export interface DocumentRepository {
   upsertForMeeting(meetingId: string, content: DocumentContent,
     meta: { model: string; inputTokens: number; outputTokens: number }): Promise<{ id: string }>;
   getByMeetingId(meetingId: string): Promise<{ content: DocumentContent; createdAt: Date } | null>;
+  deleteByMeeting(meetingId: string): Promise<void>;            // Day 5: account erasure
 }
 
 export interface TranscriptRepository {
   save(meetingId: string, segments: TranscriptSegment[], rawPayload: unknown): Promise<void>;
   getByMeetingId(meetingId: string): Promise<TranscriptSegment[] | null>;
+  deleteByMeeting(meetingId: string): Promise<void>;            // Day 5: account erasure
 }
 
 export interface WebhookEventRepository {
@@ -42,7 +48,8 @@ export interface WebhookEventRepository {
 
 export interface UsageRepository {
   addSeconds(meetingId: string, seconds: number): Promise<void>;
-  monthlyTotalSeconds(): Promise<number>;   // current calendar month
+  monthlyTotalSeconds(userId: string): Promise<number>;   // current calendar month, owner-scoped
+  deleteByMeeting(meetingId: string): Promise<void>;            // Day 5: account erasure
 }
 
 export interface ChatMessageRepository {
@@ -50,5 +57,22 @@ export interface ChatMessageRepository {
       tokens?: { input: number; output: number }): Promise<void>;
   listByMeeting(meetingId: string): Promise<ChatMessage[]>;     // oldest first
   countUserMessages(meetingId: string): Promise<number>;        // the cap counter
+  deleteByMeeting(meetingId: string): Promise<void>;            // Day 5: account erasure
+}
+
+// Day 5: accounts + sessions
+export interface UserRepository {
+  create(input: { email: string; passwordHash: string }): Promise<User>;
+  /** Includes passwordHash — for AuthService only. */
+  findByEmailWithHash(email: string): Promise<(User & { passwordHash: string }) | null>;
+  findById(id: string): Promise<User | null>;
+  deleteById(id: string): Promise<void>;
+}
+
+export interface SessionRepository {
+  create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<Session>;
+  findByTokenHash(tokenHash: string): Promise<Session | null>;
+  deleteByTokenHash(tokenHash: string): Promise<void>;
+  deleteAllForUser(userId: string): Promise<void>;
 }
 
