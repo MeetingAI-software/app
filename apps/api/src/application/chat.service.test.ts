@@ -19,8 +19,8 @@ describe('ChatService', () => {
   let service: ChatService;
 
   beforeEach(() => {
-    transcriptRepo = { save: vi.fn(), getByMeetingId: vi.fn() };
-    chatRepo = { add: vi.fn(), listByMeeting: vi.fn(), countUserMessages: vi.fn() };
+    transcriptRepo = { save: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
+    chatRepo = { add: vi.fn(), listByMeeting: vi.fn(), countUserMessages: vi.fn(), deleteByMeeting: vi.fn() };
     chatAdapter = { answerQuestion: vi.fn() };
     service = new ChatService(transcriptRepo, chatRepo, chatAdapter, CAP);
   });

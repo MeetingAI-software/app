@@ -23,6 +23,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     status: 'processing' as MeetingStatus,
     source: 'upload',
     botId: null,
+    ownerUserId: null,
     durationSeconds: null,
     errorMessage: null,
     summary: null,
@@ -56,10 +57,14 @@ describe('ProcessUploadEventService', () => {
       setSummary: vi.fn(),
       setUploadInfo: vi.fn(),
       countActive: vi.fn(),
+      countActiveForUser: vi.fn(),
       list: vi.fn(),
+      findByIdForUser: vi.fn(),
+      listForUser: vi.fn(),
+      deleteById: vi.fn(),
     };
-    transcriptRepo = { save: vi.fn(), getByMeetingId: vi.fn() };
-    usageRepo = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn() };
+    transcriptRepo = { save: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
+    usageRepo = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
     transcription = { submit: vi.fn(), fetchResult: vi.fn() };
     storage = { upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
     docGen = { generateDocument: vi.fn(), generateSummary: vi.fn() };
