@@ -34,4 +34,26 @@ export class MeetingNotReadyError extends Error {
   }
 }
 
+// Day 5: auth
+export class InvalidCredentialsError extends Error {   // → HTTP 401
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidCredentialsError';
+  }
+}
+
+export class EmailTakenError extends Error {            // → HTTP 409
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmailTakenError';
+  }
+}
+
+export class WeakPasswordError extends Error {          // → HTTP 400
+  constructor(message: string) {
+    super(message);
+    this.name = 'WeakPasswordError';
+  }
+}
+
 
