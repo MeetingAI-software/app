@@ -1,0 +1,39 @@
+name: CI
+
+# Day 6 §3: the robot makes "forgot to run tests" structurally impossible.
+# Runs on every PR and every push to main; mark both jobs as required checks on main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  api:
+    name: API (typecheck + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck --workspace api
+      - name: Test
+        run: npm run test --workspace api
+
+  web:
+    name: Web (build + typecheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      # `next build` generates next-env.d.ts (gitignored) and runs TypeScript, so it both
+      # typechecks and catches route/config errors. apps/web has no test suite yet.
+      - name: Build
+        run: npm run build --workspace web
