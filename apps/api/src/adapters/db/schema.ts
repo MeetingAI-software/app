@@ -15,11 +15,13 @@ export const meetings = pgTable('meetings', {
   participantNames: jsonb('participant_names'),                    // Day 3: string[] entered before an in-room recording
   audioStoragePath: text('audio_storage_path'),                   // Day 3: Supabase Storage path for uploads
   transcriptionJobId: text('transcription_job_id'),               // Day 3: AssemblyAI job id for uploads
+  ownerUserId: uuid('owner_user_id').references(() => users.id),   // Day 5: null = unclaimed legacy row
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   meetingsStatusIdx: index('meetings_status_idx').on(t.status),
   meetingsBotIdIdx: index('meetings_bot_id_idx').on(t.botId),
+  meetingsOwnerUserIdIdx: index('meetings_owner_user_id_idx').on(t.ownerUserId),
 }));
 
 export const transcripts = pgTable('transcripts', {
@@ -72,5 +74,23 @@ export const chatMessages = pgTable('chat_messages', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   chatMessagesMeetingIdx: index('chat_messages_meeting_id_created_at_idx').on(t.meetingId, t.createdAt),
+}));
+
+// Day 5: accounts + sessions
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: text('email').notNull().unique(),                        // lowercased by the app
+  passwordHash: text('password_hash').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const sessions = pgTable('sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  tokenHash: text('token_hash').notNull().unique(),               // sha256(opaque token); raw token lives only in the cookie
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  sessionsUserIdIdx: index('sessions_user_id_idx').on(t.userId),
 }));
 

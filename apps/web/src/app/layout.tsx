@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import AdminGate from "@/components/AdminGate";
+import BackgroundShader from "@/components/BackgroundShader";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,12 +15,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MeetingAI - Precise summaries for high-performing teams.",
-  description: "Precise summaries and actionable documents for high-performing teams.",
-};
 
-import AdminGate from "@/components/AdminGate";
-import BackgroundShader from "@/components/BackgroundShader";
+  title: "MeetingAI",
+  description: "Every meeting becomes a 90-second catch-up document.",
+};
 
 export default function RootLayout({
   children,

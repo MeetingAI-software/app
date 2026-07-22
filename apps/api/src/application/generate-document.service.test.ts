@@ -23,6 +23,7 @@ function meetingWith(status: MeetingStatus): Meeting {
     status,
     source: 'bot',
     botId: 'bot-1',
+    ownerUserId: null,
     durationSeconds: 18,
     errorMessage: null,
     summary: null,
@@ -55,10 +56,14 @@ describe('GenerateDocumentService', () => {
       setSummary: vi.fn(),
       setUploadInfo: vi.fn(),
       countActive: vi.fn(),
+      countActiveForUser: vi.fn(),
       list: vi.fn(),
+      findByIdForUser: vi.fn(),
+      listForUser: vi.fn(),
+      deleteById: vi.fn(),
     };
-    transcriptRepo = { save: vi.fn(), getByMeetingId: vi.fn() };
-    documentRepo = { upsertForMeeting: vi.fn(), getByMeetingId: vi.fn() };
+    transcriptRepo = { save: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
+    documentRepo = { upsertForMeeting: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
 
     docGen = new FakeDocumentGenerator();
     service = new GenerateDocumentService(meetingRepo, transcriptRepo, documentRepo, docGen);

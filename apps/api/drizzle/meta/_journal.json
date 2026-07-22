@@ -22,6 +22,13 @@
       "when": 1784365780552,
       "tag": "0002_dry_stick",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784660062180,
+      "tag": "0003_wild_salo",
+      "breakpoints": true
     }
   ]
 }
