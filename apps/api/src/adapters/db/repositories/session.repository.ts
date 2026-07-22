@@ -1,6 +1,6 @@
 import { db } from '../client';
 import { sessions } from '../schema';
-import { eq } from 'drizzle-orm';
+import { eq, lt } from 'drizzle-orm';
 import type { SessionRepository } from '../../../ports/repositories.port';
 import type { Session } from '../../../domain/types';
 
@@ -30,5 +30,14 @@ export class DrizzleSessionRepository implements SessionRepository {
 
   async deleteAllForUser(userId: string): Promise<void> {
     await db.delete(sessions).where(eq(sessions.userId, userId));
+  }
+
+  /** Day 6 §2: the sweep's janitor call — drop every session past its absolute expiry. */
+  async deleteExpired(): Promise<number> {
+    const removed = await db
+      .delete(sessions)
+      .where(lt(sessions.expiresAt, new Date()))
+      .returning({ id: sessions.id });
+    return removed.length;
   }
 }
