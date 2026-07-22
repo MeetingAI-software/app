@@ -1,4 +1,5 @@
 import { config } from './config/env';
+import { initObservability } from './adapters/observability/sentry';
 import { createServer } from './adapters/http/server';
 import { DrizzleMeetingRepository } from './adapters/db/repositories/meeting.repository';
 import { DrizzleTranscriptRepository } from './adapters/db/repositories/transcript.repository';
@@ -39,6 +40,9 @@ import type { MeetingChatPort } from './ports/chat.port';
 import type { TranscriptionPort } from './ports/transcription.port';
 
 async function bootstrap() {
+  // Day 6 §5: start error monitoring before anything else so boot-time failures are captured too.
+  initObservability();
+
   console.log(`🚀 Bootstrapping MeetingAI (Env: ${config.NODE_ENV}, Port: ${config.PORT})`);
 
   // 1. Repositories
@@ -113,7 +117,7 @@ async function bootstrap() {
   worker.start();
 
   // 4b. Sweep Job (runs on boot + every 6 hours)
-  const sweepJob = new SweepJob(meetingRepo, audioStorage, botAdapter);
+  const sweepJob = new SweepJob(meetingRepo, audioStorage, botAdapter, sessionRepo);
   sweepJob.start();
 
   // 5. Server Routes

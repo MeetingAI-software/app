@@ -76,5 +76,7 @@ export interface SessionRepository {
   findByTokenHash(tokenHash: string): Promise<Session | null>;
   deleteByTokenHash(tokenHash: string): Promise<void>;
   deleteAllForUser(userId: string): Promise<void>;
+  /** Day 6 §3: deletes all sessions with expires_at < now(). Returns the count removed. */
+  deleteExpired(): Promise<number>;
 }
 

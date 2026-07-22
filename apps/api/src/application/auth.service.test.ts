@@ -76,6 +76,12 @@ class FakeSessionRepo implements SessionRepository {
   async deleteAllForUser(userId: string) {
     for (const [h, s] of this.byHash) if (s.userId === userId) this.byHash.delete(h);
   }
+  async deleteExpired() {
+    const now = Date.now();
+    let removed = 0;
+    for (const [h, s] of this.byHash) if (s.expiresAt.getTime() < now) { this.byHash.delete(h); removed++; }
+    return removed;
+  }
 }
 
 // Meeting repo backed by an inspectable store; the rest of its surface is unused here.

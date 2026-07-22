@@ -10,9 +10,17 @@ import {
   EmailTakenError,
   WeakPasswordError,
 } from '../../../domain/errors';
+import { captureError } from '../../observability/sentry';
 
 export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
   const reqId = req.headers['x-request-id'];
+
+  // Day 6 §5: server-side failures (5xx) go to Sentry; 4xx are client errors and stay out of it.
+  const report5xx = () =>
+    captureError(err, {
+      ...(typeof reqId === 'string' ? { requestId: reqId } : {}),
+      ...(req.userId ? { userId: req.userId } : {}),
+    });
 
   if (err instanceof CapExceededError) {
     return res.status(429).json({
@@ -61,6 +69,7 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   }
 
   if (err instanceof BotProviderError) {
+    report5xx();
     return res.status(502).json({
       error: {
         code: 'BOT_PROVIDER_ERROR',
@@ -79,6 +88,7 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   }
 
   if (err instanceof DocumentGenerationError) {
+    report5xx();
     return res.status(502).json({
       error: {
         code: 'DOCUMENT_GENERATION_ERROR',
@@ -89,6 +99,7 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
 
   if (err instanceof InvalidTransitionError) {
     console.error(`[RequestId: ${reqId}] Invalid Transition Error:`, err);
+    report5xx();
     return res.status(500).json({
       error: {
         code: 'INVALID_TRANSITION',
@@ -98,6 +109,7 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   }
 
   console.error(`[RequestId: ${reqId}] Internal Server Error:`, err);
+  report5xx();
   return res.status(500).json({
     error: {
       code: 'INTERNAL_SERVER_ERROR',

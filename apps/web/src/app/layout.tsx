@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import AdminGate from "@/components/AdminGate";
 import BackgroundShader from "@/components/BackgroundShader";
 
 const geistSans = Geist({
@@ -38,7 +37,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col bg-transparent text-slate-900">
         <BackgroundShader />
-        <AdminGate>{children}</AdminGate>
+        {children}
       </body>
     </html>
   );
