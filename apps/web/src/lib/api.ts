@@ -138,6 +138,15 @@ async function handleVoid(response: Response): Promise<void> {
   }
 }
 
+/** Like handleResponse but never fires the global 401 redirect — for password-confirmed account
+ *  actions (change password/email) where a 401 means "wrong current password", not a lapsed session. */
+async function handleResponseQuiet<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    throw new ApiError(await extractMessage(response, `HTTP error! Status: ${response.status}`), response.status);
+  }
+  return response.json() as Promise<T>;
+}
+
 // --- Auth (Day 5) ---
 export async function signup(email: string, password: string): Promise<{ user: User }> {
   const res = await api('/api/auth/signup', {
@@ -163,6 +172,24 @@ export async function logout(): Promise<void> {
 
 export async function getMe(): Promise<{ user: User }> {
   return handleResponse<{ user: User }>(await api('/api/auth/me'));
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<{ user: User }> {
+  const res = await api('/api/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  return handleResponseQuiet<{ user: User }>(res);
+}
+
+export async function changeEmail(currentPassword: string, newEmail: string): Promise<{ user: User }> {
+  const res = await api('/api/auth/change-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newEmail }),
+  });
+  return handleResponseQuiet<{ user: User }>(res);
 }
 
 export async function deleteAccount(password: string): Promise<void> {
