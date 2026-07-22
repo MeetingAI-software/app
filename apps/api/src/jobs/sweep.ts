@@ -1,4 +1,4 @@
-import type { MeetingRepository } from '../ports/repositories.port';
+import type { MeetingRepository, SessionRepository } from '../ports/repositories.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import { assertTransition } from '../domain/state-machine';
@@ -10,7 +10,8 @@ export class SweepJob {
   constructor(
     private readonly meetingRepo: MeetingRepository,
     private readonly storage: AudioStoragePort,
-    private readonly botAdapter: MeetingBotPort
+    private readonly botAdapter: MeetingBotPort,
+    private readonly sessionRepo: SessionRepository
   ) {}
 
   start() {
@@ -115,6 +116,15 @@ export class SweepJob {
       }
     } catch (err: any) {
       logger.error({ err }, 'Error reconciling stuck active meetings');
+    }
+
+    // 3. Delete expired sessions (Day 6 §2) — dead credentials shouldn't outlive their usefulness,
+    // even hashed. Own try/catch so a session-store hiccup never blocks meeting/audio cleanup.
+    try {
+      const removed = await this.sessionRepo.deleteExpired();
+      logger.info({ count: removed }, 'Sweep deleted expired sessions');
+    } catch (err: any) {
+      logger.error({ err }, 'Error deleting expired sessions');
     }
 
     logger.info('Sweep job completed');

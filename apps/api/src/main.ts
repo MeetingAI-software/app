@@ -113,7 +113,7 @@ async function bootstrap() {
   worker.start();
 
   // 4b. Sweep Job (runs on boot + every 6 hours)
-  const sweepJob = new SweepJob(meetingRepo, audioStorage, botAdapter);
+  const sweepJob = new SweepJob(meetingRepo, audioStorage, botAdapter, sessionRepo);
   sweepJob.start();
 
   // 5. Server Routes

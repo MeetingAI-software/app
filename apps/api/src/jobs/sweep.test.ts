@@ -9,6 +9,7 @@ describe('SweepJob', () => {
   let meetingRepo: any;
   let storage: any;
   let botAdapter: any;
+  let sessionRepo: any;
   let sweepJob: SweepJob;
 
   beforeEach(() => {
@@ -40,7 +41,15 @@ describe('SweepJob', () => {
       deleteRecording: vi.fn().mockResolvedValue(undefined),
     };
 
-    sweepJob = new SweepJob(meetingRepo, storage, botAdapter);
+    sessionRepo = {
+      create: vi.fn(),
+      findByTokenHash: vi.fn(),
+      deleteByTokenHash: vi.fn(),
+      deleteAllForUser: vi.fn(),
+      deleteExpired: vi.fn().mockResolvedValue(0),
+    };
+
+    sweepJob = new SweepJob(meetingRepo, storage, botAdapter, sessionRepo);
   });
 
   describe('runSweep', () => {
@@ -115,6 +124,37 @@ describe('SweepJob', () => {
       await sweepJob.runSweep();
 
       expect(meetingRepo.updateStatus).toHaveBeenCalledWith('meeting-3', 'recording');
+    });
+
+    it('deletes expired sessions during the sweep while valid ones survive', async () => {
+      // Stateful store standing in for the DB: one expired session, one still valid.
+      const store = [
+        { id: 's-expired', expiresAt: new Date(Date.now() - 1000) },
+        { id: 's-valid', expiresAt: new Date(Date.now() + 60_000) },
+      ];
+      sessionRepo.deleteExpired.mockImplementation(async () => {
+        const now = Date.now();
+        const before = store.length;
+        for (let i = store.length - 1; i >= 0; i--) {
+          if (store[i].expiresAt.getTime() < now) store.splice(i, 1);
+        }
+        return before - store.length;
+      });
+
+      await sweepJob.runSweep();
+
+      expect(sessionRepo.deleteExpired).toHaveBeenCalled();
+      expect(store.map((s) => s.id)).toEqual(['s-valid']); // expired swept, valid survives
+    });
+
+    it('keeps meeting cleanup running even if session cleanup throws', async () => {
+      sessionRepo.deleteExpired.mockRejectedValue(new Error('session store down'));
+      meetingRepo.findTranscribedOlderThan.mockResolvedValue([
+        { id: 'm-1', source: 'bot', status: 'transcribed', botId: 'bot-1', audioStoragePath: 'a/1', platform: 'zoom', shareToken: 't', createdAt: new Date(), updatedAt: new Date() } as any,
+      ]);
+
+      await expect(sweepJob.runSweep()).resolves.toBeUndefined();
+      expect(storage.delete).toHaveBeenCalledWith('a/1'); // the rest of the sweep still ran
     });
   });
 });
