@@ -35,6 +35,8 @@ const envSchema = z.object({
   CHAT_PROVIDER: z.enum(['fake', 'claude']).default('fake'),
   // --- Day 5: accounts + sessions ---
   SESSION_TTL_DAYS: z.coerce.number().int().default(30),
+  // --- Day 6: observability ---
+  SENTRY_DSN: z.string().optional(),   // optional everywhere; observability is a no-op when unset
 });
 
 const parsed = envSchema.safeParse(process.env);
