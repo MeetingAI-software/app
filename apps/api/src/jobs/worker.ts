@@ -7,6 +7,7 @@ import { db } from '../adapters/db/client';
 import { webhookEvents } from '../adapters/db/schema';
 import { eq } from 'drizzle-orm';
 import { routeRecallEvent } from '../adapters/recall/recall-event.router';
+import { captureError } from '../adapters/observability/sentry';
 
 const UPLOAD_EVENT_TYPES: readonly string[] = ['audio_uploaded', 'transcription_ready'];
 
@@ -99,6 +100,12 @@ export class WebhookWorker {
   private async handleProcessingFailure(event: { id: string; payload: unknown }, err: any): Promise<void> {
     console.error(`❌ Error processing event ${event.id}:`, err);
 
+    // Day 6 §5: push the failure to Sentry, tagged with the meeting so DoD item 6 (broken Anthropic
+    // key → alert within ~1 min, tagged with meetingId) is satisfied on the very first attempt.
+    const p = (event.payload ?? {}) as any;
+    const meetingId = p.meeting_id || p.data?.meeting_id || p.meetingId;
+    captureError(err, { eventId: event.id, ...(meetingId ? { meetingId: String(meetingId) } : {}) });
+
     const [row] = await db
       .select({ attempts: webhookEvents.attempts })
       .from(webhookEvents)
@@ -186,10 +193,12 @@ export class WebhookWorker {
           }
         } catch (botErr: any) {
           console.error(`❌ Reconciler failed to check bot ${botId} status:`, botErr.message);
+          captureError(botErr, { meetingId: meeting.id, botId });
         }
       }
     } catch (err: any) {
       console.error('❌ Reconciler tick error:', err.message);
+      captureError(err);
     }
   }
 }

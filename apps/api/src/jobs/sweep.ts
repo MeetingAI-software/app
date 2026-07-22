@@ -3,6 +3,7 @@ import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import { assertTransition } from '../domain/state-machine';
 import { logger } from '../config/logger';
+import { captureError } from '../adapters/observability/sentry';
 
 export class SweepJob {
   private intervalId: NodeJS.Timeout | null = null;
@@ -61,10 +62,12 @@ export class SweepJob {
           }
         } catch (mErr: any) {
           logger.error({ err: mErr, meetingId: meeting.id }, 'Failed to clean up transcribed meeting');
+          captureError(mErr, { meetingId: meeting.id });
         }
       }
     } catch (err: any) {
       logger.error({ err }, 'Error cleaning up old transcribed meetings');
+      captureError(err);
     }
 
     // 2. Clean up stuck active meetings older than 15 minutes
@@ -112,10 +115,12 @@ export class SweepJob {
           }
         } catch (mErr: any) {
           logger.error({ err: mErr, meetingId: meeting.id }, 'Failed to reconcile stuck meeting');
+          captureError(mErr, { meetingId: meeting.id });
         }
       }
     } catch (err: any) {
       logger.error({ err }, 'Error reconciling stuck active meetings');
+      captureError(err);
     }
 
     // 3. Delete expired sessions (Day 6 §2) — dead credentials shouldn't outlive their usefulness,
@@ -125,6 +130,7 @@ export class SweepJob {
       logger.info({ count: removed }, 'Sweep deleted expired sessions');
     } catch (err: any) {
       logger.error({ err }, 'Error deleting expired sessions');
+      captureError(err);
     }
 
     logger.info('Sweep job completed');
