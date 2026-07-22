@@ -26,6 +26,10 @@ export interface AuthServiceApi {
   login(email: string, password: string): Promise<AuthResult>;
   logout(sessionToken: string): Promise<void>;
   getUserForToken(sessionToken: string): Promise<User | null>;
+  /** Verify current password, set a new one, rotate sessions (returns a fresh session for the caller). */
+  changePassword(userId: string, currentPassword: string, newPassword: string): Promise<AuthResult>;
+  /** Verify current password, then change the (unverified) email. EmailTakenError on collision. */
+  changeEmail(userId: string, currentPassword: string, newEmail: string): Promise<User>;
   deleteAccount(userId: string, currentPassword: string): Promise<void>;
 }
 
@@ -106,13 +110,31 @@ export class AuthService implements AuthServiceApi {
     return this.users.findById(session.userId);
   }
 
+  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<AuthResult> {
+    const record = await this.requirePassword(userId, currentPassword);
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      throw new WeakPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    }
+    const passwordHash = await this.hasher.hash(newPassword);
+    await this.users.updatePassword(userId, passwordHash);
+    // Rotate every session (defence: a changed password logs out all other devices), then hand
+    // the current caller a fresh session so they stay signed in on this one.
+    await this.sessions.deleteAllForUser(userId);
+    const { passwordHash: _omit, ...user } = record;
+    logger.info({ userId }, 'Password changed; all sessions rotated');
+    return this.startSession(user);
+  }
+
+  async changeEmail(userId: string, currentPassword: string, newEmail: string): Promise<User> {
+    await this.requirePassword(userId, currentPassword);
+    const updated = await this.users.updateEmail(userId, newEmail); // EmailTakenError bubbles up
+    logger.info({ userId }, 'Email changed');
+    return updated;
+  }
+
   async deleteAccount(userId: string, currentPassword: string): Promise<void> {
     // Re-confirm the password before this irreversible action.
-    const user = await this.users.findById(userId);
-    const record = user ? await this.users.findByEmailWithHash(user.email) : null;
-    if (!record || !(await this.hasher.verify(currentPassword, record.passwordHash))) {
-      throw new InvalidCredentialsError('Invalid password');
-    }
+    await this.requirePassword(userId, currentPassword);
 
     // §6 erasure order: purge provider-side media first (idempotent, non-fatal), then DB children
     // → meetings → sessions → user. Logged throughout — this is the GDPR audit trail.
@@ -145,6 +167,16 @@ export class AuthService implements AuthServiceApi {
     await this.sessions.deleteAllForUser(userId);
     await this.users.deleteById(userId);
     logger.info({ userId }, 'Account erasure: complete');
+  }
+
+  /** Load a user + verify a plaintext password against their hash, or throw InvalidCredentialsError. */
+  private async requirePassword(userId: string, password: string): Promise<User & { passwordHash: string }> {
+    const user = await this.users.findById(userId);
+    const record = user ? await this.users.findByEmailWithHash(user.email) : null;
+    if (!record || !(await this.hasher.verify(password, record.passwordHash))) {
+      throw new InvalidCredentialsError('Invalid password');
+    }
+    return record;
   }
 
   private async startSession(user: User): Promise<AuthResult> {

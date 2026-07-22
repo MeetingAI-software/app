@@ -41,6 +41,21 @@ class FakeUserRepo implements UserRepository {
     const r = this.byId.get(id);
     return r ? { id: r.id, email: r.email, createdAt: r.createdAt } : null;
   }
+  async updatePassword(id: string, passwordHash: string) {
+    const r = this.byId.get(id);
+    if (r) r.passwordHash = passwordHash;
+  }
+  async updateEmail(id: string, email: string): Promise<User> {
+    const normalized = email.trim().toLowerCase();
+    const owner = this.byEmail.get(normalized);
+    if (owner && owner !== id) throw new EmailTakenError('taken');
+    const r = this.byId.get(id);
+    if (!r) throw new Error('no such user');
+    this.byEmail.delete(r.email);
+    r.email = normalized;
+    this.byEmail.set(normalized, id);
+    return { id: r.id, email: r.email, createdAt: r.createdAt };
+  }
   async deleteById(id: string) {
     const r = this.byId.get(id);
     if (r) { this.byEmail.delete(r.email); this.byId.delete(id); }
@@ -163,6 +178,50 @@ describe('AuthService', () => {
       const res = await ctx.service.signup('frank@example.com', 'a-good-password');
       await ctx.service.logout(res.sessionToken);
       expect(await ctx.service.getUserForToken(res.sessionToken)).toBeNull();
+    });
+  });
+
+  describe('changePassword', () => {
+    it('changes the password, rotates sessions, and keeps the caller signed in on a fresh token', async () => {
+      const { user, sessionToken: oldToken } = await ctx.service.signup('ivan@example.com', 'a-good-password');
+      const res = await ctx.service.changePassword(user.id, 'a-good-password', 'a-brand-new-password');
+
+      // old session is gone; the returned token is live
+      expect(await ctx.service.getUserForToken(oldToken)).toBeNull();
+      expect(await ctx.service.getUserForToken(res.sessionToken)).not.toBeNull();
+      // the new password logs in, the old one does not
+      await expect(ctx.service.login('ivan@example.com', 'a-brand-new-password')).resolves.toBeTruthy();
+      await expect(ctx.service.login('ivan@example.com', 'a-good-password')).rejects.toBeInstanceOf(InvalidCredentialsError);
+    });
+
+    it('rejects a wrong current password', async () => {
+      const { user } = await ctx.service.signup('judy@example.com', 'a-good-password');
+      await expect(ctx.service.changePassword(user.id, 'wrong-one', 'a-brand-new-password')).rejects.toBeInstanceOf(InvalidCredentialsError);
+    });
+
+    it('rejects a weak new password', async () => {
+      const { user } = await ctx.service.signup('kate@example.com', 'a-good-password');
+      await expect(ctx.service.changePassword(user.id, 'a-good-password', 'short')).rejects.toBeInstanceOf(WeakPasswordError);
+    });
+  });
+
+  describe('changeEmail', () => {
+    it('changes the email after verifying the password', async () => {
+      const { user } = await ctx.service.signup('leo@example.com', 'a-good-password');
+      const updated = await ctx.service.changeEmail(user.id, 'a-good-password', 'Leo-New@Example.com');
+      expect(updated.email).toBe('leo-new@example.com');
+      await expect(ctx.service.login('leo-new@example.com', 'a-good-password')).resolves.toBeTruthy();
+    });
+
+    it('rejects a wrong password', async () => {
+      const { user } = await ctx.service.signup('mona@example.com', 'a-good-password');
+      await expect(ctx.service.changeEmail(user.id, 'nope', 'mona2@example.com')).rejects.toBeInstanceOf(InvalidCredentialsError);
+    });
+
+    it('rejects an email already in use', async () => {
+      await ctx.service.signup('taken@example.com', 'a-good-password');
+      const { user } = await ctx.service.signup('nate@example.com', 'a-good-password');
+      await expect(ctx.service.changeEmail(user.id, 'a-good-password', 'TAKEN@example.com')).rejects.toBeInstanceOf(EmailTakenError);
     });
   });
 

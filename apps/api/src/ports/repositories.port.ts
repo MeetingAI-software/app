@@ -66,6 +66,8 @@ export interface UserRepository {
   /** Includes passwordHash — for AuthService only. */
   findByEmailWithHash(email: string): Promise<(User & { passwordHash: string }) | null>;
   findById(id: string): Promise<User | null>;
+  updatePassword(id: string, passwordHash: string): Promise<void>;         // account settings: change password
+  updateEmail(id: string, email: string): Promise<User>;                   // lowercased; unique-violation → EmailTakenError
   deleteById(id: string): Promise<void>;
 }
 

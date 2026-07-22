@@ -14,12 +14,28 @@ export function createAuthRoutes(auth: AuthServiceApi): Router {
   // Login stays lenient on password shape so every mismatch is a uniform 401 (no length leak).
   const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
   const deleteSchema = z.object({ password: z.string().min(1) });
+  const changePasswordSchema = z.object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(10), // §2 policy: length ≥ 10
+  });
+  const changeEmailSchema = z.object({
+    currentPassword: z.string().min(1),
+    newEmail: z.string().email(),
+  });
 
   // §2 login abuse: 10 attempts / 15 min per IP+email.
   const authLimiter = fixedWindowLimiter({
     max: 10,
     windowMs: 15 * 60 * 1000,
     keyOf: (req) => `${req.ip}:${String((req.body as { email?: string })?.email ?? '').toLowerCase()}`,
+  });
+
+  // Authenticated account-change abuse guard: keyed on the session user (req.userId is set by
+  // requireUser, which runs before these routes).
+  const accountLimiter = fixedWindowLimiter({
+    max: 10,
+    windowMs: 15 * 60 * 1000,
+    keyOf: (req) => `account:${req.userId ?? req.ip}`,
   });
 
   router.post('/api/auth/signup', authLimiter, async (req, res, next) => {
@@ -61,6 +77,29 @@ export function createAuthRoutes(auth: AuthServiceApi): Router {
       const token = readSessionCookie(req);
       const user = token ? await auth.getUserForToken(token) : null;
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHORIZED' } });
+      return res.status(200).json({ user });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  // Change password: verify current, rotate sessions, re-set the cookie so this device stays in.
+  router.post('/api/auth/change-password', accountLimiter, async (req, res, next) => {
+    try {
+      const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+      const { user, sessionToken, expiresAt } = await auth.changePassword(req.userId as string, currentPassword, newPassword);
+      setSessionCookie(res, sessionToken, expiresAt);
+      return res.status(200).json({ user });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  // Change email: verify current password, then swap the (unverified) email. EmailTaken → 409.
+  router.post('/api/auth/change-email', accountLimiter, async (req, res, next) => {
+    try {
+      const { currentPassword, newEmail } = changeEmailSchema.parse(req.body);
+      const user = await auth.changeEmail(req.userId as string, currentPassword, newEmail);
       return res.status(200).json({ user });
     } catch (err) {
       return next(err);
