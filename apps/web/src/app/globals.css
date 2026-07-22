@@ -1,26 +1,172 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  --color-secondary: #0051d5;
+  --color-on-primary-fixed: #131b2e;
+  --color-tertiary-fixed: #d3e4fe;
+  --color-surface-bright: #f9f9f9;
+  --color-surface-variant: #e2e2e2;
+  --color-surface-tint: #565e74;
+  --color-on-background: #1a1c1c;
+  --color-on-tertiary-container: #75859d;
+  --color-primary-fixed: #dae2fd;
+  --color-tertiary: #000000;
+  --color-surface-container-lowest: #ffffff;
+  --color-primary-container: #131b2e;
+  --color-outline-variant: #c6c6cd;
+  --color-on-secondary-fixed: #00174b;
+  --color-error: #EF4444;
+  --color-error-container: #ffdad6;
+  --color-slate-50: #F8FAFC;
+  --color-on-tertiary-fixed: #0b1c30;
+  --color-on-tertiary: #ffffff;
+  --color-on-error-container: #93000a;
+  --color-surface-container-low: #f3f3f4;
+  --color-outline: #76777d;
+  --color-on-secondary: #ffffff;
+  --color-slate-900: #0F172A;
+  --color-on-primary: #ffffff;
+  --color-surface-container-highest: #e2e2e2;
+  --color-on-error: #ffffff;
+  --color-on-surface-variant: #45464d;
+  --color-inverse-primary: #bec6e0;
+  --color-on-primary-container: #7c839b;
+  --color-surface-container: #eeeeee;
+  --color-on-tertiary-fixed-variant: #38485d;
+  --color-on-secondary-container: #fefcff;
+  --color-primary-fixed-dim: #bec6e0;
+  --color-secondary-fixed-dim: #b4c5ff;
+  --color-tertiary-container: #0b1c30;
+  --color-on-surface: #1a1c1c;
+  --color-on-secondary-fixed-variant: #003ea8;
+  --color-success: #10B981;
+  --color-surface: #f9f9f9;
+  --color-primary: #000000;
+  --color-secondary-fixed: #dbe1ff;
+  --color-tertiary-fixed-dim: #b7c8e1;
+  --color-warning: #F59E0B;
+  --color-slate-200: #E2E8F0;
+  --color-surface-dim: #dadada;
+  --color-inverse-on-surface: #f0f1f1;
+  --color-secondary-container: #316bf3;
+  --color-inverse-surface: #2f3131;
+  --color-surface-container-high: #e8e8e8;
+  --color-background: #f9f9f9;
+  --color-on-primary-fixed-variant: #3f465c;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --spacing-stack-lg: 32px;
+  --spacing-container-max: 1280px;
+  --spacing-margin-page: 32px;
+  --spacing-stack-sm: 8px;
+  --spacing-stack-md: 16px;
+  --spacing-section-gap: 96px;
+  --spacing-gutter: 24px;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: transparent;
+  color: #0F172A;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* Shimmer effect for primary buttons */
+@keyframes shimmer {
+  0% { transform: translateX(-150%); }
+  50% { transform: translateX(150%); }
+  100% { transform: translateX(150%); }
+}
+
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
+  transform: translateX(-150%);
+  animation: shimmer 4s infinite;
+}
+
+/* Staggered blur-in effect */
+.blur-in {
+  opacity: 0;
+  filter: blur(10px);
+  transform: translateY(20px);
+  animation: blurInAnim 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes blurInAnim {
+  to {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateY(0);
+  }
+}
+
+/* Springy toggle transition */
+.toggle-btn {
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.timeline-line::before {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: 40px;
+  bottom: 0;
+  width: 1px;
+  background-color: #E2E8F0;
+  z-index: 0;
+}
+
+.toggle-btn.active {
+  background-color: #0F172A;
+  color: #FFFFFF;
+  border-color: #0F172A;
+}
+
+.toggle-btn:not(.active) {
+  background-color: #FFFFFF;
+  color: #0F172A;
+  border-color: #E2E8F0;
+}
+
+/* Canvas positioning */
+#bg-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -2;
+  pointer-events: none;
+}
+
+threejs-scene {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 50%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Ensure content sits above background */
+.content-layer {
+  position: relative;
+  z-index: 10;
+}
+
+/* Make hero background transparent to show 3D/Shader */
+.hero-section {
+  background: transparent !important;
+}
+

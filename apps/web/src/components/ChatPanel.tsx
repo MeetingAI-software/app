@@ -12,7 +12,7 @@ function renderAnswer(text: string) {
       return (
         <span
           key={i}
-          className="inline-block bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded px-1.5 py-0.5 text-xs font-mono mx-0.5 align-baseline"
+          className="inline-block bg-indigo-50 text-indigo-700 border border-indigo-200/50 rounded px-1.5 py-0.5 text-xs font-mono mx-0.5 align-baseline"
         >
           {timestamp[1]}
         </span>
@@ -21,7 +21,7 @@ function renderAnswer(text: string) {
     const bold = part.match(/^\*\*([^*]+)\*\*$/);
     if (bold) {
       return (
-        <strong key={i} className="font-semibold text-white">
+        <strong key={i} className="font-semibold text-slate-900">
           {bold[1]}
         </strong>
       );
@@ -97,26 +97,26 @@ export default function ChatPanel({ meetingId }: { meetingId: string }) {
   }
 
   return (
-    <div className="bg-[#13171c] border border-gray-800 rounded-2xl p-6 md:p-8 print:hidden">
+    <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-6 md:p-8 print:hidden shadow-sm">
       <div className="flex items-center justify-between mb-3">
-        <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs px-2.5 py-1 rounded-md font-bold uppercase tracking-wider">
+        <span className="bg-indigo-50 text-indigo-700 border border-indigo-200/50 text-xs px-2.5 py-1 rounded-md font-bold uppercase tracking-wider">
           Ask this meeting
         </span>
         {remaining !== null && (
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-slate-500 font-semibold">
             {atCap ? 'No questions left' : `${remaining} question${remaining === 1 ? '' : 's'} left`}
           </span>
         )}
       </div>
 
-      <p className="text-xs text-gray-500 mb-5">
+      <p className="text-xs text-slate-400 mb-5 font-medium">
         Answers come only from the transcript, with <span className="font-mono">[mm:ss]</span>{' '}
         citations. If something was not said, the assistant will tell you.
       </p>
 
       <div ref={scrollRef} className="space-y-4 max-h-[420px] overflow-y-auto mb-4 pr-1">
         {messages.length === 0 && !pending && (
-          <p className="text-sm text-gray-600 italic">
+          <p className="text-sm text-slate-500 italic font-medium">
             No questions yet. Try: what did we decide, or who owns the follow-up.
           </p>
         )}
@@ -126,8 +126,8 @@ export default function ChatPanel({ meetingId }: { meetingId: string }) {
             <div
               className={
                 m.role === 'user'
-                  ? 'bg-indigo-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[85%] text-sm'
-                  : 'bg-[#0d0f12] border border-gray-800 text-gray-200 rounded-2xl rounded-bl-sm px-4 py-2.5 max-w-[85%] text-sm leading-relaxed'
+                  ? 'bg-indigo-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[85%] text-sm font-medium shadow-sm'
+                  : 'bg-slate-50 border border-slate-150 text-slate-800 rounded-2xl rounded-bl-sm px-4 py-2.5 max-w-[85%] text-sm leading-relaxed font-medium shadow-sm'
               }
             >
               {m.role === 'assistant' ? renderAnswer(m.content) : m.content}
@@ -138,12 +138,12 @@ export default function ChatPanel({ meetingId }: { meetingId: string }) {
         {pending && (
           <>
             <div className="flex justify-end">
-              <div className="bg-indigo-600/70 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[85%] text-sm">
+              <div className="bg-indigo-650 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[85%] text-sm font-medium shadow-sm">
                 {pending}
               </div>
             </div>
             <div className="flex justify-start">
-              <div className="bg-[#0d0f12] border border-gray-800 text-gray-400 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm italic">
+              <div className="bg-slate-50 border border-slate-150 text-slate-500 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm italic font-medium shadow-sm">
                 Thinking…
               </div>
             </div>
@@ -152,13 +152,13 @@ export default function ChatPanel({ meetingId }: { meetingId: string }) {
       </div>
 
       {error && (
-        <div className="bg-red-950/40 border border-red-900/50 text-red-300 p-3 rounded-xl text-sm mb-4">
+        <div className="bg-red-50 border border-red-200/50 text-red-700 p-3 rounded-lg text-sm mb-4 font-medium">
           {error}
         </div>
       )}
 
       {atCap ? (
-        <div className="bg-[#0d0f12] border border-gray-800 rounded-xl p-4 text-sm text-gray-400 text-center">
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-500 text-center font-medium">
           Question limit reached for this meeting.
         </div>
       ) : (
@@ -170,12 +170,12 @@ export default function ChatPanel({ meetingId }: { meetingId: string }) {
             disabled={sending}
             maxLength={500}
             placeholder="Ask about this meeting…"
-            className="flex-1 bg-[#0d0f12] border border-gray-800 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50 text-sm"
+            className="flex-1 bg-white border border-slate-200 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600/30 transition-all disabled:opacity-50 text-sm"
           />
           <button
             type="submit"
             disabled={sending || !input.trim()}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl px-5 py-3 font-semibold text-sm transition-colors"
+            className="bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg px-5 py-3 font-semibold text-sm transition-colors cursor-pointer shadow-sm"
           >
             {sending ? '…' : 'Ask'}
           </button>

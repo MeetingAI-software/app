@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import type { ShareResponse } from '@/lib/api';
 import { msToClock } from '@/lib/format';
 import DocumentView from '@/components/DocumentView';
@@ -26,9 +27,9 @@ export default function SharePageClient({
       <div className="max-w-4xl mx-auto w-full flex-1">
         {/* Header Actions */}
         <div className="flex justify-between items-center mb-8 print:hidden">
-          <div className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
             <span className="text-indigo-400 font-bold tracking-tight">MeetingAI Share</span>
-          </div>
+          </Link>
 
           <button
             onClick={handlePrint}
