@@ -6,6 +6,7 @@ import type { DocumentGeneratorPort } from '../../../ports/document-generator.po
 import { documentContentSchema } from '../../../domain/document.schema';
 import { MeetingNotReadyError, DocumentGenerationError } from '../../../domain/errors';
 import { toShareResponse } from './share-response';
+import { perUserRouteLimiter, SPEND_LIMITS } from '../middleware/rate-limit';
 
 export function createMeetingRoutes(
   meetingRepo: MeetingRepository,
@@ -16,6 +17,10 @@ export function createMeetingRoutes(
 ): Router {
   const router = Router();
 
+  // Day 6 §2 spend limits (created once; each holds its own per-user window).
+  const createLimiter = perUserRouteLimiter('meeting-create', SPEND_LIMITS.meetingCreate);
+  const documentLimiter = perUserRouteLimiter('document', SPEND_LIMITS.document);
+
   const createMeetingSchema = z.object({
     meetingUrl: z.string().url().refine(val => val.includes('zoom.us'), {
       message: 'Only Zoom meetings (zoom.us) are supported',
@@ -23,7 +28,7 @@ export function createMeetingRoutes(
   });
 
   // POST /api/meetings
-  router.post('/api/meetings', async (req, res, next) => {
+  router.post('/api/meetings', createLimiter, async (req, res, next) => {
     try {
       const parsed = createMeetingSchema.parse(req.body);
       const meeting = await startMeetingService.start(req.userId!, parsed.meetingUrl);
@@ -74,7 +79,7 @@ export function createMeetingRoutes(
   });
 
   // POST /api/meetings/:id/document
-  router.post('/api/meetings/:id/document', async (req, res, next) => {
+  router.post('/api/meetings/:id/document', documentLimiter, async (req, res, next) => {
     try {
       const meeting = await meetingRepo.findByIdForUser(req.params.id, req.userId!);
       if (!meeting) {

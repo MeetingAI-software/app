@@ -7,6 +7,7 @@ import type { MeetingRepository, WebhookEventRepository } from '../../../ports/r
 import type { UsageMeterService } from '../../../application/usage-meter.service';
 import type { AudioStoragePort } from '../../../ports/audio-storage.port';
 import { parseParticipantNames, isAudioMime } from './upload-inputs';
+import { perUserRouteLimiter, SPEND_LIMITS } from '../middleware/rate-limit';
 
 /**
  * POST /api/meetings/upload — in-room recording upload.
@@ -22,6 +23,9 @@ export function createUploadRoutes(
 ): Router {
   const router = Router();
 
+  // Day 6 §2 spend limit — runs before multer so we reject over-limit uploads before buffering a file.
+  const uploadLimiter = perUserRouteLimiter('upload', SPEND_LIMITS.upload);
+
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: config.MAX_UPLOAD_MB * 1024 * 1024, files: 1 },
@@ -34,7 +38,7 @@ export function createUploadRoutes(
     },
   });
 
-  router.post('/api/meetings/upload', (req, res, next) => {
+  router.post('/api/meetings/upload', uploadLimiter, (req, res, next) => {
     upload.single('audio')(req, res, (err: unknown) => {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
