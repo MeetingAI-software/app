@@ -33,3 +33,28 @@ export function fixedWindowLimiter(opts: {
     return next();
   };
 }
+
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+
+/**
+ * Day 6 §2 spend limits — the money-burning endpoints, keyed `userId:routeName` so each user gets
+ * their own bucket per route (falls back to IP before auth, though these routes always run behind
+ * requireUser). Numbers live in code (house style). These are speed bumps above the monthly cap:
+ * a stuck retry-loop or an abusive user hits a wall in seconds, not after burning the budget.
+ */
+export const SPEND_LIMITS = {
+  chat: { max: 10, windowMs: MINUTE },           // 10 / minute
+  document: { max: 3, windowMs: MINUTE },        // 3 / minute
+  upload: { max: 5, windowMs: HOUR },            // 5 / hour
+  meetingCreate: { max: 10, windowMs: HOUR },    // 10 / hour
+} as const;
+
+/** Fixed-window limiter bucketed per authenticated user per route → 429 (standard error shape). */
+export function perUserRouteLimiter(routeName: string, limit: { max: number; windowMs: number }): RequestHandler {
+  return fixedWindowLimiter({
+    max: limit.max,
+    windowMs: limit.windowMs,
+    keyOf: (req) => `${req.userId ?? req.ip}:${routeName}`,
+  });
+}
