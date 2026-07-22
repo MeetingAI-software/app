@@ -1,4 +1,5 @@
 import express from 'express';
+import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import { requestIdMiddleware } from './middleware/request-id';
 import { errorHandler } from './middleware/error-handler';
@@ -20,6 +21,12 @@ export function createServer(
   authenticate: (sessionToken: string) => Promise<User | null>
 ): express.Application {
   const app = express();
+
+  // Day 6 §1: security headers on every response (healthz + webhooks included). Helmet defaults
+  // give us HSTS, X-Content-Type-Options: nosniff, and frame-blocking. We only override CORP:
+  // this is a JSON API deliberately read cross-origin by the web app (dev :3001→:3000, prod
+  // app.→api.), and the default `same-origin` would block those reads. CORS still governs access.
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
   // Logging & Request ID
   app.use(requestIdMiddleware);
