@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { PricingToggle } from '@/components/pricing/PricingToggle';
 import { PricingCards } from '@/components/pricing/PricingCards';
+import { PricingTable } from '@/components/pricing/PricingTable';
 
 export default function PricingPage() {
   const [isAnnual, setIsAnnual] = useState(true);
@@ -27,6 +28,9 @@ export default function PricingPage() {
 
       {/* Plan cards */}
       <PricingCards isAnnual={isAnnual} />
+
+      {/* Comparison table */}
+      <PricingTable isAnnual={isAnnual} />
     </main>
   );
 }
