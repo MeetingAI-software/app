@@ -19,7 +19,7 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
 
   const annualTotal = getAnnualTotalEur(plan.monthlyEur);
 
-  // 3D Card Tilt & Mouse Spotlight tracking
+  // Subtle 3D Card Tilt & Mouse Spotlight tracking
   const handleCardMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const card = e.currentTarget;
     const rect = card.getBoundingClientRect();
@@ -28,10 +28,11 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
 
-    const rotateX = ((y - centerY) / centerY) * -6;
-    const rotateY = ((x - centerX) / centerX) * 6;
+    // Smoother, subtle tilt angles (2.5deg max)
+    const rotateX = ((y - centerY) / centerY) * -2.5;
+    const rotateY = ((x - centerX) / centerX) * 2.5;
 
-    card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
+    card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.008, 1.008, 1.008)`;
 
     // Calculate percentage for radial spotlight
     const mousePercentX = (x / rect.width) * 100;
@@ -46,13 +47,13 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
     setIsHovered(false);
   };
 
-  // Magnetic Button Effect
+  // Subtle Magnetic Button Effect
   const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
     const btn = e.currentTarget;
     const rect = btn.getBoundingClientRect();
     const x = e.clientX - rect.left - rect.width / 2;
     const y = e.clientY - rect.top - rect.height / 2;
-    btn.style.transform = `translate(${x * 0.15}px, ${y * 0.15}px)`;
+    btn.style.transform = `translate(${x * 0.08}px, ${y * 0.08}px)`;
     btn.style.transition = 'transform 0.1s ease-out';
   };
 
@@ -67,28 +68,28 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
       onMouseMove={handleCardMouseMove}
       onMouseLeave={handleCardMouseLeave}
       style={{
-        transition: 'transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease',
+        transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease',
       }}
-      className={`relative flex flex-col justify-between p-6 sm:p-8 rounded-2xl overflow-hidden cursor-pointer ${
+      className={`relative flex flex-col justify-between p-6 sm:p-8 rounded-2xl cursor-pointer ${
         isTeam
           ? 'bg-slate-900 text-white shadow-2xl ring-2 ring-blue-500 z-10'
           : 'bg-white text-slate-900 shadow-md border border-slate-200 hover:shadow-xl'
       }`}
     >
-      {/* Interactive Radial Spotlight Background */}
+      {/* Interactive Radial Spotlight Background clipped inside card */}
       {isHovered && (
         <div
-          className="pointer-events-none absolute -inset-px rounded-2xl opacity-100 transition-opacity duration-300 z-0"
+          className="pointer-events-none absolute inset-0 rounded-2xl opacity-100 transition-opacity duration-300 z-0 overflow-hidden"
           style={{
             background: isTeam
-              ? `radial-gradient(400px circle at ${mousePos.x}% ${mousePos.y}%, rgba(59, 130, 246, 0.25), transparent 80%)`
-              : `radial-gradient(350px circle at ${mousePos.x}% ${mousePos.y}%, rgba(59, 130, 246, 0.12), transparent 80%)`,
+              ? `radial-gradient(400px circle at ${mousePos.x}% ${mousePos.y}%, rgba(59, 130, 246, 0.2), transparent 80%)`
+              : `radial-gradient(350px circle at ${mousePos.x}% ${mousePos.y}%, rgba(59, 130, 246, 0.1), transparent 80%)`,
           }}
         />
       )}
 
       {plan.badge && (
-        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-md z-20">
+        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-md z-30 pointer-events-none">
           {plan.badge}
         </div>
       )}
@@ -177,7 +178,7 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
         </div>
       </div>
 
-      {/* CTA Button with Magnetic effect */}
+      {/* CTA Button with Subtle Magnetic effect */}
       <div className="relative z-10">
         <a
           href={plan.ctaHref}
