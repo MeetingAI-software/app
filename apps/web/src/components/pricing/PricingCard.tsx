@@ -184,7 +184,7 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
           href={plan.ctaHref}
           onMouseMove={handleMagneticMouseMove}
           onMouseLeave={handleMagneticMouseLeave}
-          className={`w-full py-3 px-6 rounded-xl font-semibold text-center text-sm transition-colors duration-200 inline-block shadow-sm ${
+          className={`w-full py-3 px-6 rounded-xl font-semibold text-center text-sm transition-colors duration-200 inline-flex items-center justify-center gap-2 shadow-sm ${
             isTeam
               ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/50 btn-shimmer'
               : plan.id === 'business'
@@ -192,7 +192,8 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
               : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300'
           }`}
         >
-          {plan.ctaLabel}
+          <span>{plan.ctaLabel}</span>
+          <span className="ml-1.5 font-bold text-xs opacity-80">&gt;</span>
         </a>
       </div>
     </div>
