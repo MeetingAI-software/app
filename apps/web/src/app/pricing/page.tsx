@@ -71,9 +71,10 @@ export default function PricingPage() {
                 href="/signup"
                 onMouseMove={handleMagneticMouseMove}
                 onMouseLeave={handleMagneticMouseLeave}
-                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm shadow-lg shadow-blue-600/30 transition-colors btn-shimmer"
+                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm shadow-lg shadow-blue-600/30 transition-colors btn-shimmer inline-flex items-center justify-center gap-2"
               >
-                Start free now
+                <span>Start free now</span>
+                <span className="ml-1.5 font-bold text-xs opacity-90">&gt;</span>
               </a>
               <a
                 href="mailto:sales@meetingai.eu?subject=Meeting%20AI%20Demo%20Request"
