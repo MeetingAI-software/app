@@ -216,7 +216,7 @@ export default function Home() {
             </Link>
             <nav className="hidden md:flex items-center gap-gutter">
               <a href="#features" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Features</a>
-              <a href="#pricing" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Pricing</a>
+              <Link href="/pricing" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Pricing</Link>
               <a href="#demo" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Demo</a>
             </nav>
             <div className="flex items-center gap-4">
