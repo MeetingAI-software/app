@@ -75,7 +75,7 @@ MEMORY.md
 # VSCode settings (keep shared configuration)
 .vscode/*
 !.vscode/settings.json
-!.vscode/tasks.json
+!.vscode/tasks.jsons
 !.vscode/launch.json
 !.vscode/extensions.json
 
