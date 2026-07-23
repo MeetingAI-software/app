@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { PricingPlan, getAnnualTotalEur, getEffectiveMonthlyRateEur } from '@/lib/pricing';
 
 interface PricingCardProps {
@@ -10,6 +10,8 @@ interface PricingCardProps {
 
 export function PricingCard({ plan, isAnnual }: PricingCardProps) {
   const isTeam = plan.id === 'team';
+  const [mousePos, setMousePos] = useState({ x: 50, y: 50 });
+  const [isHovered, setIsHovered] = useState(false);
 
   const displayedPrice = isAnnual
     ? getEffectiveMonthlyRateEur(plan.monthlyEur)
@@ -17,21 +19,81 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
 
   const annualTotal = getAnnualTotalEur(plan.monthlyEur);
 
+  // 3D Card Tilt & Mouse Spotlight tracking
+  const handleCardMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const card = e.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+
+    const rotateX = ((y - centerY) / centerY) * -6;
+    const rotateY = ((x - centerX) / centerX) * 6;
+
+    card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
+
+    // Calculate percentage for radial spotlight
+    const mousePercentX = (x / rect.width) * 100;
+    const mousePercentY = (y / rect.height) * 100;
+    setMousePos({ x: mousePercentX, y: mousePercentY });
+    setIsHovered(true);
+  };
+
+  const handleCardMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => {
+    const card = e.currentTarget;
+    card.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
+    setIsHovered(false);
+  };
+
+  // Magnetic Button Effect
+  const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    const btn = e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const x = e.clientX - rect.left - rect.width / 2;
+    const y = e.clientY - rect.top - rect.height / 2;
+    btn.style.transform = `translate(${x * 0.15}px, ${y * 0.15}px)`;
+    btn.style.transition = 'transform 0.1s ease-out';
+  };
+
+  const handleMagneticMouseLeave = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    const btn = e.currentTarget;
+    btn.style.transform = 'translate(0px, 0px)';
+    btn.style.transition = 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+  };
+
   return (
     <div
-      className={`relative flex flex-col justify-between p-6 sm:p-8 rounded-2xl transition-all duration-300 ${
+      onMouseMove={handleCardMouseMove}
+      onMouseLeave={handleCardMouseLeave}
+      style={{
+        transition: 'transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease',
+      }}
+      className={`relative flex flex-col justify-between p-6 sm:p-8 rounded-2xl overflow-hidden cursor-pointer ${
         isTeam
-          ? 'bg-slate-900 text-white shadow-2xl ring-2 ring-blue-500 md:-translate-y-2 z-10'
-          : 'bg-white text-slate-900 shadow-md border border-slate-200 hover:shadow-lg'
+          ? 'bg-slate-900 text-white shadow-2xl ring-2 ring-blue-500 z-10'
+          : 'bg-white text-slate-900 shadow-md border border-slate-200 hover:shadow-xl'
       }`}
     >
+      {/* Interactive Radial Spotlight Background */}
+      {isHovered && (
+        <div
+          className="pointer-events-none absolute -inset-px rounded-2xl opacity-100 transition-opacity duration-300 z-0"
+          style={{
+            background: isTeam
+              ? `radial-gradient(400px circle at ${mousePos.x}% ${mousePos.y}%, rgba(59, 130, 246, 0.25), transparent 80%)`
+              : `radial-gradient(350px circle at ${mousePos.x}% ${mousePos.y}%, rgba(59, 130, 246, 0.12), transparent 80%)`,
+          }}
+        />
+      )}
+
       {plan.badge && (
-        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-md">
+        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-md z-20">
           {plan.badge}
         </div>
       )}
 
-      <div>
+      <div className="relative z-10">
         {/* Header */}
         <div className="mb-6">
           <h3 className="text-xl font-bold">{plan.name}</h3>
@@ -70,11 +132,7 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
                 {plan.perSeat ? '/seat' : ''}/yr)
               </span>
             ) : (
-              <span
-                className={`text-xs ${
-                  isTeam ? 'text-slate-400' : 'text-slate-400'
-                }`}
-              >
+              <span className="text-xs text-slate-400">
                 {plan.monthlyEur === 0 ? 'Forever free' : 'Billed monthly'}
               </span>
             )}
@@ -119,19 +177,23 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
         </div>
       </div>
 
-      {/* CTA Button */}
-      <a
-        href={plan.ctaHref}
-        className={`w-full py-3 px-6 rounded-xl font-semibold text-center text-sm transition-all duration-200 inline-block shadow-sm ${
-          isTeam
-            ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/50'
-            : plan.id === 'business'
-            ? 'bg-slate-900 hover:bg-slate-800 text-white'
-            : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300'
-        }`}
-      >
-        {plan.ctaLabel}
-      </a>
+      {/* CTA Button with Magnetic effect */}
+      <div className="relative z-10">
+        <a
+          href={plan.ctaHref}
+          onMouseMove={handleMagneticMouseMove}
+          onMouseLeave={handleMagneticMouseLeave}
+          className={`w-full py-3 px-6 rounded-xl font-semibold text-center text-sm transition-colors duration-200 inline-block shadow-sm ${
+            isTeam
+              ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/50 btn-shimmer'
+              : plan.id === 'business'
+              ? 'bg-slate-900 hover:bg-slate-800 text-white'
+              : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300'
+          }`}
+        >
+          {plan.ctaLabel}
+        </a>
+      </div>
     </div>
   );
 }
