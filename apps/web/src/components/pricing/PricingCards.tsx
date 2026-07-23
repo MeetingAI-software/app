@@ -11,8 +11,14 @@ interface PricingCardsProps {
 export function PricingCards({ isAnnual }: PricingCardsProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-4 max-w-7xl mx-auto px-4 items-stretch py-4">
-      {PLANS.map((plan) => (
-        <PricingCard key={plan.id} plan={plan} isAnnual={isAnnual} />
+      {PLANS.map((plan, idx) => (
+        <div
+          key={plan.id}
+          className="card-entrance flex flex-col"
+          style={{ animationDelay: `${idx * 100}ms` }}
+        >
+          <PricingCard plan={plan} isAnnual={isAnnual} />
+        </div>
       ))}
     </div>
   );
