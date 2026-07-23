@@ -31,6 +31,7 @@ import { FakeDocumentGenerator } from './adapters/fake/fake-document.generator';
 import { ClaudeAdapter } from './adapters/claude/claude.adapter';
 import { FakeChatAdapter } from './adapters/fake/fake-chat.adapter';
 import { ClaudeChatAdapter } from './adapters/claude/claude-chat.adapter';
+import { GeminiChatAdapter } from './adapters/gemini/gemini-chat.adapter';
 import { FakeTranscriptionAdapter } from './adapters/fake/fake-transcription.adapter';
 import { AssemblyAIAdapter } from './adapters/assemblyai/assemblyai.adapter';
 import { Argon2Hasher } from './adapters/auth/argon2.hasher';
@@ -78,6 +79,9 @@ async function bootstrap() {
   if (config.CHAT_PROVIDER === 'fake') {
     console.log('💬 Using Fake Chat Adapter');
     chatAdapter = new FakeChatAdapter();
+  } else if (config.CHAT_PROVIDER === 'gemini') {
+    console.log(`💬 Using Gemini Chat Adapter (${config.GEMINI_CHAT_MODEL})`);
+    chatAdapter = new GeminiChatAdapter();
   } else {
     console.log(`💬 Using Claude Chat Adapter (${config.CLAUDE_MODEL})`);
     chatAdapter = new ClaudeChatAdapter();
