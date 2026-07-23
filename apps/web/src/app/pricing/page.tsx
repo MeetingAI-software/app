@@ -8,17 +8,33 @@ import { PricingTable } from '@/components/pricing/PricingTable';
 export default function PricingPage() {
   const [isAnnual, setIsAnnual] = useState(true);
 
+  // Magnetic button handler for CTA section
+  const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    const btn = e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const x = e.clientX - rect.left - rect.width / 2;
+    const y = e.clientY - rect.top - rect.height / 2;
+    btn.style.transform = `translate(${x * 0.2}px, ${y * 0.2}px)`;
+    btn.style.transition = 'transform 0.1s ease-out';
+  };
+
+  const handleMagneticMouseLeave = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    const btn = e.currentTarget;
+    btn.style.transform = 'translate(0px, 0px)';
+    btn.style.transition = 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+  };
+
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900 py-16 px-4 sm:px-6 lg:px-8">
-      {/* Hero section */}
-      <div className="max-w-4xl mx-auto text-center mb-12">
-        <span className="inline-flex items-center px-3 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 border border-blue-200 mb-4">
+    <main className="min-h-screen bg-slate-50/50 text-slate-900 py-16 px-4 sm:px-6 lg:px-8">
+      {/* Animated Hero section */}
+      <div className="max-w-4xl mx-auto text-center mb-12 blur-in">
+        <span className="inline-flex items-center px-3.5 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 border border-blue-200 mb-4 shadow-xs">
           Transparent EU Pricing
         </span>
-        <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 mb-4">
+        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-slate-900 mb-4">
           Simple pricing for real meeting intelligence
         </h1>
-        <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+        <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
           No hidden fees, no fake urgency, no asterisk discounts. Every plan is hosted 100% in the EU with complete data privacy.
         </p>
 
@@ -26,11 +42,48 @@ export default function PricingPage() {
         <PricingToggle isAnnual={isAnnual} onChange={setIsAnnual} />
       </div>
 
-      {/* Plan cards */}
+      {/* Plan cards with mouse hover spotlight & 3D tilt */}
       <PricingCards isAnnual={isAnnual} />
 
       {/* Comparison table */}
       <PricingTable isAnnual={isAnnual} />
+
+      {/* Short & High-Impact CTA Banner */}
+      <div className="max-w-5xl mx-auto mt-20 mb-12 px-4">
+        <div className="relative overflow-hidden rounded-3xl bg-slate-900 text-white p-8 sm:p-12 text-center shadow-2xl ring-1 ring-slate-800">
+          {/* Subtle background glow */}
+          <div className="absolute -top-24 -left-24 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 max-w-2xl mx-auto">
+            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+              Ready to make every meeting count?
+            </h2>
+            <p className="text-slate-300 text-base mb-8">
+              Start in under 60 seconds with 100% EU data residency. No credit card required.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <a
+                href="/signup"
+                onMouseMove={handleMagneticMouseMove}
+                onMouseLeave={handleMagneticMouseLeave}
+                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm shadow-lg shadow-blue-600/30 transition-colors btn-shimmer"
+              >
+                Start free now
+              </a>
+              <a
+                href="mailto:sales@meetingai.eu?subject=Meeting%20AI%20Demo%20Request"
+                onMouseMove={handleMagneticMouseMove}
+                onMouseLeave={handleMagneticMouseLeave}
+                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-sm border border-slate-700 transition-colors"
+              >
+                Request a demo
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }
