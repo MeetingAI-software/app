@@ -41,6 +41,9 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),       // required at boot IF either provider is 'gemini' (see superRefine)
   GEMINI_CHAT_MODEL: z.string().default(''),   // set a real id from Google's current docs, e.g. gemini-2.5-flash
   GEMINI_DOC_MODEL: z.string().default(''),    // e.g. gemini-2.5-pro
+  // --- Google OAuth ---
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 }).superRefine((cfg, ctx) => {
   // Same fail-fast standard as everything else: don't boot half-configured for a paid vendor.
   if ((cfg.CHAT_PROVIDER === 'gemini' || cfg.DOC_PROVIDER === 'gemini') && !cfg.GEMINI_API_KEY) {
