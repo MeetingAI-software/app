@@ -169,25 +169,7 @@ export default function MeetingDetailPage() {
   const isProcessing = ['pending', 'bot_joining', 'recording', 'processing'].includes(meeting.status);
 
   return (
-    <main className="min-h-screen bg-transparent text-slate-950 pt-28 pb-12 px-4 md:px-8 print:bg-white print:p-0">
-      {/* TopNavBar */}
-      <header className="bg-white/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 border-b border-slate-200 shadow-sm print:hidden">
-        <div className="flex justify-between items-center px-6 py-4 max-w-4xl mx-auto">
-          <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2 hover:opacity-90 transition-opacity">
-            <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
-            MeetingAI
-          </Link>
-          <nav className="flex items-center gap-4">
-            <Link href="/" className="text-slate-600 hover:text-slate-900 font-medium text-sm transition-colors">
-              Home
-            </Link>
-            <Link href="/meetings" className="text-slate-900 font-bold text-sm transition-colors">
-              Console
-            </Link>
-          </nav>
-        </div>
-      </header>
-
+    <main className="min-h-screen bg-transparent text-slate-950 py-10 px-4 md:px-8 print:bg-white print:p-0">
       <div className="max-w-4xl mx-auto">
         {/* Back and Action header */}
         <div className="flex justify-between items-center mb-8 print:hidden">

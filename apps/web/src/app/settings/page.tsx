@@ -5,17 +5,21 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { changePassword, changeEmail, deleteAccount, ApiError } from '@/lib/api';
 
-const CARD = 'bg-[#13171c] border border-gray-800 rounded-2xl p-6';
+const CARD = 'bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-6 shadow-sm';
 const INPUT =
-  'w-full bg-[#0d0f12] border border-gray-800 rounded-xl px-4 py-3 text-white placeholder-gray-700 focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50';
-const LABEL = 'block text-xs text-gray-400 mb-1.5';
+  'w-full bg-white border border-slate-200 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 transition-colors disabled:opacity-50';
+const LABEL = 'block text-sm font-semibold text-slate-700 mb-1.5';
+const PRIMARY_BTN =
+  'bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors shadow-sm cursor-pointer';
+const OK_MSG = 'bg-emerald-50 border border-emerald-200 text-emerald-700 p-3 rounded-lg text-sm';
+const ERR_MSG = 'bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-sm';
 
 export default function SettingsPage() {
   return (
     <div className="max-w-xl mx-auto px-4 py-10 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white mb-1">Settings</h1>
-        <p className="text-gray-500 text-sm">Manage your account.</p>
+        <h1 className="font-headline-lg text-2xl font-bold text-slate-900 mb-1">Settings</h1>
+        <p className="text-on-surface-variant text-sm">Manage your account.</p>
       </div>
 
       <ChangePasswordCard />
@@ -23,7 +27,7 @@ export default function SettingsPage() {
       <DeleteAccountCard />
 
       <div>
-        <Link href="/meetings" className="text-gray-500 hover:text-gray-300 text-sm">
+        <Link href="/meetings" className="text-on-surface-variant hover:text-secondary text-sm font-medium">
           ← Back to meetings
         </Link>
       </div>
@@ -66,8 +70,8 @@ function ChangePasswordCard() {
 
   return (
     <div className={CARD}>
-      <h2 className="text-white font-semibold mb-1">Change password</h2>
-      <p className="text-gray-500 text-sm mb-4">Changing your password signs out your other devices.</p>
+      <h2 className="text-slate-900 font-bold mb-1">Change password</h2>
+      <p className="text-on-surface-variant text-sm mb-4">Changing your password signs out your other devices.</p>
       <form onSubmit={onSubmit} className="space-y-3">
         <div>
           <label className={LABEL}>Current password</label>
@@ -95,13 +99,9 @@ function ChangePasswordCard() {
             className={INPUT}
           />
         </div>
-        {error && <div className="bg-red-950/40 border border-red-900/50 text-red-300 p-3 rounded-xl text-xs">{error}</div>}
-        {done && <div className="bg-emerald-950/40 border border-emerald-900/50 text-emerald-300 p-3 rounded-xl text-xs">Password updated.</div>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl px-4 py-2.5 text-sm font-semibold transition-all"
-        >
+        {error && <div className={ERR_MSG}>{error}</div>}
+        {done && <div className={OK_MSG}>Password updated.</div>}
+        <button type="submit" disabled={loading} className={PRIMARY_BTN}>
           {loading ? 'Saving…' : 'Update password'}
         </button>
       </form>
@@ -144,8 +144,8 @@ function ChangeEmailCard() {
 
   return (
     <div className={CARD}>
-      <h2 className="text-white font-semibold mb-1">Change email</h2>
-      <p className="text-gray-500 text-sm mb-4">You'll sign in with the new email next time.</p>
+      <h2 className="text-slate-900 font-bold mb-1">Change email</h2>
+      <p className="text-on-surface-variant text-sm mb-4">You&apos;ll sign in with the new email next time.</p>
       <form onSubmit={onSubmit} className="space-y-3">
         <div>
           <label className={LABEL}>New email</label>
@@ -173,13 +173,9 @@ function ChangeEmailCard() {
             className={INPUT}
           />
         </div>
-        {error && <div className="bg-red-950/40 border border-red-900/50 text-red-300 p-3 rounded-xl text-xs">{error}</div>}
-        {done && <div className="bg-emerald-950/40 border border-emerald-900/50 text-emerald-300 p-3 rounded-xl text-xs">Email updated. Reload to see it in the header.</div>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl px-4 py-2.5 text-sm font-semibold transition-all"
-        >
+        {error && <div className={ERR_MSG}>{error}</div>}
+        {done && <div className={OK_MSG}>Email updated. Reload to see it in the header.</div>}
+        <button type="submit" disabled={loading} className={PRIMARY_BTN}>
           {loading ? 'Saving…' : 'Update email'}
         </button>
       </form>
@@ -215,23 +211,23 @@ function DeleteAccountCard() {
   };
 
   return (
-    <div className="bg-[#13171c] border border-red-900/40 rounded-2xl p-6">
-      <h2 className="text-red-300 font-semibold mb-1">Delete account</h2>
-      <p className="text-gray-400 text-sm mb-4">
+    <div className="bg-white/80 backdrop-blur-sm border border-red-200 rounded-xl p-6 shadow-sm">
+      <h2 className="text-red-600 font-bold mb-1">Delete account</h2>
+      <p className="text-on-surface-variant text-sm mb-4">
         Deletes every meeting, document, transcript and recording you own. Your share links stop working.{' '}
-        <strong className="text-gray-300">This cannot be undone.</strong>
+        <strong className="text-slate-700">This cannot be undone.</strong>
       </p>
 
       {!confirming ? (
         <button
           onClick={() => setConfirming(true)}
-          className="bg-red-600/90 hover:bg-red-600 text-white rounded-xl px-4 py-2.5 text-sm font-semibold transition-all"
+          className="bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors shadow-sm cursor-pointer"
         >
           Delete my account…
         </button>
       ) : (
         <form onSubmit={onDelete} className="space-y-3">
-          <label className="block text-xs text-gray-400">Confirm your password to continue</label>
+          <label className="block text-sm font-semibold text-slate-700">Confirm your password to continue</label>
           <input
             type="password"
             required
@@ -241,16 +237,14 @@ function DeleteAccountCard() {
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
             placeholder="••••••••"
-            className="w-full bg-[#0d0f12] border border-gray-800 rounded-xl px-4 py-3 text-white placeholder-gray-700 focus:outline-none focus:border-red-500 transition-colors disabled:opacity-50"
+            className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/30 transition-colors disabled:opacity-50"
           />
-          {error && (
-            <div className="bg-red-950/40 border border-red-900/50 text-red-300 p-3 rounded-xl text-xs">{error}</div>
-          )}
+          {error && <div className={ERR_MSG}>{error}</div>}
           <div className="flex items-center gap-3">
             <button
               type="submit"
               disabled={loading}
-              className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl px-4 py-2.5 text-sm font-semibold transition-all"
+              className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors shadow-sm cursor-pointer"
             >
               {loading ? 'Deleting…' : 'Permanently delete'}
             </button>
@@ -262,7 +256,7 @@ function DeleteAccountCard() {
                 setPassword('');
               }}
               disabled={loading}
-              className="text-gray-400 hover:text-white text-sm px-2"
+              className="text-on-surface-variant hover:text-slate-900 text-sm px-2 font-medium"
             >
               Cancel
             </button>
