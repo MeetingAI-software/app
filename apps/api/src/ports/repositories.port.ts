@@ -62,15 +62,23 @@ export interface ChatMessageRepository {
 
 // Day 5: accounts + sessions
 export interface UserRepository {
-  create(input: { email: string; passwordHash?: string | null; googleId?: string | null }): Promise<User>;
+  create(input: { email: string; passwordHash?: string | null; googleId?: string | null; emailVerified?: boolean }): Promise<User>;
   /** Includes passwordHash — for AuthService only. */
   findByEmailWithHash(email: string): Promise<(User & { passwordHash: string | null; googleId?: string | null }) | null>;
   findByGoogleId(googleId: string): Promise<User | null>;
   linkGoogleId(id: string, googleId: string): Promise<void>;
+  markEmailVerified(id: string): Promise<void>;
   findById(id: string): Promise<User | null>;
   updatePassword(id: string, passwordHash: string): Promise<void>;         // account settings: change password
   updateEmail(id: string, email: string): Promise<User>;                   // lowercased; unique-violation → EmailTakenError
   deleteById(id: string): Promise<void>;
+}
+
+export interface VerificationTokenRepository {
+  create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void>;
+  findByTokenHash(tokenHash: string): Promise<{ id: string; userId: string; expiresAt: Date } | null>;
+  deleteByTokenHash(tokenHash: string): Promise<void>;
+  deleteAllForUser(userId: string): Promise<void>;
 }
 
 export interface SessionRepository {

@@ -1,5 +1,5 @@
 // adapters/db/schema.ts
-import { pgTable, uuid, text, integer, timestamp, jsonb, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, boolean, timestamp, jsonb, uniqueIndex, index } from 'drizzle-orm/pg-core';
 
 export const meetings = pgTable('meetings', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -82,8 +82,19 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),                        // lowercased by the app
   passwordHash: text('password_hash'),                            // nullable for OAuth users
   googleId: text('google_id').unique(),                           // Google OAuth sub ID
+  emailVerified: boolean('email_verified').notNull().default(false), // true for OAuth / verified
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const emailVerificationTokens = pgTable('email_verification_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  verificationUserIdIdx: index('verification_user_id_idx').on(t.userId),
+}));
 
 export const sessions = pgTable('sessions', {
   id: uuid('id').primaryKey().defaultRandom(),

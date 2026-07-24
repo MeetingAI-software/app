@@ -37,6 +37,7 @@ export interface Meeting {
 export interface User {
   id: string;
   email: string;          // stored lowercase; unique
+  emailVerified: boolean;
   createdAt: Date;
 }
 
