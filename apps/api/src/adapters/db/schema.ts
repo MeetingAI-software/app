@@ -80,7 +80,8 @@ export const chatMessages = pgTable('chat_messages', {
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: text('email').notNull().unique(),                        // lowercased by the app
-  passwordHash: text('password_hash').notNull(),
+  passwordHash: text('password_hash'),                            // nullable for OAuth users
+  googleId: text('google_id').unique(),                           // Google OAuth sub ID
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
