@@ -214,9 +214,9 @@ export default function AuthForm(props: Props) {
                 </div>
 
                 {/* Social Login Button */}
-                <button
-                  type="button"
-                  className="w-full bg-surface-container-lowest border border-slate-200 text-slate-900 font-label-mono text-xs uppercase tracking-wider font-semibold py-3 px-6 rounded transition-all hover:bg-slate-50 flex justify-center items-center gap-3 shadow-xs cursor-pointer"
+                <a
+                  href={`${typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000') : 'http://localhost:3000'}/api/auth/google`}
+                  className="w-full bg-surface-container-lowest border border-slate-200 text-slate-900 font-label-mono text-xs uppercase tracking-wider font-semibold py-3 px-6 rounded transition-all hover:bg-slate-50 flex justify-center items-center gap-3 shadow-xs cursor-pointer no-underline"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
                     <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -225,7 +225,7 @@ export default function AuthForm(props: Props) {
                     <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                   </svg>
                   Continue with Google
-                </button>
+                </a>
 
                 {/* Footer Text */}
                 <p className="text-center font-body-md text-sm text-on-surface-variant pt-2">
