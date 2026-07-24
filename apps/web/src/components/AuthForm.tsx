@@ -215,7 +215,7 @@ export default function AuthForm(props: Props) {
 
                 {/* Social Login Button */}
                 <a
-                  href={`${typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000') : 'http://localhost:3000'}/api/auth/google`}
+                  href="/api/auth/google"
                   className="w-full bg-surface-container-lowest border border-slate-200 text-slate-900 font-label-mono text-xs uppercase tracking-wider font-semibold py-3 px-6 rounded transition-all hover:bg-slate-50 flex justify-center items-center gap-3 shadow-xs cursor-pointer no-underline"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
