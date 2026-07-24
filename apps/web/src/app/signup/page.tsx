@@ -32,8 +32,8 @@ export default function SignupPage() {
   return (
     <AuthForm
       mode="signup"
-      title="Create your account"
-      subtitle="Your meetings, private to you."
+      title="Create account"
+      subtitle="Precise summaries for high-performing teams."
       cta="Sign Up"
       loading={loading}
       error={error}
@@ -47,7 +47,7 @@ export default function SignupPage() {
       footer={
         <>
           Already have an account?{' '}
-          <Link href="/login" className="text-secondary hover:underline font-medium">
+          <Link href="/login" className="text-slate-900 font-medium hover:underline decoration-slate-200 underline-offset-4">
             Log in
           </Link>
         </>
