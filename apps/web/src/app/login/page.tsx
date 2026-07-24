@@ -27,7 +27,7 @@ export default function LoginPage() {
           ? 'Wrong email or password.'
           : err instanceof Error
             ? err.message
-            : 'Login failed.'
+            : 'Log in failed.'
       );
       setLoading(false);
     }
@@ -35,9 +35,10 @@ export default function LoginPage() {
 
   return (
     <AuthForm
+      mode="login"
       title="Log in"
       subtitle="Welcome back to MeetingAI."
-      cta="Log in"
+      cta="Log In"
       loading={loading}
       error={error}
       email={email}
@@ -48,7 +49,7 @@ export default function LoginPage() {
       footer={
         <>
           New here?{' '}
-          <Link href="/signup" className="text-indigo-400 hover:text-indigo-300 font-medium">
+          <Link href="/signup" className="text-secondary hover:underline font-medium">
             Create an account
           </Link>
         </>
