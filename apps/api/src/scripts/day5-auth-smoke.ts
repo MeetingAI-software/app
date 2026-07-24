@@ -29,10 +29,9 @@ async function main() {
     assert(!!byId && byId.id === user.id, 'findById returns the user');
     assert((byId as { passwordHash?: string }).passwordHash === undefined, 'findById does NOT expose passwordHash');
 
-    // 3. findByEmailWithHash is case-insensitive and returns a verifiable hash
     const withHash = await users.findByEmailWithHash(`DAY5.SMOKE.${rand}@example.test`);
-    assert(!!withHash, 'findByEmailWithHash finds the user regardless of case');
-    assert(await hasher.verify(password, withHash!.passwordHash), 'stored hash verifies against the password');
+    assert(!!withHash && !!withHash.passwordHash, 'findByEmailWithHash finds the user regardless of case');
+    assert(await hasher.verify(password, withHash!.passwordHash!), 'stored hash verifies against the password');
 
     // 4. duplicate email → EmailTakenError (unique violation mapped)
     let taken = false;
