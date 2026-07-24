@@ -25,35 +25,40 @@ class FakeUserRepo implements UserRepository {
   private byId = new Map<string, User & { passwordHash: string | null; googleId?: string | null }>();
   private byEmail = new Map<string, string>();
   private byGoogleId = new Map<string, string>();
-  async create(input: { email: string; passwordHash?: string | null; googleId?: string | null }): Promise<User> {
+  async create(input: { email: string; passwordHash?: string | null; googleId?: string | null; emailVerified?: boolean }): Promise<User> {
     const email = input.email.trim().toLowerCase();
     if (this.byEmail.has(email)) throw new EmailTakenError('taken');
-    const rec = { id: `u${++this.seq}`, email, passwordHash: input.passwordHash ?? null, googleId: input.googleId ?? null, createdAt: new Date() };
+    const rec = { id: `u${++this.seq}`, email, emailVerified: input.emailVerified ?? false, passwordHash: input.passwordHash ?? null, googleId: input.googleId ?? null, createdAt: new Date() };
     this.byId.set(rec.id, rec);
     this.byEmail.set(email, rec.id);
     if (input.googleId) this.byGoogleId.set(input.googleId, rec.id);
-    return { id: rec.id, email: rec.email, createdAt: rec.createdAt };
+    return { id: rec.id, email: rec.email, emailVerified: rec.emailVerified, createdAt: rec.createdAt };
   }
   async findByEmailWithHash(email: string) {
     const id = this.byEmail.get(email.trim().toLowerCase());
     const r = id ? this.byId.get(id) : undefined;
-    return r ? { id: r.id, email: r.email, createdAt: r.createdAt, passwordHash: r.passwordHash, googleId: r.googleId } : null;
+    return r ? { id: r.id, email: r.email, emailVerified: r.emailVerified, createdAt: r.createdAt, passwordHash: r.passwordHash, googleId: r.googleId } : null;
   }
   async findByGoogleId(googleId: string) {
     const id = this.byGoogleId.get(googleId);
     const r = id ? this.byId.get(id) : undefined;
-    return r ? { id: r.id, email: r.email, createdAt: r.createdAt } : null;
+    return r ? { id: r.id, email: r.email, emailVerified: r.emailVerified, createdAt: r.createdAt } : null;
   }
   async linkGoogleId(id: string, googleId: string) {
     const r = this.byId.get(id);
     if (r) {
       r.googleId = googleId;
+      r.emailVerified = true;
       this.byGoogleId.set(googleId, id);
     }
   }
+  async markEmailVerified(id: string) {
+    const r = this.byId.get(id);
+    if (r) r.emailVerified = true;
+  }
   async findById(id: string) {
     const r = this.byId.get(id);
-    return r ? { id: r.id, email: r.email, createdAt: r.createdAt } : null;
+    return r ? { id: r.id, email: r.email, emailVerified: r.emailVerified, createdAt: r.createdAt } : null;
   }
   async updatePassword(id: string, passwordHash: string) {
     const r = this.byId.get(id);
@@ -68,7 +73,7 @@ class FakeUserRepo implements UserRepository {
     this.byEmail.delete(r.email);
     r.email = normalized;
     this.byEmail.set(normalized, id);
-    return { id: r.id, email: r.email, createdAt: r.createdAt };
+    return { id: r.id, email: r.email, emailVerified: r.emailVerified, createdAt: r.createdAt };
   }
   async deleteById(id: string) {
     const r = this.byId.get(id);

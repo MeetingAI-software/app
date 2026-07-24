@@ -163,5 +163,26 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
     }
   });
 
+  // --- Email Verification Routes ---
+  router.post('/api/auth/verify-email', async (req, res, next) => {
+    try {
+      const { token } = z.object({ token: z.string().min(1) }).parse(req.body);
+      const user = await auth.verifyEmail(token);
+      return res.status(200).json({ user });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  router.post('/api/auth/resend-verification', async (req, res, next) => {
+    try {
+      const { email } = z.object({ email: z.string().email() }).parse(req.body);
+      await auth.resendVerification(email);
+      return res.status(200).json({ message: 'If an account exists, a new verification link has been sent.' });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
   return router;
 }

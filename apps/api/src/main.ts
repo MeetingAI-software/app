@@ -9,6 +9,7 @@ import { DrizzleDocumentRepository } from './adapters/db/repositories/document.r
 import { DrizzleChatMessageRepository } from './adapters/db/repositories/chat-message.repository';
 import { DrizzleUserRepository } from './adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from './adapters/db/repositories/session.repository';
+import { DrizzleVerificationTokenRepository } from './adapters/db/repositories/verification-token.repository';
 import { FakeBotAdapter } from './adapters/fake/fake-bot.adapter';
 import { UsageMeterService } from './application/usage-meter.service';
 import { StartMeetingService } from './application/start-meeting.service';
@@ -114,10 +115,12 @@ async function bootstrap() {
   // 4c. Auth (Day 5): accounts + sessions + GDPR erasure
   const userRepo = new DrizzleUserRepository();
   const sessionRepo = new DrizzleSessionRepository();
+  const verificationTokenRepo = new DrizzleVerificationTokenRepository();
   const passwordHasher = new Argon2Hasher();
   const authService = new AuthService(
     userRepo, sessionRepo, passwordHasher, config.SESSION_TTL_DAYS,
-    meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter
+    meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter,
+    verificationTokenRepo
   );
 
   // 4. Web Worker

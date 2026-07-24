@@ -26,6 +26,8 @@ export interface AuthServiceApi {
   login(email: string, password: string): Promise<AuthResult>;
   logout(sessionToken: string): Promise<void>;
   getUserForToken(sessionToken: string): Promise<User | null>;
+  verifyEmail(token: string): Promise<User>;
+  resendVerification(email: string): Promise<void>;
   /** Verify current password, set a new one, rotate sessions (returns a fresh session for the caller). */
   changePassword(userId: string, currentPassword: string, newPassword: string): Promise<AuthResult>;
   /** Verify current password, then change the (unverified) email. EmailTakenError on collision. */
@@ -65,7 +67,8 @@ export class AuthService implements AuthServiceApi {
     private readonly chat: ChatMessageRepository,
     private readonly usage: UsageRepository,
     private readonly storage: AudioStoragePort,
-    private readonly bot: MeetingBotPort
+    private readonly bot: MeetingBotPort,
+    private readonly verificationTokens?: import('../ports/repositories.port').VerificationTokenRepository
   ) {}
 
   async signup(email: string, password: string): Promise<AuthResult> {
@@ -73,9 +76,50 @@ export class AuthService implements AuthServiceApi {
       throw new WeakPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
     const passwordHash = await this.hasher.hash(password);
-    const user = await this.users.create({ email, passwordHash }); // EmailTakenError bubbles up
+    const user = await this.users.create({ email, passwordHash, emailVerified: false });
     logger.info({ userId: user.id }, 'User signed up');
+    if (this.verificationTokens) {
+      await this.createAndSendVerificationToken(user.id, user.email);
+    }
     return this.startSession(user);
+  }
+
+  async verifyEmail(token: string): Promise<User> {
+    if (!this.verificationTokens) {
+      throw new Error('Verification tokens repository not configured');
+    }
+    const tokenHash = hashToken(token);
+    const record = await this.verificationTokens.findByTokenHash(tokenHash);
+    if (!record || record.expiresAt < new Date()) {
+      throw new Error('Invalid or expired verification token');
+    }
+    await this.users.markEmailVerified(record.userId);
+    await this.verificationTokens.deleteByTokenHash(tokenHash);
+    const user = await this.users.findById(record.userId);
+    if (!user) throw new Error('User not found');
+    logger.info({ userId: user.id }, 'Email verified successfully');
+    return user;
+  }
+
+  async resendVerification(email: string): Promise<void> {
+    if (!this.verificationTokens) return;
+    const user = await this.users.findByEmailWithHash(email);
+    if (user && !user.emailVerified) {
+      await this.createAndSendVerificationToken(user.id, user.email);
+    }
+  }
+
+  private async createAndSendVerificationToken(userId: string, email: string): Promise<void> {
+    if (!this.verificationTokens) return;
+    await this.verificationTokens.deleteAllForUser(userId);
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    await this.verificationTokens.create({ userId, tokenHash, expiresAt });
+
+    const webOrigin = process.env.WEB_ORIGIN || 'http://localhost:3001';
+    const verifyUrl = `${webOrigin}/verify-email?token=${rawToken}`;
+    logger.info({ userId, email, verifyUrl }, '✉️ EMAIL VERIFICATION LINK (Dev Log)');
   }
 
   async login(email: string, password: string): Promise<AuthResult> {

@@ -11,7 +11,7 @@ import { config } from '../../config/env';
 // /api endpoints that must work WITHOUT a session. Paths here are relative to the '/api' mount.
 function isPublicApi(method: string, path: string): boolean {
   if (method === 'GET' && path.startsWith('/share/')) return true; // public share pages
-  if (method === 'POST' && (path === '/auth/signup' || path === '/auth/login' || path === '/auth/logout')) return true;
+  if (method === 'POST' && (path === '/auth/signup' || path === '/auth/login' || path === '/auth/logout' || path === '/auth/verify-email' || path === '/auth/resend-verification')) return true;
   if (method === 'GET' && (path === '/auth/me' || path === '/auth/google' || path.startsWith('/auth/google/'))) return true;
   return false;
 }
