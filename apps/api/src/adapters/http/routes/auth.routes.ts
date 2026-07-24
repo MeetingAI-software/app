@@ -125,7 +125,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
     if (!config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET) {
       return res.status(500).json({ error: { code: 'OAUTH_NOT_CONFIGURED', message: 'Google OAuth is not configured on backend.' } });
     }
-    const redirectUri = `${config.PUBLIC_WEBHOOK_URL ? config.PUBLIC_WEBHOOK_URL.replace(/\/+$/, '') : 'http://localhost:3000'}/api/auth/google/callback`;
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:3000/api/auth/google/callback`;
     const client = new OAuth2Client(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, redirectUri);
     const url = client.generateAuthUrl({
       access_type: 'offline',
@@ -140,7 +140,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
       if (!code) {
         return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_failed`);
       }
-      const redirectUri = `${config.PUBLIC_WEBHOOK_URL ? config.PUBLIC_WEBHOOK_URL.replace(/\/+$/, '') : 'http://localhost:3000'}/api/auth/google/callback`;
+      const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:3000/api/auth/google/callback`;
       const client = new OAuth2Client(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, redirectUri);
       const { tokens } = await client.getToken(code);
       client.setCredentials(tokens);
