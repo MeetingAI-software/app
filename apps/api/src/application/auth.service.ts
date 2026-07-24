@@ -86,12 +86,34 @@ export class AuthService implements AuthServiceApi {
       await this.hasher.verify(password, await this.getDummyHash());
       throw new InvalidCredentialsError('Invalid email or password');
     }
-    const ok = await this.hasher.verify(password, record.passwordHash);
+    const ok = record.passwordHash ? await this.hasher.verify(password, record.passwordHash) : false;
     if (!ok) {
       throw new InvalidCredentialsError('Invalid email or password');
     }
     const { passwordHash: _omit, ...user } = record;
     logger.info({ userId: user.id }, 'User logged in');
+    return this.startSession(user);
+  }
+
+  async loginOrCreateGoogleUser(email: string, googleId: string): Promise<AuthResult> {
+    // 1. Try finding by Google ID
+    let user = await this.users.findByGoogleId(googleId);
+    if (!user) {
+      // 2. Try finding by email
+      const existing = await this.users.findByEmailWithHash(email);
+      if (existing) {
+        // Link existing user to Google ID
+        await this.users.linkGoogleId(existing.id, googleId);
+        const { passwordHash: _omit, ...existingUser } = existing;
+        user = existingUser;
+      } else {
+        // Create new user with Google ID
+        user = await this.users.create({ email, googleId });
+        logger.info({ userId: user.id }, 'User signed up via Google OAuth');
+      }
+    } else {
+      logger.info({ userId: user.id }, 'User logged in via Google OAuth');
+    }
     return this.startSession(user);
   }
 
@@ -173,10 +195,10 @@ export class AuthService implements AuthServiceApi {
   private async requirePassword(userId: string, password: string): Promise<User & { passwordHash: string }> {
     const user = await this.users.findById(userId);
     const record = user ? await this.users.findByEmailWithHash(user.email) : null;
-    if (!record || !(await this.hasher.verify(password, record.passwordHash))) {
+    if (!record || !record.passwordHash || !(await this.hasher.verify(password, record.passwordHash))) {
       throw new InvalidCredentialsError('Invalid password');
     }
-    return record;
+    return record as User & { passwordHash: string };
   }
 
   private async startSession(user: User): Promise<AuthResult> {
