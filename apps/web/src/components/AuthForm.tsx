@@ -22,6 +22,7 @@ interface Props {
 
 export default function AuthForm(props: Props) {
   const [showPassword, setShowPassword] = useState(false);
+  const contactEmail = "hello@meetingai.eu";
 
   const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
     const btn = e.currentTarget;
@@ -47,7 +48,7 @@ export default function AuthForm(props: Props) {
 
       <div className="font-body-md text-on-surface bg-[#f9f9f9] min-h-screen flex flex-col justify-between selection:bg-slate-200">
         
-        {/* TopNavBar — Exact match to Landing Page */}
+        {/* TopNavBar — Fixed Header */}
         <header className="bg-surface-container-lowest/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 border-b border-slate-200 shadow-sm content-layer">
           <div className="flex justify-between items-center px-margin-page py-4 max-w-container-max mx-auto">
             <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2">
@@ -80,25 +81,14 @@ export default function AuthForm(props: Props) {
           </div>
         </header>
 
-        {/* Full-bleed Split Screen Layout (No Container Box) */}
-        <main className="pt-[73px] flex-1 flex w-full">
-          <div className="flex w-full flex-1 flex-col lg:flex-row">
+        {/* Full-bleed Split Screen Layout (No top padding, background goes directly behind header to very top) */}
+        <main className="flex-1 flex w-full">
+          <div className="flex w-full flex-1 flex-col lg:flex-row min-h-screen">
             
-            {/* Left Pane: Branding & Hero Content (Full Height, Full Bleed) */}
-            <div className="hidden lg:flex lg:w-1/2 bg-slate-50 border-r border-slate-200 flex-col p-12 xl:p-16 relative overflow-hidden justify-between">
+            {/* Left Pane: Branding & Hero Content (Stretches all the way up to top of screen behind header) */}
+            <div className="hidden lg:flex lg:w-1/2 bg-slate-50 border-r border-slate-200 flex-col pt-32 pb-16 px-12 xl:px-16 relative overflow-hidden justify-center">
               <div className="absolute top-0 left-0 w-1 h-full bg-slate-900 opacity-10" />
               <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'linear-gradient(to right bottom, rgb(248, 250, 252), rgb(241, 245, 249))', opacity: 1 }} />
-              
-              <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-8">
-                  <span className="material-symbols-outlined text-slate-900 text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                    corporate_fare
-                  </span>
-                  <span className="font-headline-md text-headline-md text-slate-900 tracking-tight font-bold">
-                    MeetingAI
-                  </span>
-                </div>
-              </div>
 
               <div className="relative z-10 my-auto max-w-lg space-y-6 text-left">
                 <h2 className="font-headline-lg text-4xl xl:text-5xl text-slate-900 tracking-tight leading-tight font-bold">
@@ -119,26 +109,14 @@ export default function AuthForm(props: Props) {
                   </Link>
                 </div>
               </div>
-
-              <div className="relative z-10 text-xs text-on-surface-variant font-label-mono">
-                Trusted by high-performing teams worldwide.
-              </div>
             </div>
 
-            {/* Right Pane: Form (Full Height, Full Bleed) */}
-            <div className="w-full lg:w-1/2 flex items-center justify-center p-8 sm:p-12 xl:p-16 bg-surface-container-lowest">
+            {/* Right Pane: Form (Stretches all the way up to top of screen behind header) */}
+            <div className="w-full lg:w-1/2 flex items-center justify-center pt-32 pb-16 px-8 sm:px-12 xl:px-16 bg-surface-container-lowest">
               <div className="w-full max-w-md space-y-6">
                 
                 {/* Header */}
                 <div className="text-center lg:text-left space-y-2">
-                  <div className="flex items-center justify-center lg:hidden gap-2 mb-6">
-                    <span className="material-symbols-outlined text-slate-900 text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                      corporate_fare
-                    </span>
-                    <span className="font-headline-md text-headline-md text-slate-900 tracking-tight font-bold">
-                      MeetingAI
-                    </span>
-                  </div>
                   <h1 className="font-headline-lg text-3xl md:text-4xl text-slate-900 tracking-tight font-bold">
                     {props.title}
                   </h1>
@@ -259,8 +237,37 @@ export default function AuthForm(props: Props) {
         </main>
 
         {/* Footer — Exact match to Landing Page */}
-        <footer className="w-full max-w-container-max mx-auto px-margin-page py-4 text-center text-xs text-on-surface-variant font-medium">
-          © {new Date().getFullYear()} MeetingAI Inc. All rights reserved. Built with EU Privacy First principles.
+        <footer className="bg-surface-container-low/90 backdrop-blur-md font-body-md text-body-md w-full py-12 border-t border-slate-200 content-layer relative z-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter px-margin-page max-w-container-max mx-auto text-left">
+            <div className="col-span-1 md:col-span-2 lg:col-span-1 flex flex-col gap-4">
+              <Link href="/" className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2 hover:text-secondary transition-colors duration-200">
+                <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
+                MeetingAI
+              </Link>
+              <p className="text-on-surface text-sm mt-2">
+                © {new Date().getFullYear()} MeetingAI. All rights reserved. Precise summaries for high-performing teams.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3">
+              <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">Legal</h4>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Privacy Policy</a>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Terms of Service</a>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Security</a>
+            </div>
+            <div className="flex flex-col gap-3">
+              <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">Company</h4>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href={`mailto:${contactEmail}`}>Contact Us</a>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Twitter</a>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">LinkedIn</a>
+            </div>
+            <div className="flex flex-col gap-3">
+              <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">System</h4>
+              <div className="flex items-center gap-2 text-sm text-on-tertiary-container font-medium">
+                <div className="w-2 h-2 rounded-full bg-success" />
+                All systems operational
+              </div>
+            </div>
+          </div>
         </footer>
       </div>
     </>
