@@ -12,7 +12,7 @@ import { config } from '../../config/env';
 function isPublicApi(method: string, path: string): boolean {
   if (method === 'GET' && path.startsWith('/share/')) return true; // public share pages
   if (method === 'POST' && (path === '/auth/signup' || path === '/auth/login' || path === '/auth/logout')) return true;
-  if (method === 'GET' && path === '/auth/me') return true; // the session probe (401s on its own)
+  if (method === 'GET' && (path === '/auth/me' || path === '/auth/google' || path.startsWith('/auth/google/'))) return true;
   return false;
 }
 

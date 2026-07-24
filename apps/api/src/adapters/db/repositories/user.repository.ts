@@ -18,12 +18,16 @@ function toUser(row: { id: string; email: string; createdAt: Date }): User {
 }
 
 export class DrizzleUserRepository implements UserRepository {
-  async create(input: { email: string; passwordHash: string }): Promise<User> {
+  async create(input: { email: string; passwordHash?: string | null; googleId?: string | null }): Promise<User> {
     const email = normalizeEmail(input.email);
     try {
       const [row] = await db
         .insert(users)
-        .values({ email, passwordHash: input.passwordHash })
+        .values({
+          email,
+          passwordHash: input.passwordHash ?? null,
+          googleId: input.googleId ?? null,
+        })
         .returning();
       return toUser(row);
     } catch (err) {
@@ -35,9 +39,18 @@ export class DrizzleUserRepository implements UserRepository {
   }
 
   /** Includes passwordHash — for AuthService only; never hand this to a route response. */
-  async findByEmailWithHash(email: string): Promise<(User & { passwordHash: string }) | null> {
+  async findByEmailWithHash(email: string): Promise<(User & { passwordHash: string | null; googleId?: string | null }) | null> {
     const [row] = await db.select().from(users).where(eq(users.email, normalizeEmail(email)));
-    return row ? { ...toUser(row), passwordHash: row.passwordHash } : null;
+    return row ? { ...toUser(row), passwordHash: row.passwordHash, googleId: row.googleId } : null;
+  }
+
+  async findByGoogleId(googleId: string): Promise<User | null> {
+    const [row] = await db.select().from(users).where(eq(users.googleId, googleId));
+    return row ? toUser(row) : null;
+  }
+
+  async linkGoogleId(id: string, googleId: string): Promise<void> {
+    await db.update(users).set({ googleId }).where(eq(users.id, id));
   }
 
   async findById(id: string): Promise<User | null> {

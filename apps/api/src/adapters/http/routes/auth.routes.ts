@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import type { AuthServiceApi } from '../../../application/auth.service';
+import type { AuthService, AuthServiceApi } from '../../../application/auth.service';
 import { setSessionCookie, clearSessionCookie, readSessionCookie } from '../cookies';
 import { fixedWindowLimiter } from '../middleware/rate-limit';
+import { OAuth2Client } from 'google-auth-library';
+import { config } from '../../../config/env';
 
-export function createAuthRoutes(auth: AuthServiceApi): Router {
+export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
   const router = Router();
 
   const signupSchema = z.object({
@@ -115,6 +117,49 @@ export function createAuthRoutes(auth: AuthServiceApi): Router {
       return res.status(204).end();
     } catch (err) {
       return next(err);
+    }
+  });
+
+  // --- Google OAuth 2.0 Routes ---
+  router.get('/api/auth/google', (req, res) => {
+    if (!config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET) {
+      return res.status(500).json({ error: { code: 'OAUTH_NOT_CONFIGURED', message: 'Google OAuth is not configured on backend.' } });
+    }
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:3000/api/auth/google/callback`;
+    const client = new OAuth2Client(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, redirectUri);
+    const url = client.generateAuthUrl({
+      access_type: 'offline',
+      scope: ['https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+    });
+    return res.redirect(url);
+  });
+
+  router.get('/api/auth/google/callback', async (req, res, next) => {
+    try {
+      const code = req.query.code as string;
+      if (!code) {
+        return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_failed`);
+      }
+      const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:3000/api/auth/google/callback`;
+      const client = new OAuth2Client(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, redirectUri);
+      const { tokens } = await client.getToken(code);
+      client.setCredentials(tokens);
+
+      const ticket = await client.verifyIdToken({
+        idToken: tokens.id_token as string,
+        audience: config.GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+      if (!payload || !payload.email || !payload.sub) {
+        return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_payload_invalid`);
+      }
+
+      const { sessionToken, expiresAt } = await auth.loginOrCreateGoogleUser(payload.email, payload.sub);
+      setSessionCookie(res, sessionToken, expiresAt);
+      return res.redirect(`${config.WEB_ORIGIN}/meetings`);
+    } catch (err) {
+      console.error('❌ Google OAuth Callback Error:', err);
+      return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_error`);
     }
   });
 
