@@ -35,9 +35,10 @@ export default function LoginPage() {
 
   return (
     <AuthForm
-      title="Log in"
-      subtitle="Welcome back to MeetingAI."
-      cta="Log in"
+      mode="login"
+      title="Welcome back"
+      subtitle="Precise summaries for high-performing teams."
+      cta="Sign In"
       loading={loading}
       error={error}
       email={email}
@@ -47,9 +48,9 @@ export default function LoginPage() {
       onSubmit={onSubmit}
       footer={
         <>
-          New here?{' '}
-          <Link href="/signup" className="text-indigo-400 hover:text-indigo-300 font-medium">
-            Create an account
+          Don't have an account?{' '}
+          <Link href="/signup" className="text-slate-900 font-medium hover:underline decoration-slate-200 underline-offset-4">
+            Sign up
           </Link>
         </>
       }

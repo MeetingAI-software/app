@@ -1,8 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
+import Link from 'next/link';
 
 interface Props {
+  mode: 'signup' | 'login';
   title: string;
   subtitle: string;
   cta: string;
@@ -18,81 +20,256 @@ interface Props {
   footer: React.ReactNode;
 }
 
-/** Shared card for /login and /signup — matches the landing page's light design language. */
 export default function AuthForm(props: Props) {
+  const [showPassword, setShowPassword] = useState(false);
+  const contactEmail = "hello@meetingai.eu";
+
+  const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
+    const btn = e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const x = e.clientX - rect.left - rect.width / 2;
+    const y = e.clientY - rect.top - rect.height / 2;
+    btn.style.transform = `translate(${x * 0.2}px, ${y * 0.2}px)`;
+    btn.style.transition = 'transform 0.1s ease-out';
+  };
+
+  const handleMagneticMouseLeave = (e: React.MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
+    const btn = e.currentTarget;
+    btn.style.transform = 'translate(0px, 0px)';
+    btn.style.transition = 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+  };
+
   return (
-    <main className="min-h-screen bg-transparent text-slate-900 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 bg-slate-900/5 text-slate-900 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider mb-4 border border-slate-900/10">
-            <span className="material-symbols-outlined text-[16px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-              summarize
-            </span>
-            MeetingAI
+    <>
+      {/* External Fonts */}
+      <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+      <link href="https://fonts.googleapis.com" rel="preconnect"/>
+      <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+
+      <div className="font-body-md text-on-surface bg-[#f9f9f9] min-h-screen flex flex-col justify-between selection:bg-slate-200">
+        
+        {/* TopNavBar — Fixed Header */}
+        <header className="bg-surface-container-lowest/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 border-b border-slate-200 shadow-sm content-layer">
+          <div className="flex justify-between items-center px-margin-page py-4 max-w-container-max mx-auto">
+            <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2">
+              <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                summarize
+              </span>
+              MeetingAI
+            </Link>
+            <nav className="hidden md:flex items-center gap-gutter">
+              <Link href="/#features" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Features</Link>
+              <Link href="/pricing" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Pricing</Link>
+              <Link href="/#demo" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Demo</Link>
+            </nav>
+            <div className="flex items-center gap-4">
+              <Link
+                href={props.mode === 'signup' ? '/login' : '/signup'}
+                className="hidden sm:inline-block text-slate-900 font-medium hover:text-secondary transition-colors duration-200"
+              >
+                {props.mode === 'signup' ? 'Sign In' : 'Sign Up'}
+              </Link>
+              <Link
+                href={props.mode === 'signup' ? '/signup' : '/login'}
+                className="magnetic-btn btn-shimmer bg-slate-900 text-white px-6 py-2 rounded font-medium hover:bg-slate-800 transition-colors shadow-sm text-sm"
+                onMouseMove={handleMagneticMouseMove}
+                onMouseLeave={handleMagneticMouseLeave}
+              >
+                {props.mode === 'signup' ? 'Get Started' : 'Log In'}
+              </Link>
+            </div>
           </div>
-          <h1 className="font-headline-lg text-3xl font-bold tracking-tight text-slate-900 mb-2">{props.title}</h1>
-          <p className="text-on-surface-variant text-sm">{props.subtitle}</p>
-        </div>
+        </header>
 
-        <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-6 shadow-sm">
-          <form onSubmit={props.onSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
-              <input
-                type="email"
-                required
-                autoFocus
-                autoComplete="email"
-                value={props.email}
-                onChange={(e) => props.onEmail(e.target.value)}
-                disabled={props.loading}
-                placeholder="you@company.com"
-                className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 transition-colors disabled:opacity-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
-              <input
-                type="password"
-                required
-                autoComplete={props.passwordAutoComplete ?? 'current-password'}
-                value={props.password}
-                onChange={(e) => props.onPassword(e.target.value)}
-                disabled={props.loading}
-                placeholder="••••••••"
-                className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 transition-colors disabled:opacity-50"
-              />
-              {props.passwordHint && <p className="text-[12px] text-slate-400 mt-1.5">{props.passwordHint}</p>}
-            </div>
+        {/* Full-bleed Split Screen Layout (No top padding, background goes directly behind header to very top) */}
+        <main className="flex-1 flex w-full">
+          <div className="flex w-full flex-1 flex-col lg:flex-row min-h-screen">
+            
+            {/* Left Pane: Branding & Hero Content (Stretches all the way up to top of screen behind header) */}
+            <div className="hidden lg:flex lg:w-1/2 bg-slate-50 border-r border-slate-200 flex-col pt-32 pb-16 px-12 xl:px-16 relative overflow-hidden justify-center">
+              <div className="absolute top-0 left-0 w-1 h-full bg-slate-900 opacity-10" />
+              <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'linear-gradient(to right bottom, rgb(248, 250, 252), rgb(241, 245, 249))', opacity: 1 }} />
 
-            {props.error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 p-3.5 rounded-lg text-sm text-center font-medium">
-                {props.error}
+              <div className="relative z-10 my-auto max-w-lg space-y-6 text-left">
+                <h2 className="font-headline-lg text-4xl xl:text-5xl text-slate-900 tracking-tight leading-tight font-bold">
+                  Turn hour-long meetings into 90-second catch-ups.
+                </h2>
+                <p className="font-body-lg text-on-surface-variant leading-relaxed text-lg">
+                  Precision diarization and AI-driven summaries keep your team aligned without the recording fatigue.
+                </p>
+                <div className="pt-4">
+                  <Link
+                    href="/#features"
+                    className="inline-flex items-center gap-2 bg-slate-900 text-white px-6 py-3.5 rounded font-label-mono text-xs uppercase tracking-wider font-semibold hover:bg-slate-800 hover:-translate-y-0.5 active:translate-y-0 transition-all shadow-sm group"
+                  >
+                    Explore Features
+                    <span className="material-symbols-outlined text-[18px] group-hover:translate-x-1 transition-transform">
+                      arrow_forward
+                    </span>
+                  </Link>
+                </div>
               </div>
-            )}
+            </div>
 
-            <button
-              type="submit"
-              disabled={props.loading}
-              className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg py-3 font-semibold text-sm transition-colors active:scale-[0.99] shadow-sm cursor-pointer flex items-center justify-center gap-2"
-            >
-              {props.loading ? (
-                <>
-                  <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            {/* Right Pane: Form (Stretches all the way up to top of screen behind header) */}
+            <div className="w-full lg:w-1/2 flex items-center justify-center pt-32 pb-16 px-8 sm:px-12 xl:px-16 bg-surface-container-lowest">
+              <div className="w-full max-w-md space-y-6">
+                
+                {/* Header */}
+                <div className="text-center lg:text-left space-y-2">
+                  <h1 className="font-headline-lg text-3xl md:text-4xl text-slate-900 tracking-tight font-bold">
+                    {props.title}
+                  </h1>
+                  <p className="font-body-md text-on-surface-variant">
+                    {props.subtitle}
+                  </p>
+                </div>
+
+                {/* Form */}
+                <form className="space-y-4 text-left" onSubmit={props.onSubmit}>
+                  {/* Email Field */}
+                  <div className="space-y-1.5">
+                    <label className="block font-label-mono text-xs uppercase tracking-wider font-semibold text-on-surface" htmlFor="email">
+                      Email address
+                    </label>
+                    <input
+                      id="email"
+                      type="email"
+                      required
+                      autoFocus
+                      autoComplete="email"
+                      value={props.email}
+                      onChange={(e) => props.onEmail(e.target.value)}
+                      disabled={props.loading}
+                      placeholder="name@company.com"
+                      className="w-full bg-surface-bright border border-slate-200 rounded px-4 py-3 font-body-md text-on-surface placeholder:text-outline-variant shadow-xs transition-colors focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 disabled:opacity-50"
+                    />
+                  </div>
+
+                  {/* Password Field */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <label className="block font-label-mono text-xs uppercase tracking-wider font-semibold text-on-surface" htmlFor="password">
+                        Password
+                      </label>
+                      {props.mode === 'login' && (
+                        <a href="#" className="font-label-mono text-xs text-secondary hover:text-slate-900 transition-colors font-medium">
+                          Forgot password?
+                        </a>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        id="password"
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        autoComplete={props.passwordAutoComplete ?? 'current-password'}
+                        value={props.password}
+                        onChange={(e) => props.onPassword(e.target.value)}
+                        disabled={props.loading}
+                        placeholder="••••••••"
+                        className="w-full bg-surface-bright border border-slate-200 rounded px-4 py-3 pr-12 font-body-md text-on-surface placeholder:text-outline-variant shadow-xs transition-colors focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 disabled:opacity-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs font-medium transition-colors"
+                      >
+                        {showPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    {props.passwordHint && (
+                      <p className="text-[12px] text-slate-400 mt-1">{props.passwordHint}</p>
+                    )}
+                  </div>
+
+                  {props.error && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded text-sm text-center font-medium">
+                      {props.error}
+                    </div>
+                  )}
+
+                  {/* Submit Button */}
+                  <button
+                    type="submit"
+                    disabled={props.loading}
+                    className="w-full bg-slate-900 text-white font-label-mono text-xs uppercase tracking-wider font-bold py-3.5 px-6 rounded transition-all hover:bg-slate-800 hover:-translate-y-0.5 active:translate-y-0 mt-2 flex justify-center items-center gap-2 shadow-md disabled:opacity-50 cursor-pointer"
+                  >
+                    {props.loading ? (
+                      'Processing...'
+                    ) : (
+                      <>
+                        {props.cta}
+                        <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {/* Divider */}
+                <div className="relative flex py-2 items-center">
+                  <div className="flex-grow border-t border-slate-200" />
+                  <span className="flex-shrink-0 mx-4 font-label-mono text-xs text-outline-variant uppercase">OR</span>
+                  <div className="flex-grow border-t border-slate-200" />
+                </div>
+
+                {/* Social Login Button */}
+                <button
+                  type="button"
+                  className="w-full bg-surface-container-lowest border border-slate-200 text-slate-900 font-label-mono text-xs uppercase tracking-wider font-semibold py-3 px-6 rounded transition-all hover:bg-slate-50 flex justify-center items-center gap-3 shadow-xs cursor-pointer"
+                >
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                   </svg>
-                  Please wait…
-                </>
-              ) : (
-                props.cta
-              )}
-            </button>
-          </form>
-        </div>
+                  Continue with Google
+                </button>
 
-        <p className="text-center text-on-surface-variant text-sm mt-6">{props.footer}</p>
+                {/* Footer Text */}
+                <p className="text-center font-body-md text-sm text-on-surface-variant pt-2">
+                  {props.footer}
+                </p>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        {/* Footer — Exact match to Landing Page */}
+        <footer className="bg-surface-container-low/90 backdrop-blur-md font-body-md text-body-md w-full py-12 border-t border-slate-200 content-layer relative z-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter px-margin-page max-w-container-max mx-auto text-left">
+            <div className="col-span-1 md:col-span-2 lg:col-span-1 flex flex-col gap-4">
+              <Link href="/" className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2 hover:text-secondary transition-colors duration-200">
+                <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
+                MeetingAI
+              </Link>
+              <p className="text-on-surface text-sm mt-2">
+                © {new Date().getFullYear()} MeetingAI. All rights reserved. Precise summaries for high-performing teams.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3">
+              <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">Legal</h4>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Privacy Policy</a>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Terms of Service</a>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Security</a>
+            </div>
+            <div className="flex flex-col gap-3">
+              <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">Company</h4>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href={`mailto:${contactEmail}`}>Contact Us</a>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Twitter</a>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">LinkedIn</a>
+            </div>
+            <div className="flex flex-col gap-3">
+              <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">System</h4>
+              <div className="flex items-center gap-2 text-sm text-on-tertiary-container font-medium">
+                <div className="w-2 h-2 rounded-full bg-success" />
+                All systems operational
+              </div>
+            </div>
+          </div>
+        </footer>
       </div>
-    </main>
+    </>
   );
 }
