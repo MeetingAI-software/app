@@ -3,9 +3,11 @@ import type { AddressInfo } from 'net';
 import { createServer } from '../adapters/http/server';
 import { createAuthRoutes } from '../adapters/http/routes/auth.routes';
 import { AuthService } from '../application/auth.service';
+import { EmailVerificationTokenService } from '../application/email-verification-token.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
 import { DrizzleUserRepository } from '../adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from '../adapters/db/repositories/session.repository';
+import { DrizzleVerificationTokenRepository } from '../adapters/db/repositories/verification-token.repository';
 import { DrizzleMeetingRepository } from '../adapters/db/repositories/meeting.repository';
 import { DrizzleTranscriptRepository } from '../adapters/db/repositories/transcript.repository';
 import { DrizzleDocumentRepository } from '../adapters/db/repositories/document.repository';
@@ -24,7 +26,8 @@ async function main() {
   const authService = new AuthService(
     userRepo, new DrizzleSessionRepository(), new Argon2Hasher(), 30,
     new DrizzleMeetingRepository(), new DrizzleTranscriptRepository(), new DrizzleDocumentRepository(),
-    new DrizzleChatMessageRepository(), new DrizzleUsageRepository(), new SupabaseStorageAdapter(), new RecallAdapter()
+    new DrizzleChatMessageRepository(), new DrizzleUsageRepository(), new SupabaseStorageAdapter(), new RecallAdapter(),
+    new EmailVerificationTokenService(new DrizzleVerificationTokenRepository()),
   );
   const app = createServer([createAuthRoutes(authService)], (t) => authService.getUserForToken(t));
   const server = app.listen(0);

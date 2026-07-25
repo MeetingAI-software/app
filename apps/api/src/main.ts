@@ -17,6 +17,7 @@ import { ProcessWebhookEventService } from './application/process-webhook-event.
 import { ProcessUploadEventService } from './application/process-upload-event.service';
 import { ChatService } from './application/chat.service';
 import { AuthService } from './application/auth.service';
+import { EmailVerificationTokenService } from './application/email-verification-token.service';
 import { WebhookWorker } from './jobs/worker';
 import { SweepJob } from './jobs/sweep';
 import { createMeetingRoutes } from './adapters/http/routes/meetings.routes';
@@ -116,11 +117,12 @@ async function bootstrap() {
   const userRepo = new DrizzleUserRepository();
   const sessionRepo = new DrizzleSessionRepository();
   const verificationTokenRepo = new DrizzleVerificationTokenRepository();
+  const emailVerificationTokens = new EmailVerificationTokenService(verificationTokenRepo);
   const passwordHasher = new Argon2Hasher();
   const authService = new AuthService(
     userRepo, sessionRepo, passwordHasher, config.SESSION_TTL_DAYS,
     meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter,
-    verificationTokenRepo
+    emailVerificationTokens
   );
 
   // 4. Web Worker
