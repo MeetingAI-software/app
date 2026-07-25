@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import crypto from 'crypto';
 import { AuthService } from './auth.service';
+import { EmailVerificationTokenService } from './email-verification-token.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
 import { InvalidCredentialsError, WeakPasswordError, EmailTakenError } from '../domain/errors';
-import type { User, Session, Meeting } from '../domain/types';
+import type { EmailVerificationToken, User, Session, Meeting } from '../domain/types';
 import type {
   UserRepository,
   SessionRepository,
@@ -12,6 +13,7 @@ import type {
   DocumentRepository,
   ChatMessageRepository,
   UsageRepository,
+  VerificationTokenRepository,
 } from '../ports/repositories.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
@@ -103,6 +105,35 @@ class FakeSessionRepo implements SessionRepository {
   }
 }
 
+class FakeVerificationTokenRepo implements VerificationTokenRepository {
+  private seq = 0;
+  private byHash = new Map<string, EmailVerificationToken>();
+
+  async replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }) {
+    for (const [hash, token] of this.byHash) {
+      if (token.userId === input.userId) this.byHash.delete(hash);
+    }
+    this.byHash.set(input.tokenHash, {
+      id: `v${++this.seq}`,
+      userId: input.userId,
+      expiresAt: input.expiresAt,
+      createdAt: new Date(),
+    });
+  }
+
+  async findByTokenHash(tokenHash: string) {
+    return this.byHash.get(tokenHash) ?? null;
+  }
+
+  async deleteByTokenHash(tokenHash: string) {
+    this.byHash.delete(tokenHash);
+  }
+
+  countForUser(userId: string): number {
+    return [...this.byHash.values()].filter((token) => token.userId === userId).length;
+  }
+}
+
 // Meeting repo backed by an inspectable store; the rest of its surface is unused here.
 function meetingRepoOver(store: Meeting[]): MeetingRepository {
   return {
@@ -138,10 +169,16 @@ function build(meetingStore: Meeting[] = []) {
   const usage: UsageRepository = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
   const storage: AudioStoragePort = { upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
   const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn(), fetchTranscript: vi.fn(), deleteRecording: vi.fn() };
+  const verificationTokenRepo = new FakeVerificationTokenRepo();
+  const verificationTokens = new EmailVerificationTokenService(verificationTokenRepo);
   const service = new AuthService(
-    users, sessions, hasher, TTL_DAYS, meetings, transcripts, documents, chat, usage, storage, bot
+    users, sessions, hasher, TTL_DAYS, meetings, transcripts, documents, chat, usage, storage, bot,
+    verificationTokens,
   );
-  return { service, users, sessions, meetings, transcripts, documents, chat, usage, storage, bot };
+  return {
+    service, users, sessions, meetings, transcripts, documents, chat, usage, storage, bot,
+    verificationTokenRepo,
+  };
 }
 
 describe('AuthService', () => {
@@ -157,6 +194,7 @@ describe('AuthService', () => {
       // auto-login: the returned token resolves back to the user
       const me = await ctx.service.getUserForToken(res.sessionToken);
       expect(me?.id).toBe(res.user.id);
+      expect(ctx.verificationTokenRepo.countForUser(res.user.id)).toBe(1);
     });
 
     it('rejects a password shorter than 10 chars and creates nothing', async () => {

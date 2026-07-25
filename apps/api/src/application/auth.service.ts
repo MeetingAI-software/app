@@ -14,6 +14,7 @@ import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import { InvalidCredentialsError, WeakPasswordError } from '../domain/errors';
 import { logger } from '../config/logger';
+import type { EmailVerificationTokenService } from './email-verification-token.service';
 
 export interface AuthResult {
   user: User;
@@ -68,7 +69,7 @@ export class AuthService implements AuthServiceApi {
     private readonly usage: UsageRepository,
     private readonly storage: AudioStoragePort,
     private readonly bot: MeetingBotPort,
-    private readonly verificationTokens?: import('../ports/repositories.port').VerificationTokenRepository
+    private readonly verificationTokens: EmailVerificationTokenService,
   ) {}
 
   async signup(email: string, password: string): Promise<AuthResult> {
@@ -78,23 +79,17 @@ export class AuthService implements AuthServiceApi {
     const passwordHash = await this.hasher.hash(password);
     const user = await this.users.create({ email, passwordHash, emailVerified: false });
     logger.info({ userId: user.id }, 'User signed up');
-    if (this.verificationTokens) {
-      await this.createAndSendVerificationToken(user.id, user.email);
-    }
+    await this.verificationTokens.issueForUser(user.id);
     return this.startSession(user);
   }
 
   async verifyEmail(token: string): Promise<User> {
-    if (!this.verificationTokens) {
-      throw new Error('Verification tokens repository not configured');
-    }
-    const tokenHash = hashToken(token);
-    const record = await this.verificationTokens.findByTokenHash(tokenHash);
+    const record = await this.verificationTokens.findByToken(token);
     if (!record || record.expiresAt < new Date()) {
       throw new Error('Invalid or expired verification token');
     }
     await this.users.markEmailVerified(record.userId);
-    await this.verificationTokens.deleteByTokenHash(tokenHash);
+    await this.verificationTokens.deleteByToken(token);
     const user = await this.users.findById(record.userId);
     if (!user) throw new Error('User not found');
     logger.info({ userId: user.id }, 'Email verified successfully');
@@ -102,24 +97,10 @@ export class AuthService implements AuthServiceApi {
   }
 
   async resendVerification(email: string): Promise<void> {
-    if (!this.verificationTokens) return;
     const user = await this.users.findByEmailWithHash(email);
     if (user && !user.emailVerified) {
-      await this.createAndSendVerificationToken(user.id, user.email);
+      await this.verificationTokens.issueForUser(user.id);
     }
-  }
-
-  private async createAndSendVerificationToken(userId: string, email: string): Promise<void> {
-    if (!this.verificationTokens) return;
-    await this.verificationTokens.deleteAllForUser(userId);
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = hashToken(rawToken);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-    await this.verificationTokens.create({ userId, tokenHash, expiresAt });
-
-    const webOrigin = process.env.WEB_ORIGIN || 'http://localhost:3001';
-    const verifyUrl = `${webOrigin}/verify-email?token=${rawToken}`;
-    logger.info({ userId, email, verifyUrl }, '✉️ EMAIL VERIFICATION LINK (Dev Log)');
   }
 
   async login(email: string, password: string): Promise<AuthResult> {
