@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import crypto from 'crypto';
 import { AuthService } from './auth.service';
 import { EmailVerificationTokenService } from './email-verification-token.service';
+import { EmailVerificationDeliveryService } from './email-verification-delivery.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
 import { InvalidCredentialsError, WeakPasswordError, EmailTakenError } from '../domain/errors';
 import type { EmailVerificationToken, User, Session, Meeting } from '../domain/types';
@@ -17,6 +18,10 @@ import type {
 } from '../ports/repositories.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
+import type {
+  EmailVerificationMailer,
+  VerificationEmailMessage,
+} from '../ports/email-verification-mailer.port';
 
 const TTL_DAYS = 30;
 const sha256 = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
@@ -134,6 +139,16 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
   }
 }
 
+class FakeVerificationMailer implements EmailVerificationMailer {
+  readonly sent: VerificationEmailMessage[] = [];
+  failure: Error | null = null;
+
+  async sendVerificationEmail(message: VerificationEmailMessage) {
+    if (this.failure) throw this.failure;
+    this.sent.push(message);
+  }
+}
+
 // Meeting repo backed by an inspectable store; the rest of its surface is unused here.
 function meetingRepoOver(store: Meeting[]): MeetingRepository {
   return {
@@ -171,13 +186,19 @@ function build(meetingStore: Meeting[] = []) {
   const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn(), fetchTranscript: vi.fn(), deleteRecording: vi.fn() };
   const verificationTokenRepo = new FakeVerificationTokenRepo();
   const verificationTokens = new EmailVerificationTokenService(verificationTokenRepo);
+  const verificationMailer = new FakeVerificationMailer();
+  const verificationDelivery = new EmailVerificationDeliveryService(
+    verificationTokens,
+    verificationMailer,
+    'https://app.example.test',
+  );
   const service = new AuthService(
     users, sessions, hasher, TTL_DAYS, meetings, transcripts, documents, chat, usage, storage, bot,
-    verificationTokens,
+    verificationTokens, verificationDelivery,
   );
   return {
     service, users, sessions, meetings, transcripts, documents, chat, usage, storage, bot,
-    verificationTokenRepo,
+    verificationTokenRepo, verificationMailer,
   };
 }
 
@@ -195,6 +216,23 @@ describe('AuthService', () => {
       const me = await ctx.service.getUserForToken(res.sessionToken);
       expect(me?.id).toBe(res.user.id);
       expect(ctx.verificationTokenRepo.countForUser(res.user.id)).toBe(1);
+      expect(ctx.verificationMailer.sent).toHaveLength(1);
+      expect(ctx.verificationMailer.sent[0].to).toBe('alice@example.com');
+      const rawToken = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token');
+      expect(rawToken).toBeTruthy();
+      await expect(ctx.verificationTokenRepo.findByTokenHash(sha256(rawToken as string)))
+        .resolves.toMatchObject({ userId: res.user.id });
+    });
+
+    it('keeps the new account usable when initial email delivery fails', async () => {
+      ctx.verificationMailer.failure = new Error('mailer unavailable');
+
+      const result = await ctx.service.signup('delivery-failure@example.com', 'a-good-password');
+
+      await expect(ctx.service.getUserForToken(result.sessionToken)).resolves.toMatchObject({
+        email: 'delivery-failure@example.com',
+      });
+      expect(ctx.verificationTokenRepo.countForUser(result.user.id)).toBe(1);
     });
 
     it('rejects a password shorter than 10 chars and creates nothing', async () => {
@@ -205,6 +243,25 @@ describe('AuthService', () => {
     it('rejects a duplicate email with EmailTakenError', async () => {
       await ctx.service.signup('dup@example.com', 'a-good-password');
       await expect(ctx.service.signup('DUP@example.com', 'another-good-one')).rejects.toBeInstanceOf(EmailTakenError);
+    });
+  });
+
+  describe('resendVerification', () => {
+    it('issues and delivers a replacement link for an unverified user', async () => {
+      const { user } = await ctx.service.signup('resend@example.com', 'a-good-password');
+      const firstUrl = ctx.verificationMailer.sent[0].verificationUrl;
+
+      await ctx.service.resendVerification(user.email);
+
+      expect(ctx.verificationMailer.sent).toHaveLength(2);
+      expect(ctx.verificationMailer.sent[1].verificationUrl).not.toBe(firstUrl);
+      expect(ctx.verificationTokenRepo.countForUser(user.id)).toBe(1);
+    });
+
+    it('does not deliver a message for an unknown email', async () => {
+      await ctx.service.resendVerification('missing@example.com');
+
+      expect(ctx.verificationMailer.sent).toHaveLength(0);
     });
   });
 

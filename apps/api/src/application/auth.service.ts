@@ -15,6 +15,7 @@ import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import { InvalidCredentialsError, WeakPasswordError } from '../domain/errors';
 import { logger } from '../config/logger';
 import type { EmailVerificationTokenService } from './email-verification-token.service';
+import type { EmailVerificationDelivery } from './email-verification-delivery.service';
 
 export interface AuthResult {
   user: User;
@@ -70,6 +71,7 @@ export class AuthService implements AuthServiceApi {
     private readonly storage: AudioStoragePort,
     private readonly bot: MeetingBotPort,
     private readonly verificationTokens: EmailVerificationTokenService,
+    private readonly verificationDelivery: EmailVerificationDelivery,
   ) {}
 
   async signup(email: string, password: string): Promise<AuthResult> {
@@ -79,7 +81,13 @@ export class AuthService implements AuthServiceApi {
     const passwordHash = await this.hasher.hash(password);
     const user = await this.users.create({ email, passwordHash, emailVerified: false });
     logger.info({ userId: user.id }, 'User signed up');
-    await this.verificationTokens.issueForUser(user.id);
+    try {
+      await this.verificationDelivery.sendTo(user);
+    } catch (err) {
+      // The account already exists at this point. Keep signup usable and let the user retry from
+      // the verification notice instead of returning an error that encourages a duplicate signup.
+      logger.error({ userId: user.id, err: msg(err) }, 'Initial verification email delivery failed');
+    }
     return this.startSession(user);
   }
 
@@ -99,7 +107,7 @@ export class AuthService implements AuthServiceApi {
   async resendVerification(email: string): Promise<void> {
     const user = await this.users.findByEmailWithHash(email);
     if (user && !user.emailVerified) {
-      await this.verificationTokens.issueForUser(user.id);
+      await this.verificationDelivery.sendTo(user);
     }
   }
 
