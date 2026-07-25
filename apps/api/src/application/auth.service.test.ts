@@ -87,6 +87,7 @@ class FakeUserRepo implements UserRepository {
     if (!r) throw new Error('no such user');
     this.byEmail.delete(r.email);
     r.email = normalized;
+    r.emailVerified = false;
     this.byEmail.set(normalized, id);
     return { id: r.id, email: r.email, emailVerified: r.emailVerified, createdAt: r.createdAt };
   }
@@ -346,12 +347,44 @@ describe('AuthService', () => {
       const res = await ctx.service.login('carol@example.com', 'a-good-password');
       const me = await ctx.service.getUserForToken(res.sessionToken);
       expect(me?.email).toBe('carol@example.com');
+      expect(res.user.emailVerified).toBe(false);
     });
 
     it('gives an identical InvalidCredentialsError for unknown email and wrong password', async () => {
       await ctx.service.signup('dave@example.com', 'a-good-password');
       await expect(ctx.service.login('nobody@example.com', 'whatever-pass')).rejects.toBeInstanceOf(InvalidCredentialsError);
       await expect(ctx.service.login('dave@example.com', 'wrong-password')).rejects.toBeInstanceOf(InvalidCredentialsError);
+    });
+  });
+
+  describe('Google OAuth', () => {
+    it('creates new Google users with a verified email', async () => {
+      const result = await ctx.service.loginOrCreateGoogleUser('google@example.com', 'google-1');
+
+      expect(result.user.emailVerified).toBe(true);
+      await expect(ctx.users.findById(result.user.id)).resolves.toMatchObject({ emailVerified: true });
+    });
+
+    it('marks an existing password account verified when linking Google', async () => {
+      const { user } = await ctx.service.signup('linked@example.com', 'a-good-password');
+
+      const result = await ctx.service.loginOrCreateGoogleUser(user.email, 'google-2');
+
+      expect(result.user).toMatchObject({ id: user.id, emailVerified: true });
+      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ emailVerified: true });
+    });
+
+    it('repairs verification status for a legacy Google account', async () => {
+      const legacy = await ctx.users.create({
+        email: 'legacy-google@example.com',
+        googleId: 'google-legacy',
+        emailVerified: false,
+      });
+
+      const result = await ctx.service.loginOrCreateGoogleUser(legacy.email, 'google-legacy');
+
+      expect(result.user.emailVerified).toBe(true);
+      await expect(ctx.users.findById(legacy.id)).resolves.toMatchObject({ emailVerified: true });
     });
   });
 
@@ -403,8 +436,12 @@ describe('AuthService', () => {
   describe('changeEmail', () => {
     it('changes the email after verifying the password', async () => {
       const { user } = await ctx.service.signup('leo@example.com', 'a-good-password');
+      const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
+      await ctx.service.verifyEmail(token);
       const updated = await ctx.service.changeEmail(user.id, 'a-good-password', 'Leo-New@Example.com');
       expect(updated.email).toBe('leo-new@example.com');
+      expect(updated.emailVerified).toBe(false);
+      expect(ctx.verificationMailer.sent.at(-1)?.to).toBe('leo-new@example.com');
       await expect(ctx.service.login('leo-new@example.com', 'a-good-password')).resolves.toBeTruthy();
     });
 

@@ -143,13 +143,18 @@ export class AuthService implements AuthServiceApi {
         // Link existing user to Google ID
         await this.users.linkGoogleId(existing.id, googleId);
         const { passwordHash: _omit, ...existingUser } = existing;
-        user = existingUser;
+        user = { ...existingUser, emailVerified: true };
       } else {
         // Create new user with Google ID
-        user = await this.users.create({ email, googleId });
+        user = await this.users.create({ email, googleId, emailVerified: true });
         logger.info({ userId: user.id }, 'User signed up via Google OAuth');
       }
     } else {
+      if (!user.emailVerified) {
+        // Repair legacy OAuth accounts created before verification status was persisted correctly.
+        await this.users.markEmailVerified(user.id);
+        user = { ...user, emailVerified: true };
+      }
       logger.info({ userId: user.id }, 'User logged in via Google OAuth');
     }
     return this.startSession(user);
@@ -189,6 +194,11 @@ export class AuthService implements AuthServiceApi {
     await this.requirePassword(userId, currentPassword);
     const updated = await this.users.updateEmail(userId, newEmail); // EmailTakenError bubbles up
     logger.info({ userId }, 'Email changed');
+    try {
+      await this.verificationDelivery.sendTo(updated);
+    } catch (err) {
+      logger.error({ userId, err: msg(err) }, 'Verification email delivery after address change failed');
+    }
     return updated;
   }
 
