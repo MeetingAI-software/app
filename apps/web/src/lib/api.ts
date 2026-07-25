@@ -180,6 +180,15 @@ export async function getMe(): Promise<AuthUserResponse> {
   return handleResponse<AuthUserResponse>(await api('/api/auth/me'));
 }
 
+export async function resendVerification(email: string): Promise<void> {
+  const response = await api('/api/auth/resend-verification', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  return handleVoid(response);
+}
+
 export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthUserResponse> {
   const res = await api('/api/auth/change-password', {
     method: 'POST',
