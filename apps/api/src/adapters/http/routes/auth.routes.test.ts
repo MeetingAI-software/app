@@ -10,19 +10,39 @@ import {
 } from '../../../domain/errors';
 import { config } from '../../../config/env';
 import { createServer } from '../server';
-import { createAuthRoutes } from './auth.routes';
+import { createAuthRoutes, hasVerifiedGoogleEmail } from './auth.routes';
 
-describe('POST /api/auth/verify-email', () => {
+describe('hasVerifiedGoogleEmail', () => {
+  it('accepts only Google identities with a verified email', () => {
+    expect(hasVerifiedGoogleEmail({
+      email: 'person@example.com',
+      sub: 'google-user',
+      email_verified: true,
+    })).toBe(true);
+    expect(hasVerifiedGoogleEmail({
+      email: 'person@example.com',
+      sub: 'google-user',
+      email_verified: false,
+    })).toBe(false);
+    expect(hasVerifiedGoogleEmail({ sub: 'google-user', email_verified: true })).toBe(false);
+    expect(hasVerifiedGoogleEmail(undefined)).toBe(false);
+  });
+});
+
+describe('auth routes', () => {
+  const signup = vi.fn();
+  const login = vi.fn();
+  const getUserForToken = vi.fn();
   const verifyEmail = vi.fn();
   let server: Server;
   let baseUrl: string;
 
   beforeAll(() => {
     const auth = {
-      signup: vi.fn(),
-      login: vi.fn(),
+      signup,
+      login,
       logout: vi.fn(),
-      getUserForToken: vi.fn(),
+      getUserForToken,
       verifyEmail,
       resendVerification: vi.fn(),
       changePassword: vi.fn(),
@@ -36,6 +56,9 @@ describe('POST /api/auth/verify-email', () => {
   });
 
   beforeEach(() => {
+    signup.mockReset();
+    login.mockReset();
+    getUserForToken.mockReset();
     verifyEmail.mockReset();
   });
 
@@ -53,6 +76,57 @@ describe('POST /api/auth/verify-email', () => {
     });
   }
 
+  const unverifiedUser = {
+    id: 'user-unverified',
+    email: 'pending@example.com',
+    emailVerified: false,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  };
+
+  it.each([
+    ['/api/auth/signup', signup, 201],
+    ['/api/auth/login', login, 200],
+  ])('returns explicit pending verification status from %s', async (path, handler, expectedStatus) => {
+    handler.mockResolvedValue({
+      user: unverifiedUser,
+      sessionToken: 'session-token',
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN },
+      body: JSON.stringify({ email: unverifiedUser.email, password: 'a-good-password' }),
+    });
+    const body = await response.json() as {
+      user: { emailVerified: boolean };
+      emailVerificationRequired: boolean;
+    };
+
+    expect(response.status).toBe(expectedStatus);
+    expect(body.user.emailVerified).toBe(false);
+    expect(body.emailVerificationRequired).toBe(true);
+    expect(response.headers.get('set-cookie')).toContain('session=session-token');
+  });
+
+  it('returns verification status from the session probe', async () => {
+    getUserForToken.mockResolvedValue(unverifiedUser);
+
+    const response = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { cookie: 'session=session-token' },
+    });
+    const body = await response.json() as {
+      user: { emailVerified: boolean };
+      emailVerificationRequired: boolean;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      user: { emailVerified: false },
+      emailVerificationRequired: true,
+    });
+  });
+
   it('returns the verified user for a valid token', async () => {
     verifyEmail.mockResolvedValue({
       id: 'user-1',
@@ -62,11 +136,15 @@ describe('POST /api/auth/verify-email', () => {
     });
 
     const response = await request('valid-token');
-    const body = await response.json() as { user: { email: string; emailVerified: boolean } };
+    const body = await response.json() as {
+      user: { email: string; emailVerified: boolean };
+      emailVerificationRequired: boolean;
+    };
 
     expect(response.status).toBe(200);
     expect(verifyEmail).toHaveBeenCalledWith('valid-token');
     expect(body.user).toMatchObject({ email: 'person@example.com', emailVerified: true });
+    expect(body.emailVerificationRequired).toBe(false);
   });
 
   it('returns a validation error when the token is missing', async () => {
