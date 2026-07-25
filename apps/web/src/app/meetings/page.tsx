@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getMeetings, type Meeting } from '@/lib/api';
+import { getMeetings, type Meeting, type User } from '@/lib/api';
 import { msToClock } from '@/lib/format';
 import NewMeetingPanel from '@/components/NewMeetingPanel';
 
