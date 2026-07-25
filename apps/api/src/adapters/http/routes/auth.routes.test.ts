@@ -34,6 +34,7 @@ describe('auth routes', () => {
   const login = vi.fn();
   const getUserForToken = vi.fn();
   const verifyEmail = vi.fn();
+  const resendVerification = vi.fn();
   let server: Server;
   let baseUrl: string;
 
@@ -44,7 +45,7 @@ describe('auth routes', () => {
       logout: vi.fn(),
       getUserForToken,
       verifyEmail,
-      resendVerification: vi.fn(),
+      resendVerification,
       changePassword: vi.fn(),
       changeEmail: vi.fn(),
       deleteAccount: vi.fn(),
@@ -60,6 +61,7 @@ describe('auth routes', () => {
     login.mockReset();
     getUserForToken.mockReset();
     verifyEmail.mockReset();
+    resendVerification.mockReset();
   });
 
   afterAll(async () => {
@@ -73,6 +75,14 @@ describe('auth routes', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN },
       body: JSON.stringify({ token }),
+    });
+  }
+
+  async function requestResend(email: unknown) {
+    return fetch(`${baseUrl}/api/auth/resend-verification`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN },
+      body: JSON.stringify({ email }),
     });
   }
 
@@ -147,6 +157,51 @@ describe('auth routes', () => {
     expect(body.emailVerificationRequired).toBe(false);
   });
 
+  it('exposes the complete transition from pending signup to verified session status', async () => {
+    const verifiedUser = { ...unverifiedUser, emailVerified: true };
+    signup.mockResolvedValue({
+      user: unverifiedUser,
+      sessionToken: 'lifecycle-session',
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    getUserForToken
+      .mockResolvedValueOnce(unverifiedUser)
+      .mockResolvedValueOnce(verifiedUser);
+    verifyEmail.mockResolvedValue(verifiedUser);
+
+    const signupResponse = await fetch(`${baseUrl}/api/auth/signup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN },
+      body: JSON.stringify({ email: unverifiedUser.email, password: 'a-good-password' }),
+    });
+    const sessionCookie = signupResponse.headers.get('set-cookie')?.split(';')[0];
+    const pendingResponse = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { cookie: sessionCookie as string },
+    });
+    const verificationResponse = await request('lifecycle-token');
+    const verifiedResponse = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { cookie: sessionCookie as string },
+    });
+
+    await expect(signupResponse.json()).resolves.toMatchObject({
+      user: { emailVerified: false },
+      emailVerificationRequired: true,
+    });
+    await expect(pendingResponse.json()).resolves.toMatchObject({
+      user: { emailVerified: false },
+      emailVerificationRequired: true,
+    });
+    await expect(verificationResponse.json()).resolves.toMatchObject({
+      user: { emailVerified: true },
+      emailVerificationRequired: false,
+    });
+    await expect(verifiedResponse.json()).resolves.toMatchObject({
+      user: { emailVerified: true },
+      emailVerificationRequired: false,
+    });
+    expect(sessionCookie).toBe('session=lifecycle-session');
+  });
+
   it('returns a validation error when the token is missing', async () => {
     const response = await request(undefined);
     const body = await response.json() as { error: { code: string } };
@@ -170,5 +225,25 @@ describe('auth routes', () => {
     expect(response.status).toBe(expectedStatus);
     expect(body.error.code).toBe(expectedCode);
     expect(body.error.message).toBe(error.message);
+  });
+
+  it('returns a neutral resend response without exposing account state', async () => {
+    resendVerification.mockResolvedValue(undefined);
+
+    const response = await requestResend('person@example.com');
+    const body = await response.json() as { message: string };
+
+    expect(response.status).toBe(200);
+    expect(resendVerification).toHaveBeenCalledWith('person@example.com');
+    expect(body.message).toBe('If an account exists, a new verification link has been sent.');
+  });
+
+  it('rejects malformed resend input before invoking the service', async () => {
+    const response = await requestResend('not-an-email');
+    const body = await response.json() as { error: { code: string } };
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+    expect(resendVerification).not.toHaveBeenCalled();
   });
 });
