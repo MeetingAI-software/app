@@ -297,6 +297,17 @@ describe('AuthService', () => {
 
       expect(ctx.verificationMailer.sent).toHaveLength(0);
     });
+
+    it('does not issue or deliver another token for an already verified user', async () => {
+      const { user } = await ctx.service.signup('verified@example.com', 'a-good-password');
+      const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
+      await ctx.service.verifyEmail(token);
+
+      await ctx.service.resendVerification(user.email);
+
+      expect(ctx.verificationMailer.sent).toHaveLength(1);
+      expect(ctx.verificationTokenRepo.countForUser(user.id)).toBe(1);
+    });
   });
 
   describe('verifyEmail', () => {
