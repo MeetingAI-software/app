@@ -90,6 +90,11 @@ export interface User {
   createdAt: string;
 }
 
+export interface AuthUserResponse {
+  user: User;
+  emailVerificationRequired: boolean;
+}
+
 export interface UsageSummary {
   secondsUsed: number;
   secondsCap: number;
@@ -149,48 +154,48 @@ async function handleResponseQuiet<T>(response: Response): Promise<T> {
 }
 
 // --- Auth (Day 5) ---
-export async function signup(email: string, password: string): Promise<{ user: User }> {
+export async function signup(email: string, password: string): Promise<AuthUserResponse> {
   const res = await api('/api/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
-  return handleResponse<{ user: User }>(res);
+  return handleResponse<AuthUserResponse>(res);
 }
 
-export async function login(email: string, password: string): Promise<{ user: User }> {
+export async function login(email: string, password: string): Promise<AuthUserResponse> {
   const res = await api('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
-  return handleResponse<{ user: User }>(res);
+  return handleResponse<AuthUserResponse>(res);
 }
 
 export async function logout(): Promise<void> {
   return handleVoid(await api('/api/auth/logout', { method: 'POST' }));
 }
 
-export async function getMe(): Promise<{ user: User }> {
-  return handleResponse<{ user: User }>(await api('/api/auth/me'));
+export async function getMe(): Promise<AuthUserResponse> {
+  return handleResponse<AuthUserResponse>(await api('/api/auth/me'));
 }
 
-export async function changePassword(currentPassword: string, newPassword: string): Promise<{ user: User }> {
+export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthUserResponse> {
   const res = await api('/api/auth/change-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ currentPassword, newPassword }),
   });
-  return handleResponseQuiet<{ user: User }>(res);
+  return handleResponseQuiet<AuthUserResponse>(res);
 }
 
-export async function changeEmail(currentPassword: string, newEmail: string): Promise<{ user: User }> {
+export async function changeEmail(currentPassword: string, newEmail: string): Promise<AuthUserResponse> {
   const res = await api('/api/auth/change-email', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ currentPassword, newEmail }),
   });
-  return handleResponseQuiet<{ user: User }>(res);
+  return handleResponseQuiet<AuthUserResponse>(res);
 }
 
 export async function deleteAccount(password: string): Promise<void> {
