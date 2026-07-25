@@ -82,11 +82,22 @@ export interface UserRepository {
   deleteById(id: string): Promise<void>;
 }
 
+export type VerificationTokenConsumeResult =
+  | { status: 'verified'; user: User }
+  | { status: 'invalid' }
+  | { status: 'expired' }
+  | { status: 'used' }
+  | { status: 'already_verified' };
+
 export interface VerificationTokenRepository {
   /** Atomically invalidates the user's previous token and stores the replacement. */
   replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void>;
   findByTokenHash(tokenHash: string): Promise<EmailVerificationToken | null>;
   deleteByTokenHash(tokenHash: string): Promise<void>;
+  consumeAndVerify(input: {
+    tokenHash: string;
+    now: Date;
+  }): Promise<VerificationTokenConsumeResult>;
 }
 
 export interface SessionRepository {
