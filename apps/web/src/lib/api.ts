@@ -103,10 +103,12 @@ export interface UsageSummary {
 /** Carries the HTTP status so callers can tell 409 (not ready) from 429 (at cap). */
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -187,6 +189,25 @@ export async function resendVerification(email: string): Promise<void> {
     body: JSON.stringify({ email }),
   });
   return handleVoid(response);
+}
+
+export async function verifyEmail(token: string): Promise<AuthUserResponse> {
+  const response = await api('/api/auth/verify-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as {
+      error?: { code?: string; message?: string };
+    } | null;
+    throw new ApiError(
+      data?.error?.message ?? `HTTP error! Status: ${response.status}`,
+      response.status,
+      data?.error?.code,
+    );
+  }
+  return response.json() as Promise<AuthUserResponse>;
 }
 
 export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthUserResponse> {
