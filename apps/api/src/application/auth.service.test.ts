@@ -4,7 +4,15 @@ import { AuthService } from './auth.service';
 import { EmailVerificationTokenService } from './email-verification-token.service';
 import { EmailVerificationDeliveryService } from './email-verification-delivery.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
-import { InvalidCredentialsError, WeakPasswordError, EmailTakenError } from '../domain/errors';
+import {
+  EmailAlreadyVerifiedError,
+  EmailTakenError,
+  ExpiredVerificationTokenError,
+  InvalidCredentialsError,
+  InvalidVerificationTokenError,
+  UsedVerificationTokenError,
+  WeakPasswordError,
+} from '../domain/errors';
 import type { EmailVerificationToken, User, Session, Meeting } from '../domain/types';
 import type {
   UserRepository,
@@ -114,6 +122,8 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
   private seq = 0;
   private byHash = new Map<string, EmailVerificationToken>();
 
+  constructor(private readonly users: FakeUserRepo) {}
+
   async replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }) {
     for (const [hash, token] of this.byHash) {
       if (token.userId === input.userId) this.byHash.delete(hash);
@@ -122,6 +132,7 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
       id: `v${++this.seq}`,
       userId: input.userId,
       expiresAt: input.expiresAt,
+      consumedAt: null,
       createdAt: new Date(),
     });
   }
@@ -132,6 +143,28 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
 
   async deleteByTokenHash(tokenHash: string) {
     this.byHash.delete(tokenHash);
+  }
+
+  async consumeAndVerify(input: { tokenHash: string; now: Date }) {
+    const token = this.byHash.get(input.tokenHash);
+    if (!token) return { status: 'invalid' as const };
+    if (token.consumedAt) return { status: 'used' as const };
+    if (token.expiresAt.getTime() <= input.now.getTime()) return { status: 'expired' as const };
+
+    token.consumedAt = input.now;
+    const user = await this.users.findById(token.userId);
+    if (!user) throw new Error('missing user');
+    if (user.emailVerified) return { status: 'already_verified' as const };
+
+    await this.users.markEmailVerified(user.id);
+    const verified = await this.users.findById(user.id);
+    if (!verified) throw new Error('missing user');
+    return { status: 'verified' as const, user: verified };
+  }
+
+  expire(rawToken: string): void {
+    const token = this.byHash.get(sha256(rawToken));
+    if (token) token.expiresAt = new Date(Date.now() - 1);
   }
 
   countForUser(userId: string): number {
@@ -184,7 +217,7 @@ function build(meetingStore: Meeting[] = []) {
   const usage: UsageRepository = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
   const storage: AudioStoragePort = { upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
   const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn(), fetchTranscript: vi.fn(), deleteRecording: vi.fn() };
-  const verificationTokenRepo = new FakeVerificationTokenRepo();
+  const verificationTokenRepo = new FakeVerificationTokenRepo(users);
   const verificationTokens = new EmailVerificationTokenService(verificationTokenRepo);
   const verificationMailer = new FakeVerificationMailer();
   const verificationDelivery = new EmailVerificationDeliveryService(
@@ -262,6 +295,48 @@ describe('AuthService', () => {
       await ctx.service.resendVerification('missing@example.com');
 
       expect(ctx.verificationMailer.sent).toHaveLength(0);
+    });
+  });
+
+  describe('verifyEmail', () => {
+    it('atomically consumes the token and marks the user as verified', async () => {
+      const { user } = await ctx.service.signup('verify@example.com', 'a-good-password');
+      const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
+
+      const verified = await ctx.service.verifyEmail(token);
+
+      expect(verified).toMatchObject({ id: user.id, emailVerified: true });
+      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ emailVerified: true });
+    });
+
+    it('rejects an already consumed token', async () => {
+      await ctx.service.signup('used@example.com', 'a-good-password');
+      const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
+      await ctx.service.verifyEmail(token);
+
+      await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(UsedVerificationTokenError);
+    });
+
+    it('rejects an unknown token', async () => {
+      await expect(ctx.service.verifyEmail('unknown-token'))
+        .rejects.toBeInstanceOf(InvalidVerificationTokenError);
+    });
+
+    it('rejects an expired token', async () => {
+      await ctx.service.signup('expired@example.com', 'a-good-password');
+      const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
+      ctx.verificationTokenRepo.expire(token);
+
+      await expect(ctx.service.verifyEmail(token))
+        .rejects.toBeInstanceOf(ExpiredVerificationTokenError);
+    });
+
+    it('rejects a valid token when the email is already verified', async () => {
+      const { user } = await ctx.service.signup('already@example.com', 'a-good-password');
+      const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
+      await ctx.users.markEmailVerified(user.id);
+
+      await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(EmailAlreadyVerifiedError);
     });
   });
 

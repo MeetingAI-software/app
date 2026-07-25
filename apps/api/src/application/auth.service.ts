@@ -12,7 +12,14 @@ import type {
 import type { PasswordHasher } from '../ports/password-hasher.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
-import { InvalidCredentialsError, WeakPasswordError } from '../domain/errors';
+import {
+  EmailAlreadyVerifiedError,
+  ExpiredVerificationTokenError,
+  InvalidCredentialsError,
+  InvalidVerificationTokenError,
+  UsedVerificationTokenError,
+  WeakPasswordError,
+} from '../domain/errors';
 import { logger } from '../config/logger';
 import type { EmailVerificationTokenService } from './email-verification-token.service';
 import type { EmailVerificationDelivery } from './email-verification-delivery.service';
@@ -92,16 +99,14 @@ export class AuthService implements AuthServiceApi {
   }
 
   async verifyEmail(token: string): Promise<User> {
-    const record = await this.verificationTokens.findByToken(token);
-    if (!record || record.expiresAt < new Date()) {
-      throw new Error('Invalid or expired verification token');
-    }
-    await this.users.markEmailVerified(record.userId);
-    await this.verificationTokens.deleteByToken(token);
-    const user = await this.users.findById(record.userId);
-    if (!user) throw new Error('User not found');
-    logger.info({ userId: user.id }, 'Email verified successfully');
-    return user;
+    const result = await this.verificationTokens.consumeAndVerify(token);
+    if (result.status === 'invalid') throw new InvalidVerificationTokenError();
+    if (result.status === 'expired') throw new ExpiredVerificationTokenError();
+    if (result.status === 'used') throw new UsedVerificationTokenError();
+    if (result.status === 'already_verified') throw new EmailAlreadyVerifiedError();
+
+    logger.info({ userId: result.user.id }, 'Email verified successfully');
+    return result.user;
   }
 
   async resendVerification(email: string): Promise<void> {
