@@ -5,6 +5,19 @@ import { setSessionCookie, clearSessionCookie, readSessionCookie } from '../cook
 import { fixedWindowLimiter } from '../middleware/rate-limit';
 import { OAuth2Client } from 'google-auth-library';
 import { config } from '../../../config/env';
+import type { User } from '../../../domain/types';
+
+function authUserResponse(user: User) {
+  return { user, emailVerificationRequired: !user.emailVerified };
+}
+
+export function hasVerifiedGoogleEmail(payload: {
+  email?: string;
+  sub?: string;
+  email_verified?: boolean;
+} | null | undefined): payload is { email: string; sub: string; email_verified: true } {
+  return Boolean(payload?.email && payload.sub && payload.email_verified === true);
+}
 
 export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
   const router = Router();
@@ -45,7 +58,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
       const { email, password } = signupSchema.parse(req.body);
       const { user, sessionToken, expiresAt } = await auth.signup(email, password);
       setSessionCookie(res, sessionToken, expiresAt);
-      return res.status(201).json({ user });
+      return res.status(201).json(authUserResponse(user));
     } catch (err) {
       return next(err);
     }
@@ -56,7 +69,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
       const { email, password } = loginSchema.parse(req.body);
       const { user, sessionToken, expiresAt } = await auth.login(email, password);
       setSessionCookie(res, sessionToken, expiresAt);
-      return res.status(200).json({ user });
+      return res.status(200).json(authUserResponse(user));
     } catch (err) {
       return next(err);
     }
@@ -79,7 +92,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
       const token = readSessionCookie(req);
       const user = token ? await auth.getUserForToken(token) : null;
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHORIZED' } });
-      return res.status(200).json({ user });
+      return res.status(200).json(authUserResponse(user));
     } catch (err) {
       return next(err);
     }
@@ -91,7 +104,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
       const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
       const { user, sessionToken, expiresAt } = await auth.changePassword(req.userId as string, currentPassword, newPassword);
       setSessionCookie(res, sessionToken, expiresAt);
-      return res.status(200).json({ user });
+      return res.status(200).json(authUserResponse(user));
     } catch (err) {
       return next(err);
     }
@@ -102,7 +115,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
     try {
       const { currentPassword, newEmail } = changeEmailSchema.parse(req.body);
       const user = await auth.changeEmail(req.userId as string, currentPassword, newEmail);
-      return res.status(200).json({ user });
+      return res.status(200).json(authUserResponse(user));
     } catch (err) {
       return next(err);
     }
@@ -150,7 +163,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
         audience: config.GOOGLE_CLIENT_ID,
       });
       const payload = ticket.getPayload();
-      if (!payload || !payload.email || !payload.sub) {
+      if (!hasVerifiedGoogleEmail(payload)) {
         return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_payload_invalid`);
       }
 
@@ -168,7 +181,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
     try {
       const { token } = z.object({ token: z.string().min(1) }).parse(req.body);
       const user = await auth.verifyEmail(token);
-      return res.status(200).json({ user });
+      return res.status(200).json(authUserResponse(user));
     } catch (err) {
       return next(err);
     }
