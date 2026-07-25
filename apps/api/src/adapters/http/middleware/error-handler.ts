@@ -9,6 +9,10 @@ import {
   InvalidCredentialsError,
   EmailTakenError,
   WeakPasswordError,
+  EmailAlreadyVerifiedError,
+  ExpiredVerificationTokenError,
+  InvalidVerificationTokenError,
+  UsedVerificationTokenError,
 } from '../../../domain/errors';
 import { captureError } from '../../observability/sentry';
 
@@ -55,6 +59,30 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
         code: 'WEAK_PASSWORD',
         message: err.message,
       },
+    });
+  }
+
+  if (err instanceof InvalidVerificationTokenError) {
+    return res.status(400).json({
+      error: { code: 'INVALID_VERIFICATION_TOKEN', message: err.message },
+    });
+  }
+
+  if (err instanceof ExpiredVerificationTokenError) {
+    return res.status(410).json({
+      error: { code: 'VERIFICATION_TOKEN_EXPIRED', message: err.message },
+    });
+  }
+
+  if (err instanceof UsedVerificationTokenError) {
+    return res.status(409).json({
+      error: { code: 'VERIFICATION_TOKEN_USED', message: err.message },
+    });
+  }
+
+  if (err instanceof EmailAlreadyVerifiedError) {
+    return res.status(409).json({
+      error: { code: 'EMAIL_ALREADY_VERIFIED', message: err.message },
     });
   }
 

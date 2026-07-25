@@ -56,4 +56,32 @@ export class WeakPasswordError extends Error {          // → HTTP 400
   }
 }
 
+export class InvalidVerificationTokenError extends Error {
+  constructor(message = 'Verification token is invalid') {
+    super(message);
+    this.name = 'InvalidVerificationTokenError';
+  }
+}
+
+export class ExpiredVerificationTokenError extends Error {
+  constructor(message = 'Verification token has expired') {
+    super(message);
+    this.name = 'ExpiredVerificationTokenError';
+  }
+}
+
+export class UsedVerificationTokenError extends Error {
+  constructor(message = 'Verification token has already been used') {
+    super(message);
+    this.name = 'UsedVerificationTokenError';
+  }
+}
+
+export class EmailAlreadyVerifiedError extends Error {
+  constructor(message = 'Email address is already verified') {
+    super(message);
+    this.name = 'EmailAlreadyVerifiedError';
+  }
+}
+
 
