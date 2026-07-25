@@ -1,6 +1,9 @@
 import crypto from 'crypto';
 import type { EmailVerificationToken } from '../domain/types';
-import type { VerificationTokenRepository } from '../ports/repositories.port';
+import type {
+  VerificationTokenConsumeResult,
+  VerificationTokenRepository,
+} from '../ports/repositories.port';
 
 const TOKEN_BYTES = 32;
 export const EMAIL_VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
@@ -54,5 +57,12 @@ export class EmailVerificationTokenService implements EmailVerificationTokenIssu
 
   deleteByToken(token: string): Promise<void> {
     return this.tokens.deleteByTokenHash(hashEmailVerificationToken(token));
+  }
+
+  consumeAndVerify(token: string): Promise<VerificationTokenConsumeResult> {
+    return this.tokens.consumeAndVerify({
+      tokenHash: hashEmailVerificationToken(token),
+      now: this.now(),
+    });
   }
 }

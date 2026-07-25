@@ -19,6 +19,7 @@ class FakeVerificationTokenRepository implements VerificationTokenRepository {
       id: `token-${++this.sequence}`,
       userId: input.userId,
       expiresAt: input.expiresAt,
+      consumedAt: null,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     });
   }
@@ -29,6 +30,23 @@ class FakeVerificationTokenRepository implements VerificationTokenRepository {
 
   async deleteByTokenHash(tokenHash: string) {
     this.byHash.delete(tokenHash);
+  }
+
+  async consumeAndVerify(input: { tokenHash: string; now: Date }) {
+    const token = this.byHash.get(input.tokenHash);
+    if (!token) return { status: 'invalid' as const };
+    if (token.consumedAt) return { status: 'used' as const };
+    if (token.expiresAt.getTime() <= input.now.getTime()) return { status: 'expired' as const };
+    token.consumedAt = input.now;
+    return {
+      status: 'verified' as const,
+      user: {
+        id: token.userId,
+        email: 'person@example.com',
+        emailVerified: true,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    };
   }
 }
 
@@ -85,5 +103,21 @@ describe('EmailVerificationTokenService', () => {
     await expect(service.findByToken(issued.token)).resolves.toMatchObject({ userId: 'user-1' });
     await service.deleteByToken(issued.token);
     await expect(service.findByToken(issued.token)).resolves.toBeNull();
+  });
+
+  it('hashes and consumes a valid token at the injected current time', async () => {
+    const now = new Date('2026-07-25T12:00:00.000Z');
+    const repository = new FakeVerificationTokenRepository();
+    const service = new EmailVerificationTokenService(
+      repository,
+      { now: () => now, generateToken: () => 'token-to-consume' },
+    );
+    const issued = await service.issueForUser('user-1');
+
+    await expect(service.consumeAndVerify(issued.token)).resolves.toMatchObject({
+      status: 'verified',
+      user: { id: 'user-1', emailVerified: true },
+    });
+    expect(repository.byHash.get(sha256(issued.token))?.consumedAt).toEqual(now);
   });
 });
