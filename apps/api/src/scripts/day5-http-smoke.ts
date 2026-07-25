@@ -3,9 +3,13 @@ import type { AddressInfo } from 'net';
 import { createServer } from '../adapters/http/server';
 import { createAuthRoutes } from '../adapters/http/routes/auth.routes';
 import { AuthService } from '../application/auth.service';
+import { EmailVerificationTokenService } from '../application/email-verification-token.service';
+import { EmailVerificationDeliveryService } from '../application/email-verification-delivery.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
 import { DrizzleUserRepository } from '../adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from '../adapters/db/repositories/session.repository';
+import { DrizzleVerificationTokenRepository } from '../adapters/db/repositories/verification-token.repository';
+import { LogEmailVerificationMailer } from '../adapters/email/log-email-verification.mailer';
 import { DrizzleMeetingRepository } from '../adapters/db/repositories/meeting.repository';
 import { DrizzleTranscriptRepository } from '../adapters/db/repositories/transcript.repository';
 import { DrizzleDocumentRepository } from '../adapters/db/repositories/document.repository';
@@ -21,10 +25,13 @@ const ORIGIN = config.WEB_ORIGIN;
 
 async function main() {
   const userRepo = new DrizzleUserRepository();
+  const verificationTokens = new EmailVerificationTokenService(new DrizzleVerificationTokenRepository());
   const authService = new AuthService(
     userRepo, new DrizzleSessionRepository(), new Argon2Hasher(), 30,
     new DrizzleMeetingRepository(), new DrizzleTranscriptRepository(), new DrizzleDocumentRepository(),
-    new DrizzleChatMessageRepository(), new DrizzleUsageRepository(), new SupabaseStorageAdapter(), new RecallAdapter()
+    new DrizzleChatMessageRepository(), new DrizzleUsageRepository(), new SupabaseStorageAdapter(), new RecallAdapter(),
+    verificationTokens,
+    new EmailVerificationDeliveryService(verificationTokens, new LogEmailVerificationMailer(), config.WEB_ORIGIN),
   );
   const app = createServer([createAuthRoutes(authService)], (t) => authService.getUserForToken(t));
   const server = app.listen(0);

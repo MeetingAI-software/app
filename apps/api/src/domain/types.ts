@@ -37,6 +37,7 @@ export interface Meeting {
 export interface User {
   id: string;
   email: string;          // stored lowercase; unique
+  emailVerified: boolean;
   createdAt: Date;
 }
 
@@ -44,6 +45,15 @@ export interface Session {
   id: string;
   userId: string;
   expiresAt: Date;
+  createdAt: Date;
+}
+
+/** Persisted metadata for a single-use email verification token. */
+export interface EmailVerificationToken {
+  id: string;
+  userId: string;
+  expiresAt: Date;
+  consumedAt: Date | null;
   createdAt: Date;
 }
 

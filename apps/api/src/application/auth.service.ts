@@ -12,8 +12,17 @@ import type {
 import type { PasswordHasher } from '../ports/password-hasher.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
-import { InvalidCredentialsError, WeakPasswordError } from '../domain/errors';
+import {
+  EmailAlreadyVerifiedError,
+  ExpiredVerificationTokenError,
+  InvalidCredentialsError,
+  InvalidVerificationTokenError,
+  UsedVerificationTokenError,
+  WeakPasswordError,
+} from '../domain/errors';
 import { logger } from '../config/logger';
+import type { EmailVerificationTokenService } from './email-verification-token.service';
+import type { EmailVerificationDelivery } from './email-verification-delivery.service';
 
 export interface AuthResult {
   user: User;
@@ -26,6 +35,8 @@ export interface AuthServiceApi {
   login(email: string, password: string): Promise<AuthResult>;
   logout(sessionToken: string): Promise<void>;
   getUserForToken(sessionToken: string): Promise<User | null>;
+  verifyEmail(token: string): Promise<User>;
+  resendVerification(email: string): Promise<void>;
   /** Verify current password, set a new one, rotate sessions (returns a fresh session for the caller). */
   changePassword(userId: string, currentPassword: string, newPassword: string): Promise<AuthResult>;
   /** Verify current password, then change the (unverified) email. EmailTakenError on collision. */
@@ -65,7 +76,9 @@ export class AuthService implements AuthServiceApi {
     private readonly chat: ChatMessageRepository,
     private readonly usage: UsageRepository,
     private readonly storage: AudioStoragePort,
-    private readonly bot: MeetingBotPort
+    private readonly bot: MeetingBotPort,
+    private readonly verificationTokens: EmailVerificationTokenService,
+    private readonly verificationDelivery: EmailVerificationDelivery,
   ) {}
 
   async signup(email: string, password: string): Promise<AuthResult> {
@@ -73,9 +86,34 @@ export class AuthService implements AuthServiceApi {
       throw new WeakPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
     const passwordHash = await this.hasher.hash(password);
-    const user = await this.users.create({ email, passwordHash }); // EmailTakenError bubbles up
+    const user = await this.users.create({ email, passwordHash, emailVerified: false });
     logger.info({ userId: user.id }, 'User signed up');
+    try {
+      await this.verificationDelivery.sendTo(user);
+    } catch (err) {
+      // The account already exists at this point. Keep signup usable and let the user retry from
+      // the verification notice instead of returning an error that encourages a duplicate signup.
+      logger.error({ userId: user.id, err: msg(err) }, 'Initial verification email delivery failed');
+    }
     return this.startSession(user);
+  }
+
+  async verifyEmail(token: string): Promise<User> {
+    const result = await this.verificationTokens.consumeAndVerify(token);
+    if (result.status === 'invalid') throw new InvalidVerificationTokenError();
+    if (result.status === 'expired') throw new ExpiredVerificationTokenError();
+    if (result.status === 'used') throw new UsedVerificationTokenError();
+    if (result.status === 'already_verified') throw new EmailAlreadyVerifiedError();
+
+    logger.info({ userId: result.user.id }, 'Email verified successfully');
+    return result.user;
+  }
+
+  async resendVerification(email: string): Promise<void> {
+    const user = await this.users.findByEmailWithHash(email);
+    if (user && !user.emailVerified) {
+      await this.verificationDelivery.sendTo(user);
+    }
   }
 
   async login(email: string, password: string): Promise<AuthResult> {
@@ -105,13 +143,18 @@ export class AuthService implements AuthServiceApi {
         // Link existing user to Google ID
         await this.users.linkGoogleId(existing.id, googleId);
         const { passwordHash: _omit, ...existingUser } = existing;
-        user = existingUser;
+        user = { ...existingUser, emailVerified: true };
       } else {
         // Create new user with Google ID
-        user = await this.users.create({ email, googleId });
+        user = await this.users.create({ email, googleId, emailVerified: true });
         logger.info({ userId: user.id }, 'User signed up via Google OAuth');
       }
     } else {
+      if (!user.emailVerified) {
+        // Repair legacy OAuth accounts created before verification status was persisted correctly.
+        await this.users.markEmailVerified(user.id);
+        user = { ...user, emailVerified: true };
+      }
       logger.info({ userId: user.id }, 'User logged in via Google OAuth');
     }
     return this.startSession(user);
@@ -151,6 +194,11 @@ export class AuthService implements AuthServiceApi {
     await this.requirePassword(userId, currentPassword);
     const updated = await this.users.updateEmail(userId, newEmail); // EmailTakenError bubbles up
     logger.info({ userId }, 'Email changed');
+    try {
+      await this.verificationDelivery.sendTo(updated);
+    } catch (err) {
+      logger.error({ userId, err: msg(err) }, 'Verification email delivery after address change failed');
+    }
     return updated;
   }
 

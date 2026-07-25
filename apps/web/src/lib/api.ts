@@ -86,7 +86,13 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 export interface User {
   id: string;
   email: string;
+  emailVerified: boolean;
   createdAt: string;
+}
+
+export interface AuthUserResponse {
+  user: User;
+  emailVerificationRequired: boolean;
 }
 
 export interface UsageSummary {
@@ -97,10 +103,12 @@ export interface UsageSummary {
 /** Carries the HTTP status so callers can tell 409 (not ready) from 429 (at cap). */
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -148,48 +156,76 @@ async function handleResponseQuiet<T>(response: Response): Promise<T> {
 }
 
 // --- Auth (Day 5) ---
-export async function signup(email: string, password: string): Promise<{ user: User }> {
+export async function signup(email: string, password: string): Promise<AuthUserResponse> {
   const res = await api('/api/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
-  return handleResponse<{ user: User }>(res);
+  return handleResponse<AuthUserResponse>(res);
 }
 
-export async function login(email: string, password: string): Promise<{ user: User }> {
+export async function login(email: string, password: string): Promise<AuthUserResponse> {
   const res = await api('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
-  return handleResponse<{ user: User }>(res);
+  return handleResponse<AuthUserResponse>(res);
 }
 
 export async function logout(): Promise<void> {
   return handleVoid(await api('/api/auth/logout', { method: 'POST' }));
 }
 
-export async function getMe(): Promise<{ user: User }> {
-  return handleResponse<{ user: User }>(await api('/api/auth/me'));
+export async function getMe(): Promise<AuthUserResponse> {
+  return handleResponse<AuthUserResponse>(await api('/api/auth/me'));
 }
 
-export async function changePassword(currentPassword: string, newPassword: string): Promise<{ user: User }> {
+export async function resendVerification(email: string): Promise<void> {
+  const response = await api('/api/auth/resend-verification', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  return handleVoid(response);
+}
+
+export async function verifyEmail(token: string): Promise<AuthUserResponse> {
+  const response = await api('/api/auth/verify-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as {
+      error?: { code?: string; message?: string };
+    } | null;
+    throw new ApiError(
+      data?.error?.message ?? `HTTP error! Status: ${response.status}`,
+      response.status,
+      data?.error?.code,
+    );
+  }
+  return response.json() as Promise<AuthUserResponse>;
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthUserResponse> {
   const res = await api('/api/auth/change-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ currentPassword, newPassword }),
   });
-  return handleResponseQuiet<{ user: User }>(res);
+  return handleResponseQuiet<AuthUserResponse>(res);
 }
 
-export async function changeEmail(currentPassword: string, newEmail: string): Promise<{ user: User }> {
+export async function changeEmail(currentPassword: string, newEmail: string): Promise<AuthUserResponse> {
   const res = await api('/api/auth/change-email', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ currentPassword, newEmail }),
   });
-  return handleResponseQuiet<{ user: User }>(res);
+  return handleResponseQuiet<AuthUserResponse>(res);
 }
 
 export async function deleteAccount(password: string): Promise<void> {

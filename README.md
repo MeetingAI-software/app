@@ -12,6 +12,15 @@ Providers are swappable via env vars (`BOT_PROVIDER`, `DOC_PROVIDER`, `TRANSCRIP
 `CHAT_PROVIDER`), each with a `fake` implementation so the whole app runs end-to-end without any real
 vendor or spend.
 
+## Email verification
+
+Password signups receive a single-use, 24-hour email verification link. Delivery can use structured
+local logs or real transactional email through Resend; the frontend provides verification status,
+resend controls, and the `/verify-email` landing page.
+
+See [the email verification runbook](docs/email-verification.md) for migrations, local testing, the
+HTTP contract, security properties, and the production mail-delivery requirement.
+
 ## Data residency & GDPR
 
 The EU is the data-residency baseline: the Postgres database and the Supabase Storage bucket are

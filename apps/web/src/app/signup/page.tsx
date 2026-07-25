@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { signup, ApiError } from '@/lib/api';
+import { destinationAfterAuthentication } from '@/lib/auth-flow';
 import AuthForm from '@/components/AuthForm';
 
 export default function SignupPage() {
@@ -19,8 +20,8 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
     try {
-      await signup(email.trim(), password);
-      router.replace('/meetings'); // signup auto-logs-in
+      const response = await signup(email.trim(), password);
+      router.replace(destinationAfterAuthentication(response)); // signup auto-logs-in
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) setError('That email already has an account.');
       else if (err instanceof ApiError && err.status === 400) setError('Password must be at least 10 characters.');

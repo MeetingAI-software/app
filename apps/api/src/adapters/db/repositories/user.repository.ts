@@ -13,12 +13,12 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function toUser(row: { id: string; email: string; createdAt: Date }): User {
-  return { id: row.id, email: row.email, createdAt: row.createdAt };
+function toUser(row: { id: string; email: string; emailVerified: boolean; createdAt: Date }): User {
+  return { id: row.id, email: row.email, emailVerified: row.emailVerified, createdAt: row.createdAt };
 }
 
 export class DrizzleUserRepository implements UserRepository {
-  async create(input: { email: string; passwordHash?: string | null; googleId?: string | null }): Promise<User> {
+  async create(input: { email: string; passwordHash?: string | null; googleId?: string | null; emailVerified?: boolean }): Promise<User> {
     const email = normalizeEmail(input.email);
     try {
       const [row] = await db
@@ -27,6 +27,7 @@ export class DrizzleUserRepository implements UserRepository {
           email,
           passwordHash: input.passwordHash ?? null,
           googleId: input.googleId ?? null,
+          emailVerified: input.emailVerified ?? false,
         })
         .returning();
       return toUser(row);
@@ -50,7 +51,11 @@ export class DrizzleUserRepository implements UserRepository {
   }
 
   async linkGoogleId(id: string, googleId: string): Promise<void> {
-    await db.update(users).set({ googleId }).where(eq(users.id, id));
+    await db.update(users).set({ googleId, emailVerified: true }).where(eq(users.id, id));
+  }
+
+  async markEmailVerified(id: string): Promise<void> {
+    await db.update(users).set({ emailVerified: true }).where(eq(users.id, id));
   }
 
   async findById(id: string): Promise<User | null> {
@@ -66,7 +71,11 @@ export class DrizzleUserRepository implements UserRepository {
   async updateEmail(id: string, email: string): Promise<User> {
     const normalized = normalizeEmail(email);
     try {
-      const [row] = await db.update(users).set({ email: normalized }).where(eq(users.id, id)).returning();
+      const [row] = await db
+        .update(users)
+        .set({ email: normalized, emailVerified: false })
+        .where(eq(users.id, id))
+        .returning();
       return toUser(row);
     } catch (err) {
       if (err && typeof err === 'object' && (err as { code?: string }).code === PG_UNIQUE_VIOLATION) {

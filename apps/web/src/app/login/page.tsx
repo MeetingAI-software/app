@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { login, ApiError } from '@/lib/api';
+import { destinationAfterAuthentication } from '@/lib/auth-flow';
 import AuthForm from '@/components/AuthForm';
 
 export default function LoginPage() {
@@ -19,8 +20,8 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      await login(email.trim(), password);
-      router.replace('/meetings');
+      const response = await login(email.trim(), password);
+      router.replace(destinationAfterAuthentication(response));
     } catch (err) {
       setError(
         err instanceof ApiError && err.status === 401

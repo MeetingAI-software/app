@@ -1,4 +1,12 @@
-import type { Meeting, MeetingSource, MeetingStatus, TranscriptSegment, User, Session } from '../domain/types';
+import type {
+  EmailVerificationToken,
+  Meeting,
+  MeetingSource,
+  MeetingStatus,
+  Session,
+  TranscriptSegment,
+  User,
+} from '../domain/types';
 import type { DocumentContent } from '../domain/document';
 import type { ChatMessage } from './chat.port';
 
@@ -62,15 +70,34 @@ export interface ChatMessageRepository {
 
 // Day 5: accounts + sessions
 export interface UserRepository {
-  create(input: { email: string; passwordHash?: string | null; googleId?: string | null }): Promise<User>;
+  create(input: { email: string; passwordHash?: string | null; googleId?: string | null; emailVerified?: boolean }): Promise<User>;
   /** Includes passwordHash — for AuthService only. */
   findByEmailWithHash(email: string): Promise<(User & { passwordHash: string | null; googleId?: string | null }) | null>;
   findByGoogleId(googleId: string): Promise<User | null>;
   linkGoogleId(id: string, googleId: string): Promise<void>;
+  markEmailVerified(id: string): Promise<void>;
   findById(id: string): Promise<User | null>;
   updatePassword(id: string, passwordHash: string): Promise<void>;         // account settings: change password
   updateEmail(id: string, email: string): Promise<User>;                   // lowercased; unique-violation → EmailTakenError
   deleteById(id: string): Promise<void>;
+}
+
+export type VerificationTokenConsumeResult =
+  | { status: 'verified'; user: User }
+  | { status: 'invalid' }
+  | { status: 'expired' }
+  | { status: 'used' }
+  | { status: 'already_verified' };
+
+export interface VerificationTokenRepository {
+  /** Atomically invalidates the user's previous token and stores the replacement. */
+  replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void>;
+  findByTokenHash(tokenHash: string): Promise<EmailVerificationToken | null>;
+  deleteByTokenHash(tokenHash: string): Promise<void>;
+  consumeAndVerify(input: {
+    tokenHash: string;
+    now: Date;
+  }): Promise<VerificationTokenConsumeResult>;
 }
 
 export interface SessionRepository {

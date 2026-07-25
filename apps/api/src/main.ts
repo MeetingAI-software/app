@@ -9,6 +9,8 @@ import { DrizzleDocumentRepository } from './adapters/db/repositories/document.r
 import { DrizzleChatMessageRepository } from './adapters/db/repositories/chat-message.repository';
 import { DrizzleUserRepository } from './adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from './adapters/db/repositories/session.repository';
+import { DrizzleVerificationTokenRepository } from './adapters/db/repositories/verification-token.repository';
+import { createEmailVerificationMailer } from './adapters/email/email-verification-mailer.factory';
 import { FakeBotAdapter } from './adapters/fake/fake-bot.adapter';
 import { UsageMeterService } from './application/usage-meter.service';
 import { StartMeetingService } from './application/start-meeting.service';
@@ -16,6 +18,8 @@ import { ProcessWebhookEventService } from './application/process-webhook-event.
 import { ProcessUploadEventService } from './application/process-upload-event.service';
 import { ChatService } from './application/chat.service';
 import { AuthService } from './application/auth.service';
+import { EmailVerificationTokenService } from './application/email-verification-token.service';
+import { EmailVerificationDeliveryService } from './application/email-verification-delivery.service';
 import { WebhookWorker } from './jobs/worker';
 import { SweepJob } from './jobs/sweep';
 import { createMeetingRoutes } from './adapters/http/routes/meetings.routes';
@@ -114,10 +118,23 @@ async function bootstrap() {
   // 4c. Auth (Day 5): accounts + sessions + GDPR erasure
   const userRepo = new DrizzleUserRepository();
   const sessionRepo = new DrizzleSessionRepository();
+  const verificationTokenRepo = new DrizzleVerificationTokenRepository();
+  const emailVerificationTokens = new EmailVerificationTokenService(verificationTokenRepo);
+  const emailVerificationMailer = createEmailVerificationMailer({
+    provider: config.EMAIL_PROVIDER,
+    resendApiKey: config.RESEND_API_KEY,
+    resendFrom: config.RESEND_FROM,
+  });
+  const emailVerificationDelivery = new EmailVerificationDeliveryService(
+    emailVerificationTokens,
+    emailVerificationMailer,
+    config.WEB_ORIGIN,
+  );
   const passwordHasher = new Argon2Hasher();
   const authService = new AuthService(
     userRepo, sessionRepo, passwordHasher, config.SESSION_TTL_DAYS,
-    meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter
+    meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter,
+    emailVerificationTokens, emailVerificationDelivery,
   );
 
   // 4. Web Worker

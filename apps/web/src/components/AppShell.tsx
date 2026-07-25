@@ -4,6 +4,12 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getMe, logout, getUsage, type User, type UsageSummary } from '@/lib/api';
+import { shouldShowEmailVerificationBanner } from '@/lib/email-verification';
+import {
+  EMAIL_VERIFICATION_COMPLETED_EVENT,
+  EMAIL_VERIFICATION_STORAGE_KEY,
+} from '@/lib/verify-email';
+import EmailVerificationBanner from '@/components/EmailVerificationBanner';
 
 /**
  * Session shell for the protected app (/meetings*, /settings). Probes /api/auth/me on mount and
@@ -41,6 +47,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('unauthorized-api-call', onUnauthorized);
   }, [router]);
 
+  useEffect(() => {
+    const refreshUser = () => {
+      getMe().then(({ user }) => setUser(user)).catch(() => {});
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === EMAIL_VERIFICATION_STORAGE_KEY) refreshUser();
+    };
+
+    window.addEventListener(EMAIL_VERIFICATION_COMPLETED_EVENT, refreshUser);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(EMAIL_VERIFICATION_COMPLETED_EVENT, refreshUser);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -57,7 +79,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-transparent text-slate-900 flex flex-col">
-      <header className="sticky top-0 z-50 border-b border-slate-200 bg-surface-container-lowest/80 backdrop-blur-md shadow-sm">
+      <header className="sticky top-0 z-50 border-b border-slate-200 bg-surface-container-lowest/80 backdrop-blur-md shadow-sm print:hidden">
         <div className="max-w-container-max mx-auto px-margin-page h-16 flex items-center justify-between gap-4">
           <Link
             href="/meetings"
@@ -106,6 +128,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+
+      {shouldShowEmailVerificationBanner(user) && user && (
+        <EmailVerificationBanner email={user.email} />
+      )}
 
       <main className="flex-1">{children}</main>
     </div>

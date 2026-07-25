@@ -5,6 +5,8 @@ import { createAuthRoutes } from '../adapters/http/routes/auth.routes';
 import { createMeetingRoutes } from '../adapters/http/routes/meetings.routes';
 import { createMeRoutes } from '../adapters/http/routes/me.routes';
 import { AuthService } from '../application/auth.service';
+import { EmailVerificationTokenService } from '../application/email-verification-token.service';
+import { EmailVerificationDeliveryService } from '../application/email-verification-delivery.service';
 import { StartMeetingService } from '../application/start-meeting.service';
 import { UsageMeterService } from '../application/usage-meter.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
@@ -12,6 +14,8 @@ import { FakeBotAdapter } from '../adapters/fake/fake-bot.adapter';
 import { FakeDocumentGenerator } from '../adapters/fake/fake-document.generator';
 import { DrizzleUserRepository } from '../adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from '../adapters/db/repositories/session.repository';
+import { DrizzleVerificationTokenRepository } from '../adapters/db/repositories/verification-token.repository';
+import { LogEmailVerificationMailer } from '../adapters/email/log-email-verification.mailer';
 import { DrizzleMeetingRepository } from '../adapters/db/repositories/meeting.repository';
 import { DrizzleTranscriptRepository } from '../adapters/db/repositories/transcript.repository';
 import { DrizzleDocumentRepository } from '../adapters/db/repositories/document.repository';
@@ -35,9 +39,12 @@ async function main() {
   const documentRepo = new DrizzleDocumentRepository();
   const usageRepo = new DrizzleUsageRepository();
   const webhookRepo = new DrizzleWebhookEventRepository();
+  const verificationTokens = new EmailVerificationTokenService(new DrizzleVerificationTokenRepository());
   const authService = new AuthService(
     userRepo, sessionRepo, new Argon2Hasher(), 30, meetingRepo, transcriptRepo, documentRepo,
-    new DrizzleChatMessageRepository(), usageRepo, new SupabaseStorageAdapter(), new RecallAdapter()
+    new DrizzleChatMessageRepository(), usageRepo, new SupabaseStorageAdapter(), new RecallAdapter(),
+    verificationTokens,
+    new EmailVerificationDeliveryService(verificationTokens, new LogEmailVerificationMailer(), config.WEB_ORIGIN),
   );
   const startMeeting = new StartMeetingService(meetingRepo, new UsageMeterService(meetingRepo, usageRepo), new FakeBotAdapter(webhookRepo));
 
