@@ -71,7 +71,11 @@ export class DrizzleUserRepository implements UserRepository {
   async updateEmail(id: string, email: string): Promise<User> {
     const normalized = normalizeEmail(email);
     try {
-      const [row] = await db.update(users).set({ email: normalized }).where(eq(users.id, id)).returning();
+      const [row] = await db
+        .update(users)
+        .set({ email: normalized, emailVerified: false })
+        .where(eq(users.id, id))
+        .returning();
       return toUser(row);
     } catch (err) {
       if (err && typeof err === 'object' && (err as { code?: string }).code === PG_UNIQUE_VIOLATION) {
