@@ -10,6 +10,10 @@ export interface IssuedEmailVerificationToken {
   expiresAt: Date;
 }
 
+export interface EmailVerificationTokenIssuer {
+  issueForUser(userId: string): Promise<IssuedEmailVerificationToken>;
+}
+
 interface TokenServiceDependencies {
   now?: () => Date;
   generateToken?: () => string;
@@ -20,7 +24,7 @@ export function hashEmailVerificationToken(token: string): string {
 }
 
 /** Owns creation, hashing, expiry, replacement, and lookup of email verification tokens. */
-export class EmailVerificationTokenService {
+export class EmailVerificationTokenService implements EmailVerificationTokenIssuer {
   private readonly now: () => Date;
   private readonly generateToken: () => string;
 
