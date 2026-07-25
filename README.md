@@ -14,8 +14,8 @@ vendor or spend.
 
 ## Email verification
 
-Password signups receive a single-use, 24-hour email verification link. Local development simulates
-delivery by writing the link to the API's structured logs; the frontend provides verification status,
+Password signups receive a single-use, 24-hour email verification link. Delivery can use structured
+local logs or real transactional email through Resend; the frontend provides verification status,
 resend controls, and the `/verify-email` landing page.
 
 See [the email verification runbook](docs/email-verification.md) for migrations, local testing, the

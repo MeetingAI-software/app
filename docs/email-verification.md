@@ -10,7 +10,22 @@ Google supplies a verified email claim.
 1. Set `DATABASE_URL` to the development Postgres database.
 2. Set `WEB_ORIGIN=http://localhost:3001`. This must be the public frontend origin because the API uses
    it to construct `/verify-email?token=...` links.
-3. Apply the database migrations from the repository root:
+3. Choose an email transport. For simulated local delivery:
+
+   ```env
+   EMAIL_PROVIDER=log
+   ```
+
+   For real Resend delivery:
+
+   ```env
+   EMAIL_PROVIDER=resend
+   RESEND_API_KEY=re_...
+   RESEND_FROM=MeetingAI <verify@updates.your-domain.com>
+   ```
+
+   The API refuses to start in Resend mode when either credential is missing.
+4. Apply the database migrations from the repository root:
 
    ```shell
    npm run db:migrate -w api
@@ -19,7 +34,7 @@ Google supplies a verified email claim.
    Migration `0004_lethal_human_robot.sql` creates the token table and adds the user verification flag.
    Migration `0005_flowery_omega_flight.sql` adds single-use token consumption tracking.
 
-4. Start the API and frontend in separate terminals:
+5. Start the API and frontend in separate terminals:
 
    ```shell
    npm run dev -w api
@@ -28,10 +43,10 @@ Google supplies a verified email claim.
 
 `NEXT_PUBLIC_API_URL` is optional for the frontend and defaults to `http://localhost:3000`.
 
-## Simulated delivery workflow
+## Delivery workflows
 
-The current `LogEmailVerificationMailer` is a development adapter. After a password signup, email
-change, or resend request, find this structured API log message:
+With `EMAIL_PROVIDER=log`, `LogEmailVerificationMailer` simulates delivery. After a password signup,
+email change, or resend request, find this structured API log message:
 
 ```text
 Email verification message simulated
@@ -39,6 +54,15 @@ Email verification message simulated
 
 Its structured fields contain `to`, `verificationUrl`, and `expiresAt`. Open `verificationUrl` in the
 browser to exercise the same `/verify-email` flow that a real email recipient would use.
+
+With `EMAIL_PROVIDER=resend`, `ResendEmailVerificationMailer` sends plain-text and HTML versions through
+Resend. Successful delivery logs only the recipient and Resend email ID; the raw token URL is never
+written to application logs in this mode. API errors become delivery failures so the signup fallback
+and resend banner can respond as designed.
+
+Resend requires a verified domain to send to arbitrary recipients. Until a custom domain is verified,
+`MeetingAI <onboarding@resend.dev>` can be used for initial testing, but Resend normally restricts that
+sender to the email address associated with the Resend account.
 
 A successful verification updates the current application tab and other open tabs. The verification
 banner should disappear without requiring logout. Reopening a consumed link displays the already-used
@@ -76,15 +100,16 @@ that rule on the API, not only in the frontend.
 
 ## Production requirement
 
-`LogEmailVerificationMailer` writes the raw verification URL to application logs and is therefore not a
-production mail transport. Before production deployment, replace it in `apps/api/src/main.ts` with an
-`EmailVerificationMailer` adapter backed by the chosen transactional email provider. Do not log raw
-verification tokens in production.
+Set `EMAIL_PROVIDER=resend` in production. `LogEmailVerificationMailer` writes the raw verification URL
+to application logs and must remain a local-only transport. Resend mode uses the official Node.js SDK
+and does not log raw verification tokens.
 
 Also verify that:
 
 - `WEB_ORIGIN` uses the public HTTPS frontend origin;
-- the provider uses the intended sender domain and has SPF, DKIM, and DMARC configured;
+- `RESEND_API_KEY` is a sending-only key scoped as narrowly as possible;
+- `RESEND_FROM` exactly matches a verified sender domain;
+- the sender domain has SPF and DKIM configured, with DMARC added for stronger trust;
 - delivery failures and bounce rates are monitored without recording verification URLs;
 - migrations `0004` and `0005` have run before the new API version receives traffic.
 
