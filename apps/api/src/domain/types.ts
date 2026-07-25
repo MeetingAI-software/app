@@ -48,3 +48,11 @@ export interface Session {
   createdAt: Date;
 }
 
+/** Persisted metadata for a single-use email verification token. */
+export interface EmailVerificationToken {
+  id: string;
+  userId: string;
+  expiresAt: Date;
+  createdAt: Date;
+}
+

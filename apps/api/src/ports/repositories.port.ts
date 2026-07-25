@@ -1,4 +1,12 @@
-import type { Meeting, MeetingSource, MeetingStatus, TranscriptSegment, User, Session } from '../domain/types';
+import type {
+  EmailVerificationToken,
+  Meeting,
+  MeetingSource,
+  MeetingStatus,
+  Session,
+  TranscriptSegment,
+  User,
+} from '../domain/types';
 import type { DocumentContent } from '../domain/document';
 import type { ChatMessage } from './chat.port';
 
@@ -76,7 +84,7 @@ export interface UserRepository {
 
 export interface VerificationTokenRepository {
   create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void>;
-  findByTokenHash(tokenHash: string): Promise<{ id: string; userId: string; expiresAt: Date } | null>;
+  findByTokenHash(tokenHash: string): Promise<EmailVerificationToken | null>;
   deleteByTokenHash(tokenHash: string): Promise<void>;
   deleteAllForUser(userId: string): Promise<void>;
 }
