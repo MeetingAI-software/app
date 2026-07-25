@@ -93,7 +93,8 @@ export const emailVerificationTokens = pgTable('email_verification_tokens', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
-  verificationUserIdIdx: index('verification_user_id_idx').on(t.userId),
+  // A user has at most one live verification challenge; resends replace it.
+  verificationUserIdUq: uniqueIndex('verification_user_id_uq').on(t.userId),
 }));
 
 export const sessions = pgTable('sessions', {
