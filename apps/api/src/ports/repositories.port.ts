@@ -83,10 +83,10 @@ export interface UserRepository {
 }
 
 export interface VerificationTokenRepository {
-  create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void>;
+  /** Atomically invalidates the user's previous token and stores the replacement. */
+  replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void>;
   findByTokenHash(tokenHash: string): Promise<EmailVerificationToken | null>;
   deleteByTokenHash(tokenHash: string): Promise<void>;
-  deleteAllForUser(userId: string): Promise<void>;
 }
 
 export interface SessionRepository {

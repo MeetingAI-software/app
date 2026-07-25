@@ -5,11 +5,14 @@ import type { VerificationTokenRepository } from '../../../ports/repositories.po
 import type { EmailVerificationToken } from '../../../domain/types';
 
 export class DrizzleVerificationTokenRepository implements VerificationTokenRepository {
-  async create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void> {
-    await db.insert(emailVerificationTokens).values({
-      userId: input.userId,
-      tokenHash: input.tokenHash,
-      expiresAt: input.expiresAt,
+  async replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.delete(emailVerificationTokens).where(eq(emailVerificationTokens.userId, input.userId));
+      await tx.insert(emailVerificationTokens).values({
+        userId: input.userId,
+        tokenHash: input.tokenHash,
+        expiresAt: input.expiresAt,
+      });
     });
   }
 
@@ -28,9 +31,5 @@ export class DrizzleVerificationTokenRepository implements VerificationTokenRepo
 
   async deleteByTokenHash(tokenHash: string): Promise<void> {
     await db.delete(emailVerificationTokens).where(eq(emailVerificationTokens.tokenHash, tokenHash));
-  }
-
-  async deleteAllForUser(userId: string): Promise<void> {
-    await db.delete(emailVerificationTokens).where(eq(emailVerificationTokens.userId, userId));
   }
 }
