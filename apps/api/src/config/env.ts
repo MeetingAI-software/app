@@ -23,6 +23,9 @@ const envSchema = z.object({
   MAX_TRANSCRIPT_CHARS: z.coerce.number().default(180000),
   DOC_PROVIDER: z.enum(['fake', 'claude', 'gemini']).default('fake'),
   WEB_ORIGIN: z.string().default('http://localhost:3001'),
+  EMAIL_PROVIDER: z.enum(['log', 'resend']).default('log'),
+  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_FROM: z.string().min(1).optional(),
   // --- Day 3: in-room recording + chat ---
   ASSEMBLYAI_API_KEY: z.string().optional(),
   ASSEMBLYAI_BASE_URL: z.string().url().default('https://api.assemblyai.com'),
@@ -51,6 +54,20 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['GEMINI_API_KEY'],
       message: 'GEMINI_API_KEY is required when CHAT_PROVIDER or DOC_PROVIDER is "gemini"',
+    });
+  }
+  if (cfg.EMAIL_PROVIDER === 'resend' && !cfg.RESEND_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['RESEND_API_KEY'],
+      message: 'RESEND_API_KEY is required when EMAIL_PROVIDER is "resend"',
+    });
+  }
+  if (cfg.EMAIL_PROVIDER === 'resend' && !cfg.RESEND_FROM) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['RESEND_FROM'],
+      message: 'RESEND_FROM is required when EMAIL_PROVIDER is "resend"',
     });
   }
 });

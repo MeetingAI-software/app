@@ -10,7 +10,7 @@ import { DrizzleChatMessageRepository } from './adapters/db/repositories/chat-me
 import { DrizzleUserRepository } from './adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from './adapters/db/repositories/session.repository';
 import { DrizzleVerificationTokenRepository } from './adapters/db/repositories/verification-token.repository';
-import { LogEmailVerificationMailer } from './adapters/email/log-email-verification.mailer';
+import { createEmailVerificationMailer } from './adapters/email/email-verification-mailer.factory';
 import { FakeBotAdapter } from './adapters/fake/fake-bot.adapter';
 import { UsageMeterService } from './application/usage-meter.service';
 import { StartMeetingService } from './application/start-meeting.service';
@@ -120,9 +120,14 @@ async function bootstrap() {
   const sessionRepo = new DrizzleSessionRepository();
   const verificationTokenRepo = new DrizzleVerificationTokenRepository();
   const emailVerificationTokens = new EmailVerificationTokenService(verificationTokenRepo);
+  const emailVerificationMailer = createEmailVerificationMailer({
+    provider: config.EMAIL_PROVIDER,
+    resendApiKey: config.RESEND_API_KEY,
+    resendFrom: config.RESEND_FROM,
+  });
   const emailVerificationDelivery = new EmailVerificationDeliveryService(
     emailVerificationTokens,
-    new LogEmailVerificationMailer(),
+    emailVerificationMailer,
     config.WEB_ORIGIN,
   );
   const passwordHasher = new Argon2Hasher();
