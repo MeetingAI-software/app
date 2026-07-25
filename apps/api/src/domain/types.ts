@@ -53,6 +53,7 @@ export interface EmailVerificationToken {
   id: string;
   userId: string;
   expiresAt: Date;
+  consumedAt: Date | null;
   createdAt: Date;
 }
 
