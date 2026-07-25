@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getMe, logout, getUsage, type User, type UsageSummary } from '@/lib/api';
 import { shouldShowEmailVerificationBanner } from '@/lib/email-verification';
+import {
+  EMAIL_VERIFICATION_COMPLETED_EVENT,
+  EMAIL_VERIFICATION_STORAGE_KEY,
+} from '@/lib/verify-email';
 import EmailVerificationBanner from '@/components/EmailVerificationBanner';
 
 /**
@@ -42,6 +46,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener('unauthorized-api-call', onUnauthorized);
     return () => window.removeEventListener('unauthorized-api-call', onUnauthorized);
   }, [router]);
+
+  useEffect(() => {
+    const refreshUser = () => {
+      getMe().then(({ user }) => setUser(user)).catch(() => {});
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === EMAIL_VERIFICATION_STORAGE_KEY) refreshUser();
+    };
+
+    window.addEventListener(EMAIL_VERIFICATION_COMPLETED_EVENT, refreshUser);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(EMAIL_VERIFICATION_COMPLETED_EVENT, refreshUser);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
 
   const handleLogout = async () => {
     try {
