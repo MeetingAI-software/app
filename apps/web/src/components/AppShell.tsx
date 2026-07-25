@@ -79,7 +79,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-transparent text-slate-900 flex flex-col">
-      <header className="sticky top-0 z-50 border-b border-slate-200 bg-surface-container-lowest/80 backdrop-blur-md shadow-sm">
+      <header className="sticky top-0 z-50 border-b border-slate-200 bg-surface-container-lowest/80 backdrop-blur-md shadow-sm print:hidden">
         <div className="max-w-container-max mx-auto px-margin-page h-16 flex items-center justify-between gap-4">
           <Link
             href="/meetings"
