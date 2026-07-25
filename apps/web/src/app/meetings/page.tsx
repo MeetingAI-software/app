@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getMeetings, type Meeting, type User } from '@/lib/api';
+import { getMeetings, type Meeting } from '@/lib/api';
 import { msToClock } from '@/lib/format';
 import NewMeetingPanel from '@/components/NewMeetingPanel';
 
@@ -25,41 +25,12 @@ function formatDate(dateStr: string): string {
 
 export default function MeetingsPage() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [user, setUser] = useState<User | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [resendStatus, setResendStatus] = useState<string | null>(null);
 
   useEffect(() => {
     fetchMeetings();
-    fetchUser();
   }, []);
-
-  const fetchUser = async () => {
-    try {
-      const res = await fetch('/api/auth/me');
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
-      }
-    } catch {}
-  };
-
-  const handleResend = async () => {
-    if (!user) return;
-    try {
-      setResendStatus('Sending...');
-      const res = await fetch('/api/auth/resend-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: user.email }),
-      });
-      if (res.ok) setResendStatus('Link sent! Check your logs/inbox.');
-      else setResendStatus('Failed to send.');
-    } catch {
-      setResendStatus('Error resending link.');
-    }
-  };
 
   const fetchMeetings = async () => {
     try {
@@ -108,24 +79,6 @@ export default function MeetingsPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-10">
-      {user && !user.emailVerified && (
-        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 shadow-xs">
-          <div className="flex items-center gap-2.5">
-            <span className="material-symbols-outlined text-amber-600 text-xl">warning</span>
-            <div>
-              <p className="text-sm font-semibold">Please verify your email address</p>
-              <p className="text-xs text-amber-800">We sent a verification link to <span className="font-bold">{user.email}</span>.</p>
-            </div>
-          </div>
-          <button
-            onClick={handleResend}
-            className="text-xs bg-amber-200/80 hover:bg-amber-200 text-amber-900 font-medium px-3 py-1.5 rounded transition-colors"
-          >
-            {resendStatus || 'Resend link'}
-          </button>
-        </div>
-      )}
-
       <div className="flex justify-between items-center mb-8">
         <h1 className="font-headline-lg text-3xl font-bold tracking-tight text-slate-900">Your meetings</h1>
       </div>

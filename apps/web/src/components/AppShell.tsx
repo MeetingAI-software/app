@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getMe, logout, getUsage, type User, type UsageSummary } from '@/lib/api';
+import { shouldShowEmailVerificationBanner } from '@/lib/email-verification';
+import EmailVerificationBanner from '@/components/EmailVerificationBanner';
 
 /**
  * Session shell for the protected app (/meetings*, /settings). Probes /api/auth/me on mount and
@@ -106,6 +108,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+
+      {shouldShowEmailVerificationBanner(user) && user && (
+        <EmailVerificationBanner email={user.email} />
+      )}
 
       <main className="flex-1">{children}</main>
     </div>
