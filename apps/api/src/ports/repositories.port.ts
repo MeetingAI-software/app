@@ -109,3 +109,23 @@ export interface SessionRepository {
   deleteExpired(): Promise<number>;
 }
 
+export interface PaddleBillingRepository {
+  upsertCustomer(input: {
+    customerId: string;
+    email: string;
+  }): Promise<void>;
+  upsertSubscription(input: {
+    subscriptionId: string;
+    customerId: string;
+    status: string;
+    priceId: string | null;
+    productId: string | null;
+    quantity: number;
+    currentPeriodStart: Date | null;
+    currentPeriodEnd: Date | null;
+    scheduledChangeAction: string | null;
+    scheduledChangeAt: Date | null;
+    occurredAt: Date;
+  }): Promise<void>;
+}
+
