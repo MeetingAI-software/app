@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Script from 'next/script';
+import { BackgroundPaths } from '@/components/ui/background-paths';
 
 export default function Home() {
   const demoLink = "/s/demo"; // Real production demo link
@@ -208,18 +209,21 @@ export default function Home() {
       <div className="font-body-md text-body-md bg-transparent min-h-screen relative overflow-x-hidden selection:bg-slate-200">
         
         {/* TopNavBar */}
-        <header className="bg-surface-container-lowest/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 border-b border-slate-200 shadow-sm content-layer">
+        <header className="bg-surface-container-lowest/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 content-layer">
           <div className="flex justify-between items-center px-margin-page py-4 max-w-container-max mx-auto">
-            <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2">
-              <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
-              MeetingAI
-            </Link>
-            <nav className="hidden md:flex items-center gap-gutter">
-              <a href="#features" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Features</a>
-              <Link href="/pricing" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Pricing</Link>
-              <a href="#demo" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Demo</a>
-            </nav>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-8 lg:gap-10">
+              <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/nota-mark-black.svg" alt="Syncmemos logo" width={28} height={28} className="h-7 w-7" />
+                Syncmemos
+              </Link>
+              <nav className="hidden md:flex items-center gap-gutter">
+                <a href="#features" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Features</a>
+                <Link href="/pricing" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Pricing</Link>
+                <a href="#demo" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Demo</a>
+              </nav>
+            </div>
+            <div className="flex items-center gap-4 lg:mr-6">
               <Link href="/meetings" className="hidden sm:inline-block text-slate-900 font-medium hover:text-secondary transition-colors duration-200">
                 Sign In
               </Link>
@@ -235,46 +239,11 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Hero Section */}
-        <section className="hero-section relative pt-[144px] pb-section-gap px-margin-page max-w-container-max mx-auto text-center flex flex-col items-center content-layer overflow-hidden min-h-[80vh] justify-center">
-          
-          {/* 3D Scene Container */}
-          <div className="absolute top-0 right-0 w-full md:w-1/2 h-full z-0 pointer-events-none" ref={threeContainerRef} />
-
-          <div className="relative z-10 w-full max-w-4xl mx-auto flex flex-col items-center">
-            <div className="inline-block bg-slate-900/5 text-slate-900 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider border border-slate-900/10 mb-6 blur-in" style={{ animationDelay: '0.0s' }}>
-              MeetingAI
-            </div>
-            <h1 className="blur-in font-display-hero text-5xl md:text-[64px] font-bold text-slate-900 max-w-4xl mx-auto mb-stack-lg tracking-tight leading-tight" style={{ animationDelay: '0.1s' }}>
-              Turn 1-hour meetings into 90-second catch-ups.
-            </h1>
-            <p className="blur-in font-body-lg text-lg text-on-surface-variant max-w-2xl mx-auto mb-stack-lg" style={{ animationDelay: '0.3s' }}>
-              MeetingAI uses precision diarization and summarization to keep your team aligned without the recording fatigue. Authoritative, silent, and highly efficient.
-            </p>
-            <div className="blur-in flex flex-col sm:flex-row gap-4 justify-center pointer-events-auto" style={{ animationDelay: '0.5s' }}>
-              <Link 
-                href="/meetings" 
-                className="magnetic-btn btn-shimmer bg-slate-900 text-white px-8 py-3 rounded font-medium hover:bg-slate-800 transition-colors shadow-sm flex items-center justify-center gap-2"
-                onMouseMove={handleMagneticMouseMove}
-                onMouseLeave={handleMagneticMouseLeave}
-              >
-                Get Started
-              </Link>
-              <Link 
-                href={demoLink} 
-                className="magnetic-btn bg-white/80 backdrop-blur-sm text-slate-900 border border-slate-200 px-8 py-3 rounded font-medium hover:bg-slate-50 transition-colors shadow-sm flex items-center justify-center gap-2"
-                onMouseMove={handleMagneticMouseMove}
-                onMouseLeave={handleMagneticMouseLeave}
-              >
-                <span className="material-symbols-outlined text-[20px]">play_circle</span>
-                See a real example
-              </Link>
-            </div>
-          </div>
-        </section>
+        {/* Hero Section — animated background paths */}
+        <BackgroundPaths />
 
         {/* Interactive Component Preview */}
-        <section className="py-section-gap bg-slate-50/90 backdrop-blur-sm border-y border-slate-200 content-layer relative z-10" id="demo">
+        <section className="py-section-gap bg-slate-50/90 backdrop-blur-sm content-layer relative z-10" id="demo">
           <div className="max-w-4xl mx-auto px-margin-page">
             <div className="flex justify-center mb-stack-lg blur-in" style={{ animationDelay: '0.2s' }}>
               <div className="inline-flex bg-white rounded border border-slate-200 p-1 shadow-sm">
@@ -465,7 +434,7 @@ export default function Home() {
         </section>
 
         {/* Footer */}
-        <footer className="bg-surface-container-low/90 backdrop-blur-md font-body-md text-body-md w-full py-section-gap border-t border-slate-200 content-layer relative z-10" id="pricing">
+        <footer className="bg-surface-container-low/90 backdrop-blur-md font-body-md text-body-md w-full py-section-gap content-layer relative z-10" id="pricing">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter px-margin-page max-w-container-max mx-auto">
             <div className="col-span-1 md:col-span-2 lg:col-span-1 flex flex-col gap-4">
               <Link href="/" className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2 hover:text-secondary transition-colors duration-200">
