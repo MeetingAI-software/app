@@ -10,6 +10,7 @@ import { DrizzleChatMessageRepository } from './adapters/db/repositories/chat-me
 import { DrizzleUserRepository } from './adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from './adapters/db/repositories/session.repository';
 import { DrizzleVerificationTokenRepository } from './adapters/db/repositories/verification-token.repository';
+import { DrizzlePaddleBillingRepository } from './adapters/db/repositories/paddle-billing.repository';
 import { createEmailVerificationMailer } from './adapters/email/email-verification-mailer.factory';
 import { FakeBotAdapter } from './adapters/fake/fake-bot.adapter';
 import { UsageMeterService } from './application/usage-meter.service';
@@ -58,6 +59,7 @@ async function bootstrap() {
   const usageRepo = new DrizzleUsageRepository();
   const documentRepo = new DrizzleDocumentRepository();
   const chatRepo = new DrizzleChatMessageRepository();
+  const paddleBillingRepo = new DrizzlePaddleBillingRepository();
 
   // 2. Select Bot Adapter
   let botAdapter: MeetingBotPort;
@@ -153,7 +155,7 @@ async function bootstrap() {
     createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen),
     createChatRoutes(meetingRepo, chatService),
     createUploadRoutes(meetingRepo, webhookRepo, usageMeter, audioStorage),
-    createWebhookRoutes(webhookRepo)
+    createWebhookRoutes(webhookRepo, paddleBillingRepo)
   ];
 
   // 6. HTTP Server

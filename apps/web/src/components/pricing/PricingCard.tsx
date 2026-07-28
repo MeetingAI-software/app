@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { PricingPlan, getAnnualTotalEur, getEffectiveMonthlyRateEur } from '@/lib/pricing';
+import { getPaddle, getPaddlePriceId } from '@/lib/paddle';
 
 interface PricingCardProps {
   plan: PricingPlan;
@@ -12,6 +13,9 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
   const isTeam = plan.id === 'team';
   const [mousePos, setMousePos] = useState({ x: 50, y: 50 });
   const [isHovered, setIsHovered] = useState(false);
+  const [isOpeningCheckout, setIsOpeningCheckout] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const opensCheckout = plan.id === 'solo' || plan.id === 'team';
 
   const displayedPrice = isAnnual
     ? getEffectiveMonthlyRateEur(plan.monthlyEur)
@@ -48,7 +52,7 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
   };
 
   // Subtle Magnetic Button Effect
-  const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  const handleMagneticMouseMove = (e: React.MouseEvent<HTMLElement>) => {
     const btn = e.currentTarget;
     const rect = btn.getBoundingClientRect();
     const x = e.clientX - rect.left - rect.width / 2;
@@ -57,10 +61,38 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
     btn.style.transition = 'transform 0.1s ease-out';
   };
 
-  const handleMagneticMouseLeave = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  const handleMagneticMouseLeave = (e: React.MouseEvent<HTMLElement>) => {
     const btn = e.currentTarget;
     btn.style.transform = 'translate(0px, 0px)';
     btn.style.transition = 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+  };
+
+  const handleCheckout = async () => {
+    const priceId = getPaddlePriceId(plan.id, isAnnual);
+    if (!priceId) {
+      setCheckoutError('Checkout is not configured for this plan yet.');
+      return;
+    }
+
+    setCheckoutError(null);
+    setIsOpeningCheckout(true);
+    try {
+      const paddle = await getPaddle();
+      if (!paddle) throw new Error('Paddle.js could not be initialized');
+      paddle.Checkout.open({
+        items: [{ priceId, quantity: 1 }],
+        settings: {
+          displayMode: 'overlay',
+          variant: 'one-page',
+          successUrl: `${window.location.origin}/checkout/success`,
+        },
+      });
+    } catch (error) {
+      console.error('Unable to open Paddle Checkout', error);
+      setCheckoutError('Checkout could not be opened. Please try again.');
+    } finally {
+      setIsOpeningCheckout(false);
+    }
   };
 
   return (
@@ -180,21 +212,40 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
 
       {/* CTA Button with Subtle Magnetic effect */}
       <div className="relative z-10">
-        <a
-          href={plan.ctaHref}
-          onMouseMove={handleMagneticMouseMove}
-          onMouseLeave={handleMagneticMouseLeave}
-          className={`w-full py-3 px-6 rounded-xl font-semibold text-center text-sm transition-colors duration-200 inline-flex items-center justify-center gap-2 shadow-sm ${
+        {opensCheckout ? (
+          <button
+            type="button"
+            onClick={handleCheckout}
+            disabled={isOpeningCheckout}
+            onMouseMove={handleMagneticMouseMove}
+            onMouseLeave={handleMagneticMouseLeave}
+            className={`w-full py-3 px-6 rounded-xl font-semibold text-center text-sm transition-colors duration-200 inline-flex items-center justify-center gap-2 shadow-sm disabled:cursor-wait disabled:opacity-70 ${
+              isTeam
+                ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/50 btn-shimmer'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300'
+            }`}
+          >
+            <span>{isOpeningCheckout ? 'Opening checkout…' : plan.ctaLabel}</span>
+            <span className="ml-1.5 font-bold text-xs opacity-80">&gt;</span>
+          </button>
+        ) : (
+          <a
+            href={plan.ctaHref}
+            onMouseMove={handleMagneticMouseMove}
+            onMouseLeave={handleMagneticMouseLeave}
+            className={`w-full py-3 px-6 rounded-xl font-semibold text-center text-sm transition-colors duration-200 inline-flex items-center justify-center gap-2 shadow-sm ${
             isTeam
               ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/50 btn-shimmer'
               : plan.id === 'business'
               ? 'bg-slate-900 hover:bg-slate-800 text-white'
               : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300'
           }`}
-        >
-          <span>{plan.ctaLabel}</span>
-          <span className="ml-1.5 font-bold text-xs opacity-80">&gt;</span>
-        </a>
+          >
+            <span>{plan.ctaLabel}</span>
+            <span className="ml-1.5 font-bold text-xs opacity-80">&gt;</span>
+          </a>
+        )}
+        {checkoutError && <p className="mt-2 text-xs text-red-500" role="alert">{checkoutError}</p>}
       </div>
     </div>
   );

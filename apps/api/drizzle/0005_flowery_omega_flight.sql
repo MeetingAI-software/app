@@ -1,1 +1,1 @@
-ALTER TABLE "email_verification_tokens" ADD COLUMN "consumed_at" timestamp with time zone;
+ALTER TABLE "email_verification_tokens" ADD COLUMN IF NOT EXISTS "consumed_at" timestamp with time zone;

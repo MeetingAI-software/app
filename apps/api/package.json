@@ -5,6 +5,8 @@
   "main": "dist/main.js",
   "scripts": {
     "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
@@ -13,6 +15,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
     "@google/genai": "^2.13.0",
+    "@paddle/paddle-node-sdk": "^3.8.0",
     "@sentry/node": "^10.67.0",
     "argon2": "^0.45.0",
     "dotenv": "^16.4.5",

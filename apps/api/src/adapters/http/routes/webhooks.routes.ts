@@ -2,13 +2,19 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { config } from '../../../config/env';
 import type { WebhookEventRepository } from '../../../ports/repositories.port';
+import type { PaddleBillingRepository } from '../../../ports/repositories.port';
+import { getPaddleClient } from '../../paddle/paddle-client';
+import { processPaddleEvent } from '../../paddle/process-paddle-event';
 import { verifyWebhookSignature } from '../../recall/recall-webhook.verifier';
 import {
   verifyTranscriptionSecret,
   TRANSCRIPTION_WEBHOOK_HEADER,
 } from '../../assemblyai/transcription-webhook.verifier';
 
-export function createWebhookRoutes(webhookRepo: WebhookEventRepository): Router {
+export function createWebhookRoutes(
+  webhookRepo: WebhookEventRepository,
+  paddleBillingRepo: PaddleBillingRepository,
+): Router {
   const router = Router();
 
   router.post('/webhooks/recall', async (req, res, next) => {
@@ -71,6 +77,31 @@ export function createWebhookRoutes(webhookRepo: WebhookEventRepository): Router
       return res.status(200).json({ received: true });
     } catch (err) {
       return next(err);
+    }
+  });
+
+  router.post('/webhooks/paddle', async (req, res) => {
+    const signature = req.header('paddle-signature');
+    const rawBody = (req as typeof req & { rawBody?: Buffer }).rawBody;
+    if (!signature || !rawBody) {
+      return res.status(400).json({ error: 'Missing Paddle signature or body' });
+    }
+
+    const secret = config.PADDLE_NOTIFICATION_WEBHOOK_SECRET;
+    const paddle = getPaddleClient();
+    if (!secret || !paddle) {
+      console.error('Paddle webhook received before server billing configuration was completed');
+      return res.status(503).json({ error: 'Paddle webhook is not configured' });
+    }
+
+    try {
+      const event = await paddle.webhooks.unmarshal(rawBody.toString('utf8'), secret, signature);
+      await processPaddleEvent(event, paddleBillingRepo);
+      return res.status(200).json({ received: true });
+    } catch (error) {
+      // Paddle retries non-2xx responses. Never acknowledge a signature or persistence failure.
+      console.error('Paddle webhook processing failed', error);
+      return res.status(500).json({ error: 'Paddle webhook processing failed' });
     }
   });
 

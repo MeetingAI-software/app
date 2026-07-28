@@ -108,3 +108,35 @@ export const sessions = pgTable('sessions', {
   sessionsUserIdIdx: index('sessions_user_id_idx').on(t.userId),
 }));
 
+// Paddle is the billing source of truth. Customer rows may be created as placeholders when
+// subscription webhooks arrive first; a later customer webhook fills in email/user ownership.
+export const paddleCustomers = pgTable('paddle_customers', {
+  customerId: text('customer_id').primaryKey(),
+  email: text('email'),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  paddleCustomersEmailIdx: index('paddle_customers_email_idx').on(t.email),
+  paddleCustomersUserIdIdx: index('paddle_customers_user_id_idx').on(t.userId),
+}));
+
+export const paddleSubscriptions = pgTable('paddle_subscriptions', {
+  subscriptionId: text('subscription_id').primaryKey(),
+  customerId: text('customer_id').notNull().references(() => paddleCustomers.customerId),
+  status: text('status').notNull(),
+  priceId: text('price_id'),
+  productId: text('product_id'),
+  quantity: integer('quantity').notNull().default(1),
+  currentPeriodStart: timestamp('current_period_start', { withTimezone: true }),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+  scheduledChangeAction: text('scheduled_change_action'),
+  scheduledChangeAt: timestamp('scheduled_change_at', { withTimezone: true }),
+  lastEventAt: timestamp('last_event_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  paddleSubscriptionsCustomerIdx: index('paddle_subscriptions_customer_id_idx').on(t.customerId),
+  paddleSubscriptionsStatusIdx: index('paddle_subscriptions_status_idx').on(t.status),
+}));
+
