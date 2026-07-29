@@ -2,11 +2,14 @@ services:
   - type: web
     name: syncmemos-web
     env: node
-    rootDir: apps/web
-    buildCommand: npm install && npm run build
-    startCommand: npm run start
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build:web
+    startCommand: npm run start -w web
     envVars:
       - key: NODE_ENV
         value: production
       - key: NEXT_PUBLIC_API_URL
         value: https://api.syncmemos.com
+
+
