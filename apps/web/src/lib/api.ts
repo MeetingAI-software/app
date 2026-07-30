@@ -267,6 +267,10 @@ export async function getSubscription(): Promise<SubscriptionSummary> {
   return handleResponse<SubscriptionSummary>(await api('/api/me/subscription'));
 }
 
+export async function createBillingPortalSession(): Promise<{ url: string }> {
+  return handleResponse<{ url: string }>(await api('/api/me/billing-portal', { method: 'POST' }));
+}
+
 export async function getMeetings(): Promise<Meeting[]> {
   return handleResponse<Meeting[]>(await api('/api/meetings'));
 }
