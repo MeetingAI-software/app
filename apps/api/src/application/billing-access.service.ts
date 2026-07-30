@@ -69,6 +69,7 @@ export class BillingAccessService implements BillingAccessProvider {
   private toSummary(subscription: PaddleSubscriptionRecord): NonNullable<BillingAccess['subscription']> {
     return {
       id: subscription.subscriptionId,
+      priceId: subscription.priceId,
       quantity: subscription.quantity,
       currentPeriodStart: subscription.currentPeriodStart?.toISOString() ?? null,
       currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null,

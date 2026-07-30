@@ -15,6 +15,7 @@ export interface BillingAccess {
   entitlements: PlanEntitlements;
   subscription: {
     id: string;
+    priceId: string | null;
     quantity: number;
     currentPeriodStart: string | null;
     currentPeriodEnd: string | null;
