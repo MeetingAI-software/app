@@ -271,6 +271,14 @@ export async function createBillingPortalSession(): Promise<{ url: string }> {
   return handleResponse<{ url: string }>(await api('/api/me/billing-portal', { method: 'POST' }));
 }
 
+export async function createCheckoutTransaction(priceId: string): Promise<{ transactionId: string }> {
+  return handleResponse<{ transactionId: string }>(await api('/api/me/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ priceId }),
+  }));
+}
+
 export async function getMeetings(): Promise<Meeting[]> {
   return handleResponse<Meeting[]>(await api('/api/meetings'));
 }
