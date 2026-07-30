@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { changePassword, changeEmail, deleteAccount, ApiError } from '@/lib/api';
+import { changePassword, changeEmail, deleteAccount, getSubscription, ApiError, type SubscriptionSummary } from '@/lib/api';
 
 const CARD = 'bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-6 shadow-sm';
 const INPUT =
@@ -22,6 +22,7 @@ export default function SettingsPage() {
         <p className="text-on-surface-variant text-sm">Manage your account.</p>
       </div>
 
+      <SubscriptionCard />
       <ChangePasswordCard />
       <ChangeEmailCard />
       <DeleteAccountCard />
@@ -31,6 +32,54 @@ export default function SettingsPage() {
           ← Back to meetings
         </Link>
       </div>
+    </div>
+  );
+}
+
+function SubscriptionCard() {
+  const [subscription, setSubscription] = useState<SubscriptionSummary | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    getSubscription().then(setSubscription).catch(() => setError(true));
+  }, []);
+
+  const planName = subscription
+    ? subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1)
+    : 'Loading…';
+  const renewal = subscription?.subscription?.currentPeriodEnd
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(subscription.subscription.currentPeriodEnd))
+    : null;
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-bold text-slate-900">Subscription</h2>
+          {error ? (
+            <p className="mt-2 text-sm text-red-600">Could not load your subscription.</p>
+          ) : (
+            <>
+              <p className="mt-2 text-2xl font-bold text-slate-900">{planName}</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {subscription?.status === 'none' ? 'Free plan' : `Status: ${subscription?.status ?? 'loading'}`}
+                {renewal ? ` · Current period ends ${renewal}` : ''}
+              </p>
+            </>
+          )}
+        </div>
+        <Link href="/pricing" className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50">
+          Compare plans
+        </Link>
+      </div>
+      {subscription?.subscription?.scheduledChangeAction && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          Scheduled change: {subscription.subscription.scheduledChangeAction}
+          {subscription.subscription.scheduledChangeAt
+            ? ` on ${new Intl.DateTimeFormat().format(new Date(subscription.subscription.scheduledChangeAt))}`
+            : ''}
+        </div>
+      )}
     </div>
   );
 }
