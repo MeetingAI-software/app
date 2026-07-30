@@ -2,6 +2,7 @@ import type { TranscriptRepository, ChatMessageRepository } from '../ports/repos
 import type { MeetingChatPort, ChatMessage } from '../ports/chat.port';
 import { MeetingNotReadyError, CapExceededError } from '../domain/errors';
 import { logger } from '../config/logger';
+import type { BillingAccessProvider } from '../domain/billing';
 
 export interface ChatAnswer {
   answer: string;
@@ -16,17 +17,19 @@ export interface ChatHistory {
 /**
  * Grounded meeting chat. Answers come ONLY from the transcript (the adapter enforces that);
  * this service owns the business rules: transcript must exist (409) and the per-meeting
- * question cap (429). The cap is injected so it is trivially testable.
+ * question cap (429). The cap comes from the authenticated owner's current plan.
  */
 export class ChatService {
   constructor(
     private readonly transcriptRepo: TranscriptRepository,
     private readonly chatRepo: ChatMessageRepository,
     private readonly chatAdapter: MeetingChatPort,
-    private readonly maxQuestionsPerMeeting: number
+    private readonly billingAccess: BillingAccessProvider,
   ) {}
 
-  async ask(meetingId: string, question: string): Promise<ChatAnswer> {
+  async ask(userId: string, meetingId: string, question: string): Promise<ChatAnswer> {
+    const { entitlements } = await this.billingAccess.getAccess(userId);
+    const maxQuestionsPerMeeting = entitlements.chatQuestionsPerMeeting;
     // 1. The chat is grounded — no transcript, nothing to answer from.
     const segments = await this.transcriptRepo.getByMeetingId(meetingId);
     if (!segments || segments.length === 0) {
@@ -35,7 +38,7 @@ export class ChatService {
 
     // 2. Enforce the per-meeting cap (each question re-reads the whole meeting — it costs money).
     const asked = await this.chatRepo.countUserMessages(meetingId);
-    if (asked >= this.maxQuestionsPerMeeting) {
+    if (asked >= maxQuestionsPerMeeting) {
       throw new CapExceededError('Question limit reached for this meeting');
     }
 
@@ -54,7 +57,7 @@ export class ChatService {
       output: outputTokens,
     });
 
-    const remaining = Math.max(0, this.maxQuestionsPerMeeting - (asked + 1));
+    const remaining = Math.max(0, maxQuestionsPerMeeting - (asked + 1));
 
     logger.info(
       { meetingId, inputTokens, outputTokens, remaining },
@@ -64,10 +67,11 @@ export class ChatService {
     return { answer, remaining };
   }
 
-  async getHistory(meetingId: string): Promise<ChatHistory> {
+  async getHistory(userId: string, meetingId: string): Promise<ChatHistory> {
+    const { entitlements } = await this.billingAccess.getAccess(userId);
     const messages = await this.chatRepo.listByMeeting(meetingId);
     const asked = await this.chatRepo.countUserMessages(meetingId);
-    const remaining = Math.max(0, this.maxQuestionsPerMeeting - asked);
+    const remaining = Math.max(0, entitlements.chatQuestionsPerMeeting - asked);
     return { messages, remaining };
   }
 }

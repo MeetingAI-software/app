@@ -13,6 +13,7 @@ import {
   ExpiredVerificationTokenError,
   InvalidVerificationTokenError,
   UsedVerificationTokenError,
+  PlanUpgradeRequiredError,
 } from '../../../domain/errors';
 import { captureError } from '../../observability/sentry';
 
@@ -30,6 +31,15 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(429).json({
       error: {
         code: 'CAP_EXCEEDED',
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof PlanUpgradeRequiredError) {
+    return res.status(403).json({
+      error: {
+        code: 'PLAN_UPGRADE_REQUIRED',
         message: err.message,
       },
     });

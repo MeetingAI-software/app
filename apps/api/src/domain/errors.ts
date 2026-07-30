@@ -6,6 +6,13 @@ export class CapExceededError extends Error {
   }
 }
 
+export class PlanUpgradeRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PlanUpgradeRequiredError';
+  }
+}
+
 export class InvalidTransitionError extends Error {
   constructor(message: string) {
     super(message);

@@ -19,6 +19,8 @@ import { StartMeetingService } from '../application/start-meeting.service';
 import { ProcessWebhookEventService } from '../application/process-webhook-event.service';
 import { ProcessUploadEventService } from '../application/process-upload-event.service';
 import { ChatService } from '../application/chat.service';
+import { BillingAccessService } from '../application/billing-access.service';
+import { paddlePriceCatalog } from '../config/billing-catalog';
 import { AuthService } from '../application/auth.service';
 import { EmailVerificationTokenService } from '../application/email-verification-token.service';
 import { EmailVerificationDeliveryService } from '../application/email-verification-delivery.service';
@@ -94,7 +96,8 @@ export function getApp(): express.Application {
     transcription = new AssemblyAIAdapter({ baseUrl: config.ASSEMBLYAI_BASE_URL });
   }
 
-  const usageMeter = new UsageMeterService(meetingRepo, usageRepo);
+  const billingAccess = new BillingAccessService(paddleBillingRepo, paddlePriceCatalog);
+  const usageMeter = new UsageMeterService(meetingRepo, usageRepo, billingAccess);
   const startMeetingService = new StartMeetingService(meetingRepo, usageMeter, botAdapter);
 
   const userRepo = new DrizzleUserRepository();
@@ -121,9 +124,9 @@ export function getApp(): express.Application {
   const routes = [
     createHealthRoutes(),
     createAuthRoutes(authService),
-    createMeRoutes(usageRepo),
+    createMeRoutes(usageRepo, billingAccess),
     createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen),
-    createChatRoutes(meetingRepo, new ChatService(transcriptRepo, chatRepo, chatAdapter, config.MAX_CHAT_QUESTIONS_PER_MEETING)),
+    createChatRoutes(meetingRepo, new ChatService(transcriptRepo, chatRepo, chatAdapter, billingAccess)),
     createUploadRoutes(meetingRepo, webhookRepo, usageMeter, audioStorage),
     createWebhookRoutes(webhookRepo, paddleBillingRepo)
   ];

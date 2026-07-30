@@ -1,14 +1,21 @@
 import type { MeetingRepository, UsageRepository } from '../ports/repositories.port';
-import { CapExceededError } from '../domain/errors';
+import { CapExceededError, PlanUpgradeRequiredError } from '../domain/errors';
+import type { BillingAccessProvider, PlanEntitlements } from '../domain/billing';
 import { config } from '../config/env';
 
 export class UsageMeterService {
   constructor(
     private readonly meetingRepo: MeetingRepository,
-    private readonly usageRepo: UsageRepository
+    private readonly usageRepo: UsageRepository,
+    private readonly billingAccess: BillingAccessProvider,
   ) {}
 
-  async assertCanStartMeeting(userId: string): Promise<void> {
+  async assertCanStartMeeting(userId: string, source: 'bot' | 'upload' = 'bot'): Promise<PlanEntitlements> {
+    const access = await this.billingAccess.getAccess(userId);
+    if (source === 'upload' && !access.entitlements.phoneInRoomRecording) {
+      throw new PlanUpgradeRequiredError('In-room recording requires a Team or Business plan');
+    }
+
     // 1. Check concurrent bot limit (per user)
     const activeBots = await this.meetingRepo.countActiveForUser(userId);
     if (activeBots >= config.MAX_CONCURRENT_BOTS) {
@@ -17,9 +24,10 @@ export class UsageMeterService {
 
     // 2. Check monthly usage cap (per user). Reserve worst-case max meeting duration
     const monthlySeconds = await this.usageRepo.monthlyTotalSeconds(userId);
-    if (monthlySeconds + config.MAX_MEETING_SECONDS > config.MONTHLY_CAP_SECONDS) {
-      throw new CapExceededError('monthly cap');
+    if (monthlySeconds + access.entitlements.maxMeetingSeconds > access.entitlements.monthlySecondsCap) {
+      throw new CapExceededError('Monthly recording limit reached for your plan');
     }
+    return access.entitlements;
   }
 
   async recordUsage(meetingId: string, seconds: number): Promise<void> {

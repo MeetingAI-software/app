@@ -18,6 +18,8 @@ import { StartMeetingService } from './application/start-meeting.service';
 import { ProcessWebhookEventService } from './application/process-webhook-event.service';
 import { ProcessUploadEventService } from './application/process-upload-event.service';
 import { ChatService } from './application/chat.service';
+import { BillingAccessService } from './application/billing-access.service';
+import { paddlePriceCatalog } from './config/billing-catalog';
 import { AuthService } from './application/auth.service';
 import { EmailVerificationTokenService } from './application/email-verification-token.service';
 import { EmailVerificationDeliveryService } from './application/email-verification-delivery.service';
@@ -111,11 +113,12 @@ async function bootstrap() {
   }
 
   // 4. Services
-  const usageMeter = new UsageMeterService(meetingRepo, usageRepo);
+  const billingAccess = new BillingAccessService(paddleBillingRepo, paddlePriceCatalog);
+  const usageMeter = new UsageMeterService(meetingRepo, usageRepo, billingAccess);
   const startMeetingService = new StartMeetingService(meetingRepo, usageMeter, botAdapter);
   const processService = new ProcessWebhookEventService(meetingRepo, transcriptRepo, usageRepo, botAdapter, docGen);
   const uploadService = new ProcessUploadEventService(meetingRepo, transcriptRepo, usageRepo, transcription, audioStorage, docGen);
-  const chatService = new ChatService(transcriptRepo, chatRepo, chatAdapter, config.MAX_CHAT_QUESTIONS_PER_MEETING);
+  const chatService = new ChatService(transcriptRepo, chatRepo, chatAdapter, billingAccess);
 
   // 4c. Auth (Day 5): accounts + sessions + GDPR erasure
   const userRepo = new DrizzleUserRepository();
@@ -151,7 +154,7 @@ async function bootstrap() {
   const routes = [
     createHealthRoutes(),
     createAuthRoutes(authService),
-    createMeRoutes(usageRepo),
+    createMeRoutes(usageRepo, billingAccess),
     createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen),
     createChatRoutes(meetingRepo, chatService),
     createUploadRoutes(meetingRepo, webhookRepo, usageMeter, audioStorage),

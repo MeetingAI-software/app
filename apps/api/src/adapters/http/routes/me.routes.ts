@@ -1,15 +1,26 @@
 import { Router } from 'express';
 import type { UsageRepository } from '../../../ports/repositories.port';
-import { config } from '../../../config/env';
+import type { BillingAccessProvider } from '../../../domain/billing';
 
 /** GET /api/me/usage — this month's recorded seconds vs the cap; feeds the header indicator (§6). */
-export function createMeRoutes(usageRepo: UsageRepository): Router {
+export function createMeRoutes(usageRepo: UsageRepository, billingAccess: BillingAccessProvider): Router {
   const router = Router();
 
   router.get('/api/me/usage', async (req, res, next) => {
     try {
-      const secondsUsed = await usageRepo.monthlyTotalSeconds(req.userId!);
-      return res.status(200).json({ secondsUsed, secondsCap: config.MONTHLY_CAP_SECONDS });
+      const [secondsUsed, access] = await Promise.all([
+        usageRepo.monthlyTotalSeconds(req.userId!),
+        billingAccess.getAccess(req.userId!),
+      ]);
+      return res.status(200).json({ secondsUsed, secondsCap: access.entitlements.monthlySecondsCap });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  router.get('/api/me/subscription', async (req, res, next) => {
+    try {
+      return res.status(200).json(await billingAccess.getAccess(req.userId!));
     } catch (err) {
       return next(err);
     }
