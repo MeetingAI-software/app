@@ -27,6 +27,20 @@ export class PaddleNotConfiguredError extends Error {
   }
 }
 
+export class InvalidBillingPriceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidBillingPriceError';
+  }
+}
+
+export class SubscriptionAlreadyActiveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SubscriptionAlreadyActiveError';
+  }
+}
+
 export class InvalidTransitionError extends Error {
   constructor(message: string) {
     super(message);

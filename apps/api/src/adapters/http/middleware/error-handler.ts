@@ -16,6 +16,8 @@ import {
   PlanUpgradeRequiredError,
   PaddleCustomerNotFoundError,
   PaddleNotConfiguredError,
+  InvalidBillingPriceError,
+  SubscriptionAlreadyActiveError,
 } from '../../../domain/errors';
 import { captureError } from '../../observability/sentry';
 
@@ -56,6 +58,18 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   if (err instanceof PaddleNotConfiguredError) {
     return res.status(503).json({
       error: { code: 'PADDLE_NOT_CONFIGURED', message: err.message },
+    });
+  }
+
+  if (err instanceof InvalidBillingPriceError) {
+    return res.status(400).json({
+      error: { code: 'INVALID_BILLING_PRICE', message: err.message },
+    });
+  }
+
+  if (err instanceof SubscriptionAlreadyActiveError) {
+    return res.status(409).json({
+      error: { code: 'SUBSCRIPTION_ALREADY_ACTIVE', message: err.message },
     });
   }
 
