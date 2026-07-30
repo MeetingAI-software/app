@@ -100,6 +100,29 @@ export interface UsageSummary {
   secondsCap: number;
 }
 
+export type PlanId = 'free' | 'solo' | 'team' | 'business';
+
+export interface SubscriptionSummary {
+  plan: PlanId;
+  status: string | 'none';
+  hasPaidAccess: boolean;
+  entitlements: {
+    monthlySecondsCap: number;
+    maxMeetingSeconds: number;
+    chatQuestionsPerMeeting: number;
+    phoneInRoomRecording: boolean;
+    adminControlsAndAuditLog: boolean;
+  };
+  subscription: {
+    id: string;
+    quantity: number;
+    currentPeriodStart: string | null;
+    currentPeriodEnd: string | null;
+    scheduledChangeAction: string | null;
+    scheduledChangeAt: string | null;
+  } | null;
+}
+
 /** Carries the HTTP status so callers can tell 409 (not ready) from 429 (at cap). */
 export class ApiError extends Error {
   status: number;
@@ -238,6 +261,10 @@ export async function deleteAccount(password: string): Promise<void> {
 
 export async function getUsage(): Promise<UsageSummary> {
   return handleResponse<UsageSummary>(await api('/api/me/usage'));
+}
+
+export async function getSubscription(): Promise<SubscriptionSummary> {
+  return handleResponse<SubscriptionSummary>(await api('/api/me/subscription'));
 }
 
 export async function getMeetings(): Promise<Meeting[]> {
