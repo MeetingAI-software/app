@@ -13,6 +13,20 @@ export class PlanUpgradeRequiredError extends Error {
   }
 }
 
+export class PaddleCustomerNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PaddleCustomerNotFoundError';
+  }
+}
+
+export class PaddleNotConfiguredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PaddleNotConfiguredError';
+  }
+}
+
 export class InvalidTransitionError extends Error {
   constructor(message: string) {
     super(message);
