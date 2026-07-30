@@ -1,9 +1,27 @@
-import { and, eq, lte } from 'drizzle-orm';
+import { and, desc, eq, lte } from 'drizzle-orm';
 import { db } from '../client';
 import { paddleCustomers, paddleSubscriptions, users } from '../schema';
 import type { PaddleBillingRepository } from '../../../ports/repositories.port';
 
 export class DrizzlePaddleBillingRepository implements PaddleBillingRepository {
+  async listSubscriptionsForUser(userId: string) {
+    return db.select({
+      subscriptionId: paddleSubscriptions.subscriptionId,
+      status: paddleSubscriptions.status,
+      priceId: paddleSubscriptions.priceId,
+      productId: paddleSubscriptions.productId,
+      quantity: paddleSubscriptions.quantity,
+      currentPeriodStart: paddleSubscriptions.currentPeriodStart,
+      currentPeriodEnd: paddleSubscriptions.currentPeriodEnd,
+      scheduledChangeAction: paddleSubscriptions.scheduledChangeAction,
+      scheduledChangeAt: paddleSubscriptions.scheduledChangeAt,
+      lastEventAt: paddleSubscriptions.lastEventAt,
+    }).from(paddleSubscriptions)
+      .innerJoin(paddleCustomers, eq(paddleSubscriptions.customerId, paddleCustomers.customerId))
+      .where(eq(paddleCustomers.userId, userId))
+      .orderBy(desc(paddleSubscriptions.lastEventAt));
+  }
+
   async upsertCustomer(input: { customerId: string; email: string }): Promise<void> {
     const email = input.email.trim().toLowerCase();
     const [user] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
