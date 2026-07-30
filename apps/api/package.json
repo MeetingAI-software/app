@@ -9,6 +9,7 @@
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "billing:check": "tsx src/scripts/paddle-readiness.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/adapters/db/migrate.ts"
   },
