@@ -52,6 +52,12 @@ const envSchema = z.object({
   PADDLE_API_KEY: z.string().min(1).optional(),
   PADDLE_SANDBOX_API_KEY: z.string().min(1).optional(),
   PADDLE_NOTIFICATION_WEBHOOK_SECRET: z.string().min(1).optional(),
+  NEXT_PUBLIC_PADDLE_SOLO_MONTHLY_PRICE_ID: z.string().optional(),
+  NEXT_PUBLIC_PADDLE_SOLO_ANNUAL_PRICE_ID: z.string().optional(),
+  NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID: z.string().optional(),
+  NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID: z.string().optional(),
+  NEXT_PUBLIC_PADDLE_BUSINESS_MONTHLY_PRICE_ID: z.string().optional(),
+  NEXT_PUBLIC_PADDLE_BUSINESS_ANNUAL_PRICE_ID: z.string().optional(),
 }).superRefine((cfg, ctx) => {
   // Same fail-fast standard as everything else: don't boot half-configured for a paid vendor.
   if ((cfg.CHAT_PROVIDER === 'gemini' || cfg.DOC_PROVIDER === 'gemini') && !cfg.GEMINI_API_KEY) {

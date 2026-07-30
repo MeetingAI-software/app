@@ -7,6 +7,7 @@ function repository(): PaddleBillingRepository {
   return {
     upsertCustomer: vi.fn(),
     upsertSubscription: vi.fn(),
+    listSubscriptionsForUser: vi.fn(),
   };
 }
 

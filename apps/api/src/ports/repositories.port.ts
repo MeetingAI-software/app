@@ -127,5 +127,19 @@ export interface PaddleBillingRepository {
     scheduledChangeAt: Date | null;
     occurredAt: Date;
   }): Promise<void>;
+  listSubscriptionsForUser(userId: string): Promise<PaddleSubscriptionRecord[]>;
+}
+
+export interface PaddleSubscriptionRecord {
+  subscriptionId: string;
+  status: string;
+  priceId: string | null;
+  productId: string | null;
+  quantity: number;
+  currentPeriodStart: Date | null;
+  currentPeriodEnd: Date | null;
+  scheduledChangeAction: string | null;
+  scheduledChangeAt: Date | null;
+  lastEventAt: Date;
 }
 
