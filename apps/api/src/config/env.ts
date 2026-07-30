@@ -75,6 +75,43 @@ const envSchema = z.object({
       message: 'RESEND_FROM is required when EMAIL_PROVIDER is "resend"',
     });
   }
+
+  const paddleApiKey = cfg.PADDLE_API_KEY ?? cfg.PADDLE_SANDBOX_API_KEY;
+  if (cfg.PADDLE_NOTIFICATION_WEBHOOK_SECRET && !paddleApiKey) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PADDLE_API_KEY'],
+      message: 'A Paddle API key is required when Paddle webhooks are configured',
+    });
+  }
+  if (cfg.PADDLE_ENV === 'production' && paddleApiKey && !cfg.PADDLE_NOTIFICATION_WEBHOOK_SECRET) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PADDLE_NOTIFICATION_WEBHOOK_SECRET'],
+      message: 'Production Paddle requires PADDLE_NOTIFICATION_WEBHOOK_SECRET',
+    });
+  }
+  if (cfg.PADDLE_ENV === 'production' && cfg.PADDLE_SANDBOX_API_KEY && !cfg.PADDLE_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PADDLE_API_KEY'],
+      message: 'Production must use PADDLE_API_KEY; a sandbox key is never used as a fallback',
+    });
+  }
+  if (paddleApiKey && cfg.PADDLE_ENV === 'sandbox' && !paddleApiKey.startsWith('pdl_sdbx_apikey_')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PADDLE_API_KEY'],
+      message: 'Sandbox Paddle keys must start with pdl_sdbx_apikey_',
+    });
+  }
+  if (cfg.PADDLE_API_KEY && cfg.PADDLE_ENV === 'production' && !cfg.PADDLE_API_KEY.startsWith('pdl_live_apikey_')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PADDLE_API_KEY'],
+      message: 'Production Paddle keys must start with pdl_live_apikey_',
+    });
+  }
 });
 
 const parsed = envSchema.safeParse(process.env);
