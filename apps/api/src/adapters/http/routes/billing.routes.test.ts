@@ -3,17 +3,20 @@ import type { Server } from 'http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../../../config/env';
 import type { CustomerPortalService } from '../../../application/customer-portal.service';
+import type { CheckoutService } from '../../../application/checkout.service';
 import { createServer } from '../server';
 import { createBillingRoutes } from './billing.routes';
 
 describe('billing portal route', () => {
   const createForUser = vi.fn();
+  const createCheckoutForUser = vi.fn();
   let server: Server;
   let baseUrl: string;
 
   beforeAll(() => {
     const service = { createForUser } as unknown as CustomerPortalService;
-    const app = createServer([createBillingRoutes(service)], async (token) => token === 'valid-token' ? {
+    const checkout = { createForUser: createCheckoutForUser } as unknown as CheckoutService;
+    const app = createServer([createBillingRoutes(service, checkout)], async (token) => token === 'valid-token' ? {
       id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
     } : null);
     server = app.listen(0);
@@ -23,6 +26,24 @@ describe('billing portal route', () => {
   beforeEach(() => {
     createForUser.mockReset();
     createForUser.mockResolvedValue('https://sandbox-login.paddle.com/session');
+    createCheckoutForUser.mockReset();
+    createCheckoutForUser.mockResolvedValue('txn_1');
+  });
+
+  it('creates checkout only for the authenticated user', async () => {
+    const response = await fetch(`${baseUrl}/api/me/checkout`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN,
+        cookie: 'session=valid-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ priceId: 'pri_solo', userId: 'someone-else' }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ transactionId: 'txn_1' });
+    expect(createCheckoutForUser).toHaveBeenCalledWith('user-1', 'pri_solo');
   });
 
   afterAll(async () => {
