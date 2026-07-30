@@ -110,6 +110,10 @@ export interface SessionRepository {
 }
 
 export interface PaddleBillingRepository {
+  findCustomerForUser(userId: string): Promise<{
+    customerId: string;
+    subscriptionIds: string[];
+  } | null>;
   upsertCustomer(input: {
     customerId: string;
     email: string;
