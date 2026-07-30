@@ -14,6 +14,8 @@ import {
   InvalidVerificationTokenError,
   UsedVerificationTokenError,
   PlanUpgradeRequiredError,
+  PaddleCustomerNotFoundError,
+  PaddleNotConfiguredError,
 } from '../../../domain/errors';
 import { captureError } from '../../observability/sentry';
 
@@ -42,6 +44,18 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
         code: 'PLAN_UPGRADE_REQUIRED',
         message: err.message,
       },
+    });
+  }
+
+  if (err instanceof PaddleCustomerNotFoundError) {
+    return res.status(404).json({
+      error: { code: 'PADDLE_CUSTOMER_NOT_FOUND', message: err.message },
+    });
+  }
+
+  if (err instanceof PaddleNotConfiguredError) {
+    return res.status(503).json({
+      error: { code: 'PADDLE_NOT_CONFIGURED', message: err.message },
     });
   }
 

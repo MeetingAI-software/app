@@ -20,6 +20,7 @@ import { ProcessWebhookEventService } from '../application/process-webhook-event
 import { ProcessUploadEventService } from '../application/process-upload-event.service';
 import { ChatService } from '../application/chat.service';
 import { BillingAccessService } from '../application/billing-access.service';
+import { CustomerPortalService } from '../application/customer-portal.service';
 import { paddlePriceCatalog } from '../config/billing-catalog';
 import { AuthService } from '../application/auth.service';
 import { EmailVerificationTokenService } from '../application/email-verification-token.service';
@@ -31,6 +32,8 @@ import { createChatRoutes } from '../adapters/http/routes/chat.routes';
 import { createUploadRoutes } from '../adapters/http/routes/upload.routes';
 import { createAuthRoutes } from '../adapters/http/routes/auth.routes';
 import { createMeRoutes } from '../adapters/http/routes/me.routes';
+import { createBillingRoutes } from '../adapters/http/routes/billing.routes';
+import { PaddleCustomerPortalAdapter } from '../adapters/paddle/paddle-customer-portal.adapter';
 import { SupabaseStorageAdapter } from '../adapters/supabase/supabase-storage.adapter';
 import { RecallAdapter } from '../adapters/recall/recall.adapter';
 import { FakeDocumentGenerator } from '../adapters/fake/fake-document.generator';
@@ -97,6 +100,7 @@ export function getApp(): express.Application {
   }
 
   const billingAccess = new BillingAccessService(paddleBillingRepo, paddlePriceCatalog);
+  const customerPortal = new CustomerPortalService(paddleBillingRepo, new PaddleCustomerPortalAdapter());
   const usageMeter = new UsageMeterService(meetingRepo, usageRepo, billingAccess);
   const startMeetingService = new StartMeetingService(meetingRepo, usageMeter, botAdapter);
 
@@ -125,6 +129,7 @@ export function getApp(): express.Application {
     createHealthRoutes(),
     createAuthRoutes(authService),
     createMeRoutes(usageRepo, billingAccess),
+    createBillingRoutes(customerPortal),
     createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen),
     createChatRoutes(meetingRepo, new ChatService(transcriptRepo, chatRepo, chatAdapter, billingAccess)),
     createUploadRoutes(meetingRepo, webhookRepo, usageMeter, audioStorage),
