@@ -115,6 +115,7 @@ export interface SubscriptionSummary {
   };
   subscription: {
     id: string;
+    priceId: string | null;
     quantity: number;
     currentPeriodStart: string | null;
     currentPeriodEnd: string | null;
@@ -273,6 +274,33 @@ export async function createBillingPortalSession(): Promise<{ url: string }> {
 
 export async function createCheckoutTransaction(priceId: string): Promise<{ transactionId: string }> {
   return handleResponse<{ transactionId: string }>(await api('/api/me/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ priceId }),
+  }));
+}
+
+export interface SubscriptionChangePreview {
+  targetPlan: 'solo' | 'team';
+  targetInterval: 'monthly' | 'annual';
+  prorationBillingMode: 'prorated_immediately' | 'prorated_next_billing_period';
+  immediateAmount: string | null;
+  immediateCurrency: string | null;
+  recurringAmount: string | null;
+  recurringCurrency: string | null;
+  nextBilledAt: string | null;
+}
+
+export async function previewSubscriptionChange(priceId: string): Promise<SubscriptionChangePreview> {
+  return handleResponse<SubscriptionChangePreview>(await api('/api/me/subscription/preview-change', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ priceId }),
+  }));
+}
+
+export async function changeSubscription(priceId: string): Promise<{ accepted: true; status: string; priceId: string | null }> {
+  return handleResponse(await api('/api/me/subscription/change', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ priceId }),
