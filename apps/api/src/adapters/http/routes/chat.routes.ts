@@ -29,7 +29,7 @@ export function createChatRoutes(meetingRepo: MeetingRepository, chatService: Ch
     try {
       if (!(await ownedOr404(req, res))) return;
       const { question } = askSchema.parse(req.body);
-      const result = await chatService.ask(req.params.id, question);
+      const result = await chatService.ask(req.userId!, req.params.id, question);
       return res.status(200).json(result);   // { answer, remaining }
     } catch (err) {
       return next(err);
@@ -40,7 +40,7 @@ export function createChatRoutes(meetingRepo: MeetingRepository, chatService: Ch
   router.get('/api/meetings/:id/chat', async (req, res, next) => {
     try {
       if (!(await ownedOr404(req, res))) return;
-      const result = await chatService.getHistory(req.params.id);
+      const result = await chatService.getHistory(req.userId!, req.params.id);
       return res.status(200).json(result);    // { messages, remaining }
     } catch (err) {
       return next(err);
