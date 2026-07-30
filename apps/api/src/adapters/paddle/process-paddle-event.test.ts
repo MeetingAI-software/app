@@ -5,8 +5,10 @@ import { processPaddleEvent } from './process-paddle-event';
 
 function repository(): PaddleBillingRepository {
   return {
+    findCustomerForUser: vi.fn(),
     upsertCustomer: vi.fn(),
     upsertSubscription: vi.fn(),
+    listSubscriptionsForUser: vi.fn(),
   };
 }
 

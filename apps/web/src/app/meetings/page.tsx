@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getMeetings, type Meeting } from '@/lib/api';
+import { getMeetings, getSubscription, type Meeting, type SubscriptionSummary } from '@/lib/api';
 import { msToClock } from '@/lib/format';
 import NewMeetingPanel from '@/components/NewMeetingPanel';
 
@@ -27,23 +27,27 @@ export default function MeetingsPage() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [subscription, setSubscription] = useState<SubscriptionSummary | null>(null);
 
   useEffect(() => {
-    fetchMeetings();
-  }, []);
-
-  const fetchMeetings = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await getMeetings();
-      setMeetings(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch meetings');
-    } finally {
-      setLoading(false);
+    let active = true;
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
+        const [data, access] = await Promise.all([getMeetings(), getSubscription()]);
+        if (!active) return;
+        setMeetings(data);
+        setSubscription(access);
+      } catch (err: unknown) {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to fetch meetings');
+      } finally {
+        if (active) setLoading(false);
+      }
     }
-  };
+    void load();
+    return () => { active = false; };
+  }, []);
 
   const getStatusBadge = (status: string) => {
     const base = 'px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider border';
@@ -83,7 +87,7 @@ export default function MeetingsPage() {
         <h1 className="font-headline-lg text-3xl font-bold tracking-tight text-slate-900">Your meetings</h1>
       </div>
 
-      <NewMeetingPanel />
+      <NewMeetingPanel subscription={subscription} />
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-6 text-sm font-medium">

@@ -100,6 +100,30 @@ export interface UsageSummary {
   secondsCap: number;
 }
 
+export type PlanId = 'free' | 'solo' | 'team' | 'business';
+
+export interface SubscriptionSummary {
+  plan: PlanId;
+  status: string | 'none';
+  hasPaidAccess: boolean;
+  entitlements: {
+    monthlySecondsCap: number;
+    maxMeetingSeconds: number;
+    chatQuestionsPerMeeting: number;
+    phoneInRoomRecording: boolean;
+    adminControlsAndAuditLog: boolean;
+  };
+  subscription: {
+    id: string;
+    priceId: string | null;
+    quantity: number;
+    currentPeriodStart: string | null;
+    currentPeriodEnd: string | null;
+    scheduledChangeAction: string | null;
+    scheduledChangeAt: string | null;
+  } | null;
+}
+
 /** Carries the HTTP status so callers can tell 409 (not ready) from 429 (at cap). */
 export class ApiError extends Error {
   status: number;
@@ -238,6 +262,49 @@ export async function deleteAccount(password: string): Promise<void> {
 
 export async function getUsage(): Promise<UsageSummary> {
   return handleResponse<UsageSummary>(await api('/api/me/usage'));
+}
+
+export async function getSubscription(): Promise<SubscriptionSummary> {
+  return handleResponse<SubscriptionSummary>(await api('/api/me/subscription'));
+}
+
+export async function createBillingPortalSession(): Promise<{ url: string }> {
+  return handleResponse<{ url: string }>(await api('/api/me/billing-portal', { method: 'POST' }));
+}
+
+export async function createCheckoutTransaction(priceId: string): Promise<{ transactionId: string }> {
+  return handleResponse<{ transactionId: string }>(await api('/api/me/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ priceId }),
+  }));
+}
+
+export interface SubscriptionChangePreview {
+  targetPlan: 'solo' | 'team';
+  targetInterval: 'monthly' | 'annual';
+  prorationBillingMode: 'prorated_immediately' | 'prorated_next_billing_period';
+  immediateAmount: string | null;
+  immediateCurrency: string | null;
+  recurringAmount: string | null;
+  recurringCurrency: string | null;
+  nextBilledAt: string | null;
+}
+
+export async function previewSubscriptionChange(priceId: string): Promise<SubscriptionChangePreview> {
+  return handleResponse<SubscriptionChangePreview>(await api('/api/me/subscription/preview-change', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ priceId }),
+  }));
+}
+
+export async function changeSubscription(priceId: string): Promise<{ accepted: true; status: string; priceId: string | null }> {
+  return handleResponse(await api('/api/me/subscription/change', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ priceId }),
+  }));
 }
 
 export async function getMeetings(): Promise<Meeting[]> {

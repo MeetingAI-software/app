@@ -2,17 +2,19 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createMeeting } from '@/lib/api';
+import { createMeeting, type SubscriptionSummary } from '@/lib/api';
 import InRoomRecorder from './InRoomRecorder';
+import Link from 'next/link';
 
 type Tab = 'online' | 'inroom';
 
-export default function NewMeetingPanel() {
+export default function NewMeetingPanel({ subscription }: { subscription: SubscriptionSummary | null }) {
   const [tab, setTab] = useState<Tab>('online');
   const [meetingUrl, setMeetingUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const canUseInRoom = subscription?.entitlements.phoneInRoomRecording ?? false;
 
   async function handleOnlineSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -80,8 +82,21 @@ export default function NewMeetingPanel() {
             {loading ? 'Adding bot to Zoom…' : 'Start meeting bot'}
           </button>
         </form>
-      ) : (
+      ) : canUseInRoom ? (
         <InRoomRecorder />
+      ) : (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+          <h3 className="font-bold text-slate-900">In-room recording is available on Team</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Your current {subscription?.plan ?? 'free'} plan still supports online meeting bots.
+          </p>
+          <Link
+            href="/pricing"
+            className="mt-4 inline-flex rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Compare plans
+          </Link>
+        </div>
       )}
     </section>
   );

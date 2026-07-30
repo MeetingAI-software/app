@@ -14,7 +14,7 @@ export class StartMeetingService {
 
   async start(userId: string, meetingUrl: string): Promise<Meeting> {
     // 1. Assert we have budget/quota (per user)
-    await this.usageMeter.assertCanStartMeeting(userId);
+    const entitlements = await this.usageMeter.assertCanStartMeeting(userId);
 
     // 2. Create the pending meeting row, owned by this user
     const meeting = await this.meetingRepo.create({ ownerUserId: userId, source: 'bot', meetingUrl });
@@ -24,6 +24,7 @@ export class StartMeetingService {
       const { botId } = await this.botAdapter.createBot({
         meetingUrl,
         meetingId: meeting.id,
+        maxMeetingSeconds: entitlements.maxMeetingSeconds,
       });
 
       // 4. Transition to bot_joining with the returned botId

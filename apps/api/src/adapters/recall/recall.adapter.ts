@@ -95,7 +95,7 @@ export class RecallAdapter implements MeetingBotPort {
     return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   }
 
-  async createBot(input: { meetingUrl: string; meetingId: string }): Promise<{ botId: string }> {
+  async createBot(input: { meetingUrl: string; meetingId: string; maxMeetingSeconds?: number }): Promise<{ botId: string }> {
     const url = `${this.getBaseUrl()}/api/v1/bot/`;
     
     const body = {
@@ -107,7 +107,7 @@ export class RecallAdapter implements MeetingBotPort {
         meetingId: input.meetingId,
       },
       automatic_leave: {
-        in_call_recording_timeout: config.MAX_MEETING_SECONDS,
+        in_call_recording_timeout: input.maxMeetingSeconds ?? config.MAX_MEETING_SECONDS,
       },
     };
 

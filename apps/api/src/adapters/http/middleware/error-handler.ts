@@ -13,6 +13,11 @@ import {
   ExpiredVerificationTokenError,
   InvalidVerificationTokenError,
   UsedVerificationTokenError,
+  PlanUpgradeRequiredError,
+  PaddleCustomerNotFoundError,
+  PaddleNotConfiguredError,
+  InvalidBillingPriceError,
+  SubscriptionAlreadyActiveError,
 } from '../../../domain/errors';
 import { captureError } from '../../observability/sentry';
 
@@ -32,6 +37,39 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
         code: 'CAP_EXCEEDED',
         message: err.message,
       },
+    });
+  }
+
+  if (err instanceof PlanUpgradeRequiredError) {
+    return res.status(403).json({
+      error: {
+        code: 'PLAN_UPGRADE_REQUIRED',
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof PaddleCustomerNotFoundError) {
+    return res.status(404).json({
+      error: { code: 'PADDLE_CUSTOMER_NOT_FOUND', message: err.message },
+    });
+  }
+
+  if (err instanceof PaddleNotConfiguredError) {
+    return res.status(503).json({
+      error: { code: 'PADDLE_NOT_CONFIGURED', message: err.message },
+    });
+  }
+
+  if (err instanceof InvalidBillingPriceError) {
+    return res.status(400).json({
+      error: { code: 'INVALID_BILLING_PRICE', message: err.message },
+    });
+  }
+
+  if (err instanceof SubscriptionAlreadyActiveError) {
+    return res.status(409).json({
+      error: { code: 'SUBSCRIPTION_ALREADY_ACTIVE', message: err.message },
     });
   }
 

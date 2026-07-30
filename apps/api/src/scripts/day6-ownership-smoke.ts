@@ -25,6 +25,7 @@ import { DrizzleWebhookEventRepository } from '../adapters/db/repositories/webho
 import { SupabaseStorageAdapter } from '../adapters/supabase/supabase-storage.adapter';
 import { RecallAdapter } from '../adapters/recall/recall.adapter';
 import { config } from '../config/env';
+import { PLAN_ENTITLEMENTS } from '../domain/billing';
 
 // Live multi-tenancy check for Step 6: two users each see only their own meetings, cross-user
 // access 404s, /api/me/usage works. Self-cleaning (removes the meeting + both users).
@@ -46,10 +47,16 @@ async function main() {
     verificationTokens,
     new EmailVerificationDeliveryService(verificationTokens, new LogEmailVerificationMailer(), config.WEB_ORIGIN),
   );
-  const startMeeting = new StartMeetingService(meetingRepo, new UsageMeterService(meetingRepo, usageRepo), new FakeBotAdapter(webhookRepo));
+  const billingAccess = {
+    getAccess: async () => ({
+      plan: 'free' as const, status: 'none' as const, hasPaidAccess: false,
+      entitlements: PLAN_ENTITLEMENTS.free, subscription: null,
+    }),
+  };
+  const startMeeting = new StartMeetingService(meetingRepo, new UsageMeterService(meetingRepo, usageRepo, billingAccess), new FakeBotAdapter(webhookRepo));
 
   const app = createServer(
-    [createAuthRoutes(authService), createMeRoutes(usageRepo), createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeeting, new FakeDocumentGenerator())],
+    [createAuthRoutes(authService), createMeRoutes(usageRepo, billingAccess), createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeeting, new FakeDocumentGenerator())],
     (t) => authService.getUserForToken(t)
   );
   const server = app.listen(0);

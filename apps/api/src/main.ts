@@ -18,6 +18,11 @@ import { StartMeetingService } from './application/start-meeting.service';
 import { ProcessWebhookEventService } from './application/process-webhook-event.service';
 import { ProcessUploadEventService } from './application/process-upload-event.service';
 import { ChatService } from './application/chat.service';
+import { BillingAccessService } from './application/billing-access.service';
+import { CustomerPortalService } from './application/customer-portal.service';
+import { CheckoutService } from './application/checkout.service';
+import { SubscriptionUpdateService } from './application/subscription-update.service';
+import { paddleCheckoutPriceIds, paddlePlanChangePrices, paddlePriceCatalog } from './config/billing-catalog';
 import { AuthService } from './application/auth.service';
 import { EmailVerificationTokenService } from './application/email-verification-token.service';
 import { EmailVerificationDeliveryService } from './application/email-verification-delivery.service';
@@ -30,6 +35,10 @@ import { createChatRoutes } from './adapters/http/routes/chat.routes';
 import { createUploadRoutes } from './adapters/http/routes/upload.routes';
 import { createAuthRoutes } from './adapters/http/routes/auth.routes';
 import { createMeRoutes } from './adapters/http/routes/me.routes';
+import { createBillingRoutes } from './adapters/http/routes/billing.routes';
+import { PaddleCustomerPortalAdapter } from './adapters/paddle/paddle-customer-portal.adapter';
+import { PaddleCheckoutAdapter } from './adapters/paddle/paddle-checkout.adapter';
+import { PaddleSubscriptionUpdateAdapter } from './adapters/paddle/paddle-subscription-update.adapter';
 import { SupabaseStorageAdapter } from './adapters/supabase/supabase-storage.adapter';
 import { RecallAdapter } from './adapters/recall/recall.adapter';
 import { FakeDocumentGenerator } from './adapters/fake/fake-document.generator';
@@ -111,14 +120,22 @@ async function bootstrap() {
   }
 
   // 4. Services
-  const usageMeter = new UsageMeterService(meetingRepo, usageRepo);
+  const billingAccess = new BillingAccessService(paddleBillingRepo, paddlePriceCatalog);
+  const customerPortal = new CustomerPortalService(paddleBillingRepo, new PaddleCustomerPortalAdapter());
+  const usageMeter = new UsageMeterService(meetingRepo, usageRepo, billingAccess);
   const startMeetingService = new StartMeetingService(meetingRepo, usageMeter, botAdapter);
   const processService = new ProcessWebhookEventService(meetingRepo, transcriptRepo, usageRepo, botAdapter, docGen);
   const uploadService = new ProcessUploadEventService(meetingRepo, transcriptRepo, usageRepo, transcription, audioStorage, docGen);
-  const chatService = new ChatService(transcriptRepo, chatRepo, chatAdapter, config.MAX_CHAT_QUESTIONS_PER_MEETING);
+  const chatService = new ChatService(transcriptRepo, chatRepo, chatAdapter, billingAccess);
 
   // 4c. Auth (Day 5): accounts + sessions + GDPR erasure
   const userRepo = new DrizzleUserRepository();
+  const checkoutService = new CheckoutService(
+    paddleBillingRepo, userRepo, new PaddleCheckoutAdapter(), paddleCheckoutPriceIds,
+  );
+  const subscriptionUpdate = new SubscriptionUpdateService(
+    paddleBillingRepo, new PaddleSubscriptionUpdateAdapter(), paddlePlanChangePrices,
+  );
   const sessionRepo = new DrizzleSessionRepository();
   const verificationTokenRepo = new DrizzleVerificationTokenRepository();
   const emailVerificationTokens = new EmailVerificationTokenService(verificationTokenRepo);
@@ -151,7 +168,8 @@ async function bootstrap() {
   const routes = [
     createHealthRoutes(),
     createAuthRoutes(authService),
-    createMeRoutes(usageRepo),
+    createMeRoutes(usageRepo, billingAccess),
+    createBillingRoutes(customerPortal, checkoutService, subscriptionUpdate),
     createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen),
     createChatRoutes(meetingRepo, chatService),
     createUploadRoutes(meetingRepo, webhookRepo, usageMeter, audioStorage),

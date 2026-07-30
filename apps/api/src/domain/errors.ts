@@ -6,6 +6,41 @@ export class CapExceededError extends Error {
   }
 }
 
+export class PlanUpgradeRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PlanUpgradeRequiredError';
+  }
+}
+
+export class PaddleCustomerNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PaddleCustomerNotFoundError';
+  }
+}
+
+export class PaddleNotConfiguredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PaddleNotConfiguredError';
+  }
+}
+
+export class InvalidBillingPriceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidBillingPriceError';
+  }
+}
+
+export class SubscriptionAlreadyActiveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SubscriptionAlreadyActiveError';
+  }
+}
+
 export class InvalidTransitionError extends Error {
   constructor(message: string) {
     super(message);

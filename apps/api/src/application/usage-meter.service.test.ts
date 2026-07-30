@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UsageMeterService } from './usage-meter.service';
-import { CapExceededError } from '../domain/errors';
+import { CapExceededError, PlanUpgradeRequiredError } from '../domain/errors';
 import type { MeetingRepository, UsageRepository } from '../ports/repositories.port';
+import { PLAN_ENTITLEMENTS } from '../domain/billing';
 
 describe('UsageMeterService', () => {
   let mockMeetingRepo: MeetingRepository;
@@ -33,7 +34,12 @@ describe('UsageMeterService', () => {
       deleteByMeeting: vi.fn(),
     };
 
-    usageMeterService = new UsageMeterService(mockMeetingRepo, mockUsageRepo);
+    usageMeterService = new UsageMeterService(mockMeetingRepo, mockUsageRepo, {
+      getAccess: vi.fn().mockResolvedValue({
+        plan: 'solo', status: 'active', hasPaidAccess: true,
+        entitlements: PLAN_ENTITLEMENTS.solo, subscription: null,
+      }),
+    });
   });
 
   it('allows meeting if limits are not reached', async () => {
@@ -54,17 +60,30 @@ describe('UsageMeterService', () => {
 
   it('throws CapExceededError if monthly cap would be exceeded by a max duration meeting', async () => {
     vi.mocked(mockMeetingRepo.countActiveForUser).mockResolvedValue(0);
-    // MONTHLY_CAP_SECONDS=14400, MAX_MEETING_SECONDS=3600
-    // 11000 + 3600 = 14600 > 14400
-    vi.mocked(mockUsageRepo.monthlyTotalSeconds).mockResolvedValue(11000);
+    // Solo: 36,000 seconds/month and 3,600 seconds max per meeting.
+    vi.mocked(mockUsageRepo.monthlyTotalSeconds).mockResolvedValue(33_000);
 
     await expect(usageMeterService.assertCanStartMeeting('user-1')).rejects.toThrow(
-      new CapExceededError('monthly cap')
+      new CapExceededError('Monthly recording limit reached for your plan')
     );
   });
 
   it('records usage by delegating to repo', async () => {
     await usageMeterService.recordUsage('meeting-123', 600);
     expect(mockUsageRepo.addSeconds).toHaveBeenCalledWith('meeting-123', 600);
+  });
+
+  it('blocks in-room uploads when the plan does not include them', async () => {
+    const freeMeter = new UsageMeterService(mockMeetingRepo, mockUsageRepo, {
+      getAccess: vi.fn().mockResolvedValue({
+        plan: 'free', status: 'none', hasPaidAccess: false,
+        entitlements: PLAN_ENTITLEMENTS.free, subscription: null,
+      }),
+    });
+
+    await expect(freeMeter.assertCanStartMeeting('user-1', 'upload')).rejects.toThrow(
+      PlanUpgradeRequiredError,
+    );
+    expect(mockMeetingRepo.countActiveForUser).not.toHaveBeenCalled();
   });
 });
