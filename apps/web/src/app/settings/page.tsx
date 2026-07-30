@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { changePassword, changeEmail, deleteAccount, getSubscription, ApiError, type SubscriptionSummary } from '@/lib/api';
+import { changePassword, changeEmail, createBillingPortalSession, deleteAccount, getSubscription, ApiError, type SubscriptionSummary } from '@/lib/api';
 
 const CARD = 'bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-6 shadow-sm';
 const INPUT =
@@ -39,6 +39,8 @@ export default function SettingsPage() {
 function SubscriptionCard() {
   const [subscription, setSubscription] = useState<SubscriptionSummary | null>(null);
   const [error, setError] = useState(false);
+  const [portalError, setPortalError] = useState<string | null>(null);
+  const [openingPortal, setOpeningPortal] = useState(false);
 
   useEffect(() => {
     getSubscription().then(setSubscription).catch(() => setError(true));
@@ -50,6 +52,19 @@ function SubscriptionCard() {
   const renewal = subscription?.subscription?.currentPeriodEnd
     ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(subscription.subscription.currentPeriodEnd))
     : null;
+
+  async function openBillingPortal() {
+    if (openingPortal) return;
+    setOpeningPortal(true);
+    setPortalError(null);
+    try {
+      const { url } = await createBillingPortalSession();
+      window.location.assign(url);
+    } catch (err) {
+      setPortalError(err instanceof Error ? err.message : 'Could not open billing management.');
+      setOpeningPortal(false);
+    }
+  }
 
   return (
     <div className={CARD}>
@@ -68,10 +83,23 @@ function SubscriptionCard() {
             </>
           )}
         </div>
-        <Link href="/pricing" className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50">
-          Compare plans
-        </Link>
+        <div className="flex flex-col gap-2">
+          {subscription?.subscription && (
+            <button
+              type="button"
+              onClick={openBillingPortal}
+              disabled={openingPortal}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              {openingPortal ? 'Opening…' : 'Manage subscription'}
+            </button>
+          )}
+          <Link href="/pricing" className="rounded-lg border border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50">
+            Compare plans
+          </Link>
+        </div>
       </div>
+      {portalError && <div className={`${ERR_MSG} mt-4`}>{portalError}</div>}
       {subscription?.subscription?.scheduledChangeAction && (
         <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           Scheduled change: {subscription.subscription.scheduledChangeAction}
