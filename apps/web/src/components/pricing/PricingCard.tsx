@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { PricingPlan, getAnnualTotalEur, getEffectiveMonthlyRateEur } from '@/lib/pricing';
 import { getPaddle, getPaddlePriceId } from '@/lib/paddle';
+import { ApiError, createCheckoutTransaction } from '@/lib/api';
 
 interface PricingCardProps {
   plan: PricingPlan;
@@ -79,8 +80,9 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
     try {
       const paddle = await getPaddle();
       if (!paddle) throw new Error('Paddle.js could not be initialized');
+      const { transactionId } = await createCheckoutTransaction(priceId);
       paddle.Checkout.open({
-        items: [{ priceId, quantity: 1 }],
+        transactionId,
         settings: {
           displayMode: 'overlay',
           variant: 'one-page',
@@ -89,7 +91,14 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
       });
     } catch (error) {
       console.error('Unable to open Paddle Checkout', error);
-      setCheckoutError('Checkout could not be opened. Please try again.');
+      if (error instanceof ApiError && error.status === 401) {
+        setCheckoutError('Sign in before choosing a paid plan.');
+        window.setTimeout(() => window.location.assign('/login'), 800);
+      } else if (error instanceof ApiError && error.status === 409) {
+        setCheckoutError('You already have an active subscription. Manage it from Settings.');
+      } else {
+        setCheckoutError('Checkout could not be opened. Please try again.');
+      }
     } finally {
       setIsOpeningCheckout(false);
     }
