@@ -85,10 +85,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             href="/meetings"
             className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2"
           >
-            <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
-              summarize
-            </span>
-            MeetingAI
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/nota-mark-black.svg" alt="Syncmemos logo" width={28} height={28} className="h-7 w-7" />
+            Syncmemos
           </Link>
 
           <div className="flex items-center gap-2 sm:gap-4 text-sm">
