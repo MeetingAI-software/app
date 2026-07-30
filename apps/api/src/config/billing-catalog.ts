@@ -19,3 +19,8 @@ export const paddlePriceCatalog: PaddlePriceCatalog = {
     config.NEXT_PUBLIC_PADDLE_BUSINESS_ANNUAL_PRICE_ID,
   ]),
 };
+
+export const paddleCheckoutPriceIds = new Set([
+  ...paddlePriceCatalog.solo,
+  ...paddlePriceCatalog.team,
+]);
