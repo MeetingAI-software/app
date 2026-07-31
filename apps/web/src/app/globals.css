@@ -186,6 +186,18 @@ threejs-scene {
   }
 }
 
+/* Sidebar "AI Chat" earth icon: pupils dart left/right every ~4.6s, circle stays put */
+@keyframes earthLook {
+  0%, 40% { transform: translateX(0); }
+  46%, 54% { transform: translateX(-2.5px) scaleX(1.15); }
+  60%, 88% { transform: translateX(2.5px) scaleX(1.15); }
+  94%, 100% { transform: translateX(0); }
+}
+
+.earth-eyes {
+  animation: earthLook 4.6s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+}
+
 /* Reduced motion preference override */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
