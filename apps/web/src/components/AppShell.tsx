@@ -2,25 +2,27 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { getMe, logout, getUsage, type User, type UsageSummary } from '@/lib/api';
+import { getMe, getUsage, type User, type UsageSummary } from '@/lib/api';
 import { shouldShowEmailVerificationBanner } from '@/lib/email-verification';
 import {
   EMAIL_VERIFICATION_COMPLETED_EVENT,
   EMAIL_VERIFICATION_STORAGE_KEY,
 } from '@/lib/verify-email';
 import EmailVerificationBanner from '@/components/EmailVerificationBanner';
+import Sidebar from '@/components/Sidebar';
 
 /**
- * Session shell for the protected app (/meetings*, /settings). Probes /api/auth/me on mount and
- * bounces to /login if there's no valid session; renders the header (nav, email, usage, logout)
- * once authenticated. Any mid-session 401 from the API client fires 'unauthorized-api-call' → /login.
+ * Session shell for the protected app (/meetings*, /chat, /integrations, /settings). Probes
+ * /api/auth/me on mount and bounces to /login if there's no valid session. Renders the left-rail
+ * Sidebar (nav + account + usage) plus a slim top bar for search, then the page content.
+ * Any mid-session 401 from the API client fires 'unauthorized-api-call' → /login.
  */
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -38,7 +40,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user) return;
-    getUsage().then(setUsage).catch(() => {}); // best-effort; the header just omits it on failure
+    getUsage().then(setUsage).catch(() => {}); // best-effort; the rail just omits it on failure
   }, [user]);
 
   useEffect(() => {
@@ -63,76 +65,57 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch {
-      // even if the call fails, clear the client and move on
-    }
-    router.replace('/login');
-  };
-
   // Avoid flashing protected content before the session is confirmed.
   if (!checked) {
-    return <div className="min-h-screen bg-transparent" />;
+    return <div className="min-h-screen bg-white" />;
   }
 
   return (
-    <div className="min-h-screen bg-transparent text-slate-900 flex flex-col">
-      <header className="sticky top-0 z-50 border-b border-slate-200 bg-surface-container-lowest/80 backdrop-blur-md shadow-sm print:hidden">
-        <div className="max-w-container-max mx-auto px-margin-page h-16 flex items-center justify-between gap-4">
-          <Link
-            href="/meetings"
-            className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2"
+    <div className="min-h-screen bg-white text-zinc-900 flex">
+      <Sidebar
+        user={user}
+        usage={usage}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
+      />
+
+      <div className="flex-1 min-w-0 flex flex-col">
+        <div className="h-[60px] shrink-0 flex items-center gap-3 px-[18px] border-b border-zinc-200 bg-white print:hidden">
+          <button
+            onClick={() => setSidebarCollapsed((v) => !v)}
+            title="Toggle sidebar"
+            aria-label="Toggle sidebar"
+            className="w-8 h-8 rounded-lg grid place-items-center text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/nota-mark-black.svg" alt="Syncmemos logo" width={28} height={28} className="h-7 w-7" />
-            Syncmemos
-          </Link>
+            <span className="material-symbols-outlined text-[19px]">
+              {sidebarCollapsed ? 'dock_to_right' : 'dock_to_left'}
+            </span>
+          </button>
 
-          <div className="flex items-center gap-2 sm:gap-4 text-sm">
-            <Link
-              href="/meetings"
-              className="hidden sm:inline text-on-surface-variant hover:text-secondary transition-colors font-medium"
-            >
-              Meetings
-            </Link>
+          <div className="flex-1 max-w-[520px] flex items-center gap-2.5 h-[37px] px-[15px] rounded-full border border-zinc-300 text-zinc-400">
+            <span className="material-symbols-outlined text-[18px]">search</span>
+            <span className="flex-1 text-[13.5px] truncate">Ask or search</span>
+            <span className="text-[12px] whitespace-nowrap">⌘K</span>
+          </div>
 
+          <div className="ml-auto flex items-center gap-3">
             {usage && (
               <span
-                className="hidden sm:inline text-on-surface-variant font-medium tabular-nums font-label-mono text-xs"
+                className="hidden sm:inline text-zinc-500 text-xs font-mono tabular-nums"
                 title="Recorded this month"
               >
-                {formatHours(usage.secondsUsed)} / {formatHours(usage.secondsCap)} h
+                {formatHours(usage.secondsUsed)} / {formatHours(usage.secondsCap)}h
               </span>
             )}
-
-            {user && <span className="hidden md:inline text-slate-400 text-xs">{user.email}</span>}
-
-            <Link
-              href="/settings"
-              className="text-on-surface-variant hover:text-secondary transition-colors font-medium inline-flex items-center gap-1"
-            >
-              <span className="material-symbols-outlined text-[18px]">settings</span>
-              <span className="hidden sm:inline">Settings</span>
-            </Link>
-
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-900 rounded px-3 py-1.5 text-sm font-medium transition-colors shadow-sm cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-[18px]">logout</span>
-              <span className="hidden sm:inline">Log out</span>
-            </button>
           </div>
         </div>
-      </header>
 
-      {shouldShowEmailVerificationBanner(user) && user && (
-        <EmailVerificationBanner email={user.email} />
-      )}
+        {shouldShowEmailVerificationBanner(user) && user && (
+          <EmailVerificationBanner email={user.email} />
+        )}
 
-      <main className="flex-1">{children}</main>
+        <main className="flex-1">{children}</main>
+      </div>
     </div>
   );
 }
