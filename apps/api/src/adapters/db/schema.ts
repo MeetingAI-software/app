@@ -1,5 +1,5 @@
 // adapters/db/schema.ts
-import { pgTable, uuid, text, integer, boolean, timestamp, jsonb, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, boolean, timestamp, jsonb, bigserial, uniqueIndex, index } from 'drizzle-orm/pg-core';
 
 export const meetings = pgTable('meetings', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -32,6 +32,22 @@ export const transcripts = pgTable('transcripts', {
   language: text('language'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Live utterances streamed by Recall while the meeting is still running. Deliberately separate
+// from `transcripts`, which stores the authoritative post-call transcript as a single jsonb blob
+// written once. These rows are append-only, superseded by that blob, and deleted the moment it
+// lands. `seq` is global rather than per-meeting so it doubles as the SSE `Last-Event-ID` cursor.
+export const liveTranscriptSegments = pgTable('live_transcript_segments', {
+  seq: bigserial('seq', { mode: 'number' }).primaryKey(),
+  meetingId: uuid('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  startMs: integer('start_ms').notNull(),
+  endMs: integer('end_ms').notNull(),
+  speaker: text('speaker').notNull(),
+  text: text('text').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  liveSegmentsMeetingSeqIdx: index('live_segments_meeting_seq_idx').on(t.meetingId, t.seq),
+}));
 
 export const webhookEvents = pgTable('webhook_events', {
   id: uuid('id').primaryKey().defaultRandom(),
