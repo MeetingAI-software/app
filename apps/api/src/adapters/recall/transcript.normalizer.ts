@@ -1,5 +1,57 @@
 import type { TranscriptSegment } from '../../domain/types';
 
+/**
+ * Timestamps arrive as `{ absolute: ISO-8601, relative: seconds }` objects. Older payloads
+ * (and the fake provider) use a bare number. `relative` is seconds from recording start,
+ * which is what our segments are measured in.
+ *
+ * Exported because the live-transcript path parses the same timestamp shape off the realtime
+ * webhook; the two must agree or live and final timestamps would drift apart.
+ */
+export function toSeconds(value: any): number | null {
+  if (typeof value === 'number') return value;
+  if (value && typeof value === 'object' && typeof value.relative === 'number') {
+    return value.relative;
+  }
+  return null;
+}
+
+export interface SpeakerSource {
+  speaker?: unknown;
+  participant?: { id?: unknown; name?: unknown } | null;
+  speaker_id?: unknown;
+}
+
+/**
+ * Speaker labelling, shared by the post-call and live paths so an unnamed participant gets the
+ * same `Speaker N` label in both. Stateful: the returned function remembers which anonymous
+ * participant it has already numbered, so one resolver must be used per transcript (post-call)
+ * or per meeting (live).
+ */
+export function createSpeakerResolver(): (raw: SpeakerSource) => string {
+  const speakerMap = new Map<string, string>();
+  let nextSpeakerIndex = 1;
+
+  return (raw: SpeakerSource): string => {
+    const rawSpeaker = raw.speaker;
+    if (typeof rawSpeaker === 'string' && rawSpeaker.trim()) {
+      return rawSpeaker.trim();
+    }
+
+    const participantName = raw.participant?.name;
+    if (typeof participantName === 'string' && participantName.trim()) {
+      return participantName.trim();
+    }
+
+    const rawId = raw.speaker_id ?? raw.participant?.id;
+    const key = rawId !== undefined && rawId !== null ? String(rawId) : 'default';
+    if (!speakerMap.has(key)) {
+      speakerMap.set(key, `Speaker ${nextSpeakerIndex++}`);
+    }
+    return speakerMap.get(key)!;
+  };
+}
+
 export function normalizeTranscript(payload: any): TranscriptSegment[] {
   if (!payload) {
     console.warn('⚠️ Empty transcript payload received');
@@ -30,8 +82,7 @@ export function normalizeTranscript(payload: any): TranscriptSegment[] {
     return [];
   }
 
-  const speakerMap = new Map<string, string>();
-  let nextSpeakerIndex = 1;
+  const resolveSpeaker = createSpeakerResolver();
 
   const words: Array<{ speaker: string; text: string; startMs: number; endMs: number }> = [];
 
@@ -41,23 +92,7 @@ export function normalizeTranscript(payload: any): TranscriptSegment[] {
       continue;
     }
 
-    // Resolve speaker name
-    let speakerName = '';
-    const rawSpeaker = rawSeg.speaker;
-    const participantName = rawSeg.participant?.name;
-    const speakerId = rawSeg.speaker_id !== undefined && rawSeg.speaker_id !== null ? String(rawSeg.speaker_id) : '';
-
-    if (typeof rawSpeaker === 'string' && rawSpeaker.trim()) {
-      speakerName = rawSpeaker.trim();
-    } else if (typeof participantName === 'string' && participantName.trim()) {
-      speakerName = participantName.trim();
-    } else {
-      const key = speakerId || 'default';
-      if (!speakerMap.has(key)) {
-        speakerMap.set(key, `Speaker ${nextSpeakerIndex++}`);
-      }
-      speakerName = speakerMap.get(key)!;
-    }
+    const speakerName = resolveSpeaker(rawSeg);
 
     // Check if word-level items are present
     if (Array.isArray(rawSeg.words) && rawSeg.words.length > 0) {
@@ -72,10 +107,10 @@ export function normalizeTranscript(payload: any): TranscriptSegment[] {
           continue;
         }
 
-        const startTimestamp = word.start_timestamp ?? word.start_time;
-        const endTimestamp = word.end_timestamp ?? word.end_time;
+        const startTimestamp = toSeconds(word.start_timestamp ?? word.start_time);
+        const endTimestamp = toSeconds(word.end_timestamp ?? word.end_time);
 
-        if (typeof startTimestamp !== 'number' || typeof endTimestamp !== 'number') {
+        if (startTimestamp === null || endTimestamp === null) {
           console.warn('⚠️ Skipping word due to missing/invalid timestamps:', word);
           continue;
         }
@@ -102,10 +137,10 @@ export function normalizeTranscript(payload: any): TranscriptSegment[] {
         continue;
       }
 
-      const startTimestamp = rawSeg.start_timestamp ?? rawSeg.start_time;
-      const endTimestamp = rawSeg.end_timestamp ?? rawSeg.end_time;
+      const startTimestamp = toSeconds(rawSeg.start_timestamp ?? rawSeg.start_time);
+      const endTimestamp = toSeconds(rawSeg.end_timestamp ?? rawSeg.end_time);
 
-      if (typeof startTimestamp !== 'number' || typeof endTimestamp !== 'number') {
+      if (startTimestamp === null || endTimestamp === null) {
         console.warn('⚠️ Skipping segment due to missing/invalid timestamps:', rawSeg);
         continue;
       }

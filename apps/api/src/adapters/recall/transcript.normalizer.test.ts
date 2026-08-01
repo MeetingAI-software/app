@@ -91,4 +91,62 @@ describe('transcript.normalizer', () => {
       { speaker: 'Speaker B', text: 'Second overlapping phrase', startMs: 1500, endMs: 3500 },
     ]);
   });
+
+  // The live download_url payload: participant objects and {absolute, relative} timestamps.
+  // Treating these as bare numbers silently discarded every word and produced an empty transcript.
+  it('should handle the download_url shape: participant + object timestamps', () => {
+    const payload = [
+      {
+        participant: { id: 1, name: 'AbdulRehman Khan', is_host: true },
+        language_code: 'en',
+        words: [
+          {
+            text: 'Morning',
+            start_timestamp: { absolute: '2026-08-01T09:00:00.000Z', relative: 0.0 },
+            end_timestamp: { absolute: '2026-08-01T09:00:00.600Z', relative: 0.6 },
+          },
+          {
+            text: 'everyone',
+            start_timestamp: { absolute: '2026-08-01T09:00:00.700Z', relative: 0.7 },
+            end_timestamp: { absolute: '2026-08-01T09:00:01.400Z', relative: 1.4 },
+          },
+        ],
+      },
+      {
+        participant: { id: 2, name: 'Alper Eken', is_host: false },
+        language_code: 'en',
+        words: [
+          {
+            text: 'Morning',
+            start_timestamp: { absolute: '2026-08-01T09:00:02.000Z', relative: 2.0 },
+            end_timestamp: { absolute: '2026-08-01T09:00:02.500Z', relative: 2.5 },
+          },
+        ],
+      },
+    ];
+
+    expect(normalizeTranscript(payload)).toEqual([
+      { speaker: 'AbdulRehman Khan', text: 'Morning everyone', startMs: 0, endMs: 1400 },
+      { speaker: 'Alper Eken', text: 'Morning', startMs: 2000, endMs: 2500 },
+    ]);
+  });
+
+  it('should fall back to numbered speakers when the participant has no name', () => {
+    const payload = [
+      {
+        participant: { id: 7, name: null },
+        words: [
+          {
+            text: 'Anonymous',
+            start_timestamp: { absolute: '2026-08-01T09:00:00.000Z', relative: 0 },
+            end_timestamp: { absolute: '2026-08-01T09:00:00.500Z', relative: 0.5 },
+          },
+        ],
+      },
+    ];
+
+    expect(normalizeTranscript(payload)).toEqual([
+      { speaker: 'Speaker 1', text: 'Anonymous', startMs: 0, endMs: 500 },
+    ]);
+  });
 });
