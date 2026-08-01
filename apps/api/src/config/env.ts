@@ -14,6 +14,14 @@ const envSchema = z.object({
   RECALL_BASE_URL: z.string().optional(),
   RECALL_WEBHOOK_SECRET: z.string().optional(),
   PUBLIC_WEBHOOK_URL: z.string().optional(),
+  // Live transcription. Recall's realtime endpoints are configured per bot and are NOT Svix-signed
+  // like the workspace webhook, so they authenticate with a shared token in the query string.
+  RECALL_LIVE_WEBHOOK_TOKEN: z.string().optional(),
+  // Kill switch: turns off `realtime_endpoints` on newly created bots without a code change.
+  // Bots already in a call keep streaming; only new meetings are affected.
+  // Not `z.coerce.boolean()` — that maps the string "false" to true, which is the opposite of
+  // what anyone setting LIVE_TRANSCRIPT_ENABLED=false intends.
+  LIVE_TRANSCRIPT_ENABLED: z.enum(['true', 'false']).default('true').transform(v => v === 'true'),
   MONTHLY_CAP_SECONDS: z.coerce.number().default(14400),
   MAX_MEETING_SECONDS: z.coerce.number().default(3600),
   MAX_CONCURRENT_BOTS: z.coerce.number().default(1),
@@ -60,6 +68,37 @@ const envSchema = z.object({
   NEXT_PUBLIC_PADDLE_BUSINESS_ANNUAL_PRICE_ID: z.string().optional(),
 }).superRefine((cfg, ctx) => {
   // Same fail-fast standard as everything else: don't boot half-configured for a paid vendor.
+  if (cfg.BOT_PROVIDER === 'recall') {
+    const required = [
+      ['RECALL_API_KEY', cfg.RECALL_API_KEY],
+      ['RECALL_BASE_URL', cfg.RECALL_BASE_URL],
+      ['RECALL_WEBHOOK_SECRET', cfg.RECALL_WEBHOOK_SECRET],
+      ['PUBLIC_WEBHOOK_URL', cfg.PUBLIC_WEBHOOK_URL],
+      // Without it the live webhook URL we hand Recall would carry an empty token and every
+      // live utterance would be rejected — a silently dead live transcript, not a loud failure.
+      ...(cfg.LIVE_TRANSCRIPT_ENABLED
+        ? ([['RECALL_LIVE_WEBHOOK_TOKEN', cfg.RECALL_LIVE_WEBHOOK_TOKEN]] as const)
+        : []),
+    ] as const;
+    for (const [key, value] of required) {
+      if (!value || value.trim() === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when BOT_PROVIDER is "recall"`,
+        });
+      }
+    }
+    // The provider calls us, so a loopback address means webhooks can never arrive and the
+    // pipeline silently stalls at bot_joining. Fail at boot instead.
+    if (cfg.PUBLIC_WEBHOOK_URL && /localhost|127\.0\.0\.1/.test(cfg.PUBLIC_WEBHOOK_URL)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PUBLIC_WEBHOOK_URL'],
+        message: 'PUBLIC_WEBHOOK_URL must be a publicly reachable https URL (e.g. an ngrok tunnel) when BOT_PROVIDER is "recall"',
+      });
+    }
+  }
   if ((cfg.CHAT_PROVIDER === 'gemini' || cfg.DOC_PROVIDER === 'gemini') && !cfg.GEMINI_API_KEY) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
