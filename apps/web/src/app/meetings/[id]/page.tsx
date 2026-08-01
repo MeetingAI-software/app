@@ -15,6 +15,64 @@ import {
 import { msToClock } from '@/lib/format';
 import DocumentView from '@/components/DocumentView';
 import ChatPanel from '@/components/ChatPanel';
+import LiveTranscript from '@/components/LiveTranscript';
+
+/**
+ * The API stores a failure as `<sentence> (<provider_sub_code>)`. Nobody should have to read a
+ * snake_case vendor code to find out why their meeting was not recorded, so the codes that are
+ * actually actionable get plain English and a next step. Anything unrecognised falls through to
+ * the raw message rather than being swallowed.
+ */
+const FAILURE_REASONS: Record<string, { title: string; detail: string }> = {
+  meeting_not_found: {
+    title: "We couldn't find that meeting",
+    detail:
+      'The link may be wrong, or the meeting had not started yet when the bot tried to join. Double-check the link and start again.',
+  },
+  meeting_link_invalid: {
+    title: 'That meeting link was not valid',
+    detail: 'Copy the join link directly from Zoom, Google Meet or Teams and start again.',
+  },
+  meeting_password_incorrect: {
+    title: 'The meeting needed a password',
+    detail: 'The bot could not get in. Use a join link that includes the password.',
+  },
+  meeting_requires_signin: {
+    title: 'The meeting required a signed-in account',
+    detail: 'The host has restricted the meeting to invited accounts, so the bot was blocked at the door.',
+  },
+  bot_denied_entry: {
+    title: 'The bot was not let in',
+    detail: 'Nobody admitted it from the waiting room. Someone in the call needs to admit the bot when it knocks.',
+  },
+  timeout_waiting_to_join: {
+    title: 'The bot waited too long to be let in',
+    detail: 'It gave up in the waiting room. Admit it sooner next time, or turn off the waiting room for this meeting.',
+  },
+  bot_kicked_from_call: {
+    title: 'The bot was removed from the call',
+    detail: 'Someone removed it before the meeting finished, so there is no complete recording.',
+  },
+  meeting_ended: {
+    title: 'The meeting was already over',
+    detail: 'The call had ended by the time the bot arrived.',
+  },
+  no_audio: {
+    title: 'There was no audio to transcribe',
+    detail: 'The bot joined but never heard anyone, so no transcript could be produced.',
+  },
+};
+
+function describeFailure(errorMessage: string | null | undefined) {
+  const code = errorMessage?.match(/\(([a-z0-9_]+)\)\s*$/i)?.[1];
+  if (code && FAILURE_REASONS[code]) {
+    return FAILURE_REASONS[code];
+  }
+  return {
+    title: 'This meeting was not recorded',
+    detail: errorMessage || 'The bot stopped before a transcript could be produced.',
+  };
+}
 
 export default function MeetingDetailPage() {
   const params = useParams();
@@ -66,6 +124,24 @@ export default function MeetingDetailPage() {
       setError(err.message || 'Failed to load meeting details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Reload the meeting without the full-screen spinner. The live stream calls this when the
+   * server says the meeting is over; blanking the page at that moment would throw away the
+   * transcript the user is reading before the finished view is ready to replace it.
+   */
+  const refreshMeeting = async () => {
+    try {
+      const m = await getMeeting(id);
+      setMeeting(m);
+      if (m.status === 'transcribed') {
+        stopPolling();
+        fetchTranscriptAndDoc(m.id);
+      }
+    } catch (err) {
+      console.warn('Refresh after live stream ended failed:', err);
     }
   };
 
@@ -167,6 +243,9 @@ export default function MeetingDetailPage() {
   }
 
   const isProcessing = ['pending', 'bot_joining', 'recording', 'processing'].includes(meeting.status);
+  // Only a bot in a live call produces a live transcript. Uploads are transcribed after the fact.
+  const isLiveCapable = meeting.source === 'bot';
+  const failure = describeFailure(meeting.errorMessage);
 
   return (
     <main className="min-h-screen bg-transparent text-slate-950 py-10 px-4 md:px-8 print:bg-white print:p-0">
@@ -200,8 +279,9 @@ export default function MeetingDetailPage() {
           </div>
         </div>
 
-        {/* Processing State Card */}
-        {isProcessing && (
+        {/* An upload has no bot and no live stream — it goes straight to processing, so the
+            original status card is still the honest thing to show. */}
+        {isProcessing && !isLiveCapable && (
           <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-lg p-8 mb-8 text-center flex flex-col items-center shadow-sm">
             <div className="relative flex items-center justify-center mb-4">
               <span className="animate-ping absolute inline-flex h-4 w-4 rounded-full bg-slate-400 opacity-75"></span>
@@ -209,23 +289,53 @@ export default function MeetingDetailPage() {
             </div>
             <h2 className="text-lg font-bold text-slate-900 mb-2">Processing Meeting</h2>
             <p className="text-sm text-slate-600 max-w-sm mb-4">
-              The bot is in the call or we are generating transcripts. Status is currently: <span className="font-bold text-slate-900 capitalize">{meeting.status.replace('_', ' ')}</span>
+              We are transcribing your recording. Status is currently:{' '}
+              <span className="font-bold text-slate-900 capitalize">{meeting.status.replaceAll('_', ' ')}</span>
             </p>
-            <p className="text-xs text-slate-500">Polled automatically every 3 seconds...</p>
+            <p className="text-xs text-slate-500">This page updates itself — no need to refresh.</p>
           </div>
         )}
 
-        {/* Failed State Card */}
+        {/* Live state. The transcript panel is mounted from the very first status — the stream
+            opens while the bot is still knocking, so nothing said in the first seconds is lost.
+            `processing` keeps it on screen because the final transcript is still minutes away. */}
+        {isProcessing && isLiveCapable && (
+          <div className="mb-8 space-y-4">
+            {meeting.status === 'processing' && (
+              <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-lg px-6 py-4 flex items-center gap-3 shadow-sm">
+                <svg className="animate-spin h-4 w-4 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <p className="text-sm text-slate-600">
+                  <span className="font-semibold text-slate-900">The meeting has ended.</span>{' '}
+                  Cleaning up the transcript and writing your summary — this usually takes a minute.
+                </p>
+              </div>
+            )}
+
+            <LiveTranscript
+              meetingId={meeting.id}
+              status={meeting.status}
+              startedAt={meeting.createdAt}
+              onFinished={refreshMeeting}
+            />
+          </div>
+        )}
+
+        {/* Failed State Card — terminal. Re-fetching cannot change the outcome, so the way
+            forward is a new meeting, not a retry. */}
         {meeting.status === 'failed' && (
           <div className="bg-red-50 border border-red-200/50 rounded-lg p-8 mb-8 text-center shadow-sm">
             <div className="text-red-500 text-3xl mb-3">⚠️</div>
-            <h2 className="text-lg font-bold text-red-950 mb-2">Meeting Processing Failed</h2>
-            <p className="text-sm text-red-700 mb-4 max-w-md mx-auto">
-              Error details: {meeting.errorMessage || 'No specific error message was reported.'}
-            </p>
-            <button onClick={fetchInitialData} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg transition-colors shadow-sm cursor-pointer">
-              Retry Load
-            </button>
+            <h2 className="text-lg font-bold text-red-950 mb-2">{failure.title}</h2>
+            <p className="text-sm text-red-700 mb-4 max-w-md mx-auto">{failure.detail}</p>
+            <Link
+              href="/meetings"
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg transition-colors shadow-sm inline-block"
+            >
+              Start a new meeting
+            </Link>
           </div>
         )}
 
