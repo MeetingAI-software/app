@@ -1,5 +1,5 @@
 // domain/types.ts
-export type MeetingPlatform = 'zoom';                       // Day 1: zoom only
+export type MeetingPlatform = 'zoom' | 'google_meet' | 'teams';
 
 export type MeetingSource = 'bot' | 'upload';               // Day 3: bot join vs in-room upload
 

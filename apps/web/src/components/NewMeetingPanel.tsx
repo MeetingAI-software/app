@@ -54,13 +54,13 @@ export default function NewMeetingPanel({ subscription }: { subscription: Subscr
         <form onSubmit={handleOnlineSubmit} className="space-y-4">
           <div>
             <label htmlFor="meeting-url" className="block text-sm font-semibold text-slate-700 mb-2">
-              Zoom meeting URL
+              Meeting URL
             </label>
             <input
               id="meeting-url"
               type="url"
               required
-              placeholder="https://us02web.zoom.us/j/..."
+              placeholder="Zoom, Google Meet or Teams link"
               value={meetingUrl}
               onChange={(e) => setMeetingUrl(e.target.value)}
               disabled={loading}
@@ -79,7 +79,7 @@ export default function NewMeetingPanel({ subscription }: { subscription: Subscr
             disabled={loading || !meetingUrl.trim()}
             className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg px-6 py-3 font-semibold text-sm transition-colors shadow-sm cursor-pointer"
           >
-            {loading ? 'Adding bot to Zoom…' : 'Start meeting bot'}
+            {loading ? 'Adding bot to meeting…' : 'Start meeting bot'}
           </button>
         </form>
       ) : canUseInRoom ? (

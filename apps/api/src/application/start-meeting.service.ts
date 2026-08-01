@@ -3,6 +3,7 @@ import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import type { UsageMeterService } from './usage-meter.service';
 import type { Meeting } from '../domain/types';
 import { assertTransition } from '../domain/state-machine';
+import { detectPlatform } from '../domain/meeting-platform';
 import { BotProviderError } from '../domain/errors';
 
 export class StartMeetingService {
@@ -16,8 +17,10 @@ export class StartMeetingService {
     // 1. Assert we have budget/quota (per user)
     const entitlements = await this.usageMeter.assertCanStartMeeting(userId);
 
-    // 2. Create the pending meeting row, owned by this user
-    const meeting = await this.meetingRepo.create({ ownerUserId: userId, source: 'bot', meetingUrl });
+    // 2. Create the pending meeting row, owned by this user.
+    // The route already rejected unsupported hosts, so detectPlatform cannot be null here.
+    const platform = detectPlatform(meetingUrl) ?? 'zoom';
+    const meeting = await this.meetingRepo.create({ ownerUserId: userId, source: 'bot', meetingUrl, platform });
 
     try {
       // 3. Request the bot join the meeting
