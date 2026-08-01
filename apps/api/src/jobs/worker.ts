@@ -103,7 +103,9 @@ export class WebhookWorker {
     // Day 6 §5: push the failure to Sentry, tagged with the meeting so DoD item 6 (broken Anthropic
     // key → alert within ~1 min, tagged with meetingId) is satisfied on the very first attempt.
     const p = (event.payload ?? {}) as any;
-    const meetingId = p.meeting_id || p.data?.meeting_id || p.meetingId;
+    // Bot webhooks carry the id at data.bot.metadata.meetingId; upload events use the flat shape.
+    const meetingId =
+      p.data?.bot?.metadata?.meetingId || p.meeting_id || p.data?.meeting_id || p.meetingId;
     captureError(err, { eventId: event.id, ...(meetingId ? { meetingId: String(meetingId) } : {}) });
 
     const [row] = await db
