@@ -2,7 +2,7 @@ import { db } from '../client';
 import { meetings } from '../schema';
 import { eq, inArray, desc, and, lt } from 'drizzle-orm';
 import type { MeetingRepository } from '../../../ports/repositories.port';
-import type { Meeting, MeetingSource, MeetingStatus } from '../../../domain/types';
+import type { Meeting, MeetingPlatform, MeetingSource, MeetingStatus } from '../../../domain/types';
 import crypto from 'crypto';
 
 export class DrizzleMeetingRepository implements MeetingRepository {
@@ -10,6 +10,7 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     ownerUserId: string;
     source: MeetingSource;
     meetingUrl?: string;
+    platform?: MeetingPlatform;
     participantNames?: string[];
   }): Promise<Meeting> {
     const shareToken = crypto.randomBytes(16).toString('base64url');
@@ -18,7 +19,7 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       .values({
         ownerUserId: input.ownerUserId,
         meetingUrl: input.meetingUrl ?? null,
-        platform: 'zoom',
+        platform: input.platform ?? 'zoom',
         status: 'pending',
         source: input.source,
         participantNames: input.participantNames ?? null,

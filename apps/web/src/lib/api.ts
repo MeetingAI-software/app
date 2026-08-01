@@ -1,4 +1,4 @@
-export type MeetingPlatform = 'zoom';
+export type MeetingPlatform = 'zoom' | 'google_meet' | 'teams';
 
 export type MeetingSource = 'bot' | 'upload';
 
@@ -33,6 +33,21 @@ export interface TranscriptSegment {
   endMs: number;
   speaker: string;
   text: string;
+}
+
+/**
+ * An utterance captured while the meeting is still running. `seq` is a server-side cursor:
+ * it survives reconnects and lets the stream and the polling fallback resume in the same place.
+ * These are replaced wholesale by the final `TranscriptSegment[]` once the meeting is over.
+ */
+export interface LiveSegment extends TranscriptSegment {
+  seq: number;
+}
+
+export interface LivePoll {
+  segments: LiveSegment[];
+  cursor: number;
+  status: MeetingStatus;
 }
 
 export interface ActionPoint {
@@ -326,6 +341,20 @@ export async function getMeeting(id: string): Promise<Meeting> {
 
 export async function getTranscript(id: string): Promise<TranscriptSegment[]> {
   return handleResponse<TranscriptSegment[]>(await api(`/api/meetings/${id}/transcript`));
+}
+
+/** Cursor-polling fallback for the live transcript, used when SSE can't hold a connection. */
+export async function getLiveSegments(id: string, after: number): Promise<LivePoll> {
+  return handleResponse<LivePoll>(await api(`/api/meetings/${id}/live?after=${after}`));
+}
+
+/**
+ * EventSource takes a URL rather than a Request, so it can't go through `api()`. The session
+ * cookie still flows because the hook constructs it with `{ withCredentials: true }` and the
+ * API is on the same registrable domain.
+ */
+export function liveStreamUrl(id: string, after: number): string {
+  return `${API_BASE}/api/meetings/${id}/live/stream?after=${after}`;
 }
 
 export async function getDocument(id: string): Promise<Document> {

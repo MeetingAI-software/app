@@ -1,6 +1,7 @@
 import type {
   EmailVerificationToken,
   Meeting,
+  MeetingPlatform,
   MeetingSource,
   MeetingStatus,
   Session,
@@ -12,7 +13,7 @@ import type { ChatMessage } from './chat.port';
 
 export interface MeetingRepository {
   create(input: { ownerUserId: string; source: MeetingSource; meetingUrl?: string;
-    participantNames?: string[] }): Promise<Meeting>;
+    platform?: MeetingPlatform; participantNames?: string[] }): Promise<Meeting>;
   findById(id: string): Promise<Meeting | null>;
   findByBotId(botId: string): Promise<Meeting | null>;
   findByShareToken(token: string): Promise<Meeting | null>;
@@ -43,6 +44,22 @@ export interface TranscriptRepository {
   save(meetingId: string, segments: TranscriptSegment[], rawPayload: unknown): Promise<void>;
   getByMeetingId(meetingId: string): Promise<TranscriptSegment[] | null>;
   deleteByMeeting(meetingId: string): Promise<void>;            // Day 5: account erasure
+}
+
+/**
+ * Live utterances captured while the meeting is still running. Append-only and disposable:
+ * the post-call transcript from `TranscriptRepository` supersedes these rows, which are then
+ * deleted. `seq` is monotonic and global, and is the cursor for both SSE replay and polling.
+ */
+export interface LiveTranscriptRepository {
+  append(meetingId: string, seg: TranscriptSegment): Promise<LiveTranscriptSegment>;
+  /** Strictly greater than `afterSeq`, oldest first. Pass 0 to read from the start. */
+  listSince(meetingId: string, afterSeq: number): Promise<LiveTranscriptSegment[]>;
+  deleteByMeeting(meetingId: string): Promise<void>;
+}
+
+export interface LiveTranscriptSegment extends TranscriptSegment {
+  seq: number;
 }
 
 export interface WebhookEventRepository {

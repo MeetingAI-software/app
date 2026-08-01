@@ -6,16 +6,55 @@ import type { PaddleBillingRepository } from '../../../ports/repositories.port';
 import { getPaddleClient } from '../../paddle/paddle-client';
 import { processPaddleEvent } from '../../paddle/process-paddle-event';
 import { verifyWebhookSignature } from '../../recall/recall-webhook.verifier';
+import type { IngestLiveTranscriptService } from '../../../application/ingest-live-transcript.service';
 import {
   verifyTranscriptionSecret,
   TRANSCRIPTION_WEBHOOK_HEADER,
 } from '../../assemblyai/transcription-webhook.verifier';
 
+/** Constant-time compare that tolerates length mismatches without throwing. */
+function tokenMatches(provided: unknown, expected: string | undefined): boolean {
+  if (!expected || typeof provided !== 'string') return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 export function createWebhookRoutes(
   webhookRepo: WebhookEventRepository,
   paddleBillingRepo: PaddleBillingRepository,
+  liveTranscript?: IngestLiveTranscriptService,
 ): Router {
   const router = Router();
+
+  /**
+   * Live utterances, streamed by Recall while the call is still running.
+   *
+   * Deliberately does NOT go through `webhook_events`. That outbox exists to guarantee
+   * exactly-once processing of durable events, and the worker polls it every 2s — correct for a
+   * transcript that must never be lost, wrong for utterances that arrive several times a second
+   * and are worthless a moment later. These are processed inline and acknowledged immediately;
+   * the authoritative transcript still arrives post-call via `transcript.done` on /webhooks/recall.
+   *
+   * Auth is a shared token in the query string, because Recall's per-bot realtime endpoints are
+   * not Svix-signed the way workspace webhooks are.
+   */
+  router.post('/webhooks/recall/live', (req, res) => {
+    if (!tokenMatches(req.query.token, config.RECALL_LIVE_WEBHOOK_TOKEN)) {
+      console.warn('⚠️ Invalid token on /webhooks/recall/live');
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Acknowledge first. Recall must never retry a partial: by the time a retry landed the text
+    // would be stale, and a slow ack backs up the provider's delivery queue for the whole call.
+    res.status(200).json({ received: true });
+
+    if (!liveTranscript) return;
+    liveTranscript.processLiveEvent(req.body).catch((err) => {
+      console.error('⚠️ Live transcript ingest failed:', err?.message);
+    });
+  });
 
   router.post('/webhooks/recall', async (req, res, next) => {
     try {

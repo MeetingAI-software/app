@@ -3,6 +3,7 @@ import { initObservability } from './adapters/observability/sentry';
 import { createServer } from './adapters/http/server';
 import { DrizzleMeetingRepository } from './adapters/db/repositories/meeting.repository';
 import { DrizzleTranscriptRepository } from './adapters/db/repositories/transcript.repository';
+import { DrizzleLiveTranscriptRepository } from './adapters/db/repositories/live-transcript.repository';
 import { DrizzleWebhookEventRepository } from './adapters/db/repositories/webhook-event.repository';
 import { DrizzleUsageRepository } from './adapters/db/repositories/usage.repository';
 import { DrizzleDocumentRepository } from './adapters/db/repositories/document.repository';
@@ -16,6 +17,8 @@ import { FakeBotAdapter } from './adapters/fake/fake-bot.adapter';
 import { UsageMeterService } from './application/usage-meter.service';
 import { StartMeetingService } from './application/start-meeting.service';
 import { ProcessWebhookEventService } from './application/process-webhook-event.service';
+import { IngestLiveTranscriptService } from './application/ingest-live-transcript.service';
+import { LiveTranscriptBus } from './adapters/realtime/live-transcript.bus';
 import { ProcessUploadEventService } from './application/process-upload-event.service';
 import { ChatService } from './application/chat.service';
 import { BillingAccessService } from './application/billing-access.service';
@@ -64,6 +67,7 @@ async function bootstrap() {
   // 1. Repositories
   const meetingRepo = new DrizzleMeetingRepository();
   const transcriptRepo = new DrizzleTranscriptRepository();
+  const liveTranscriptRepo = new DrizzleLiveTranscriptRepository();
   const webhookRepo = new DrizzleWebhookEventRepository();
   const usageRepo = new DrizzleUsageRepository();
   const documentRepo = new DrizzleDocumentRepository();
@@ -124,7 +128,13 @@ async function bootstrap() {
   const customerPortal = new CustomerPortalService(paddleBillingRepo, new PaddleCustomerPortalAdapter());
   const usageMeter = new UsageMeterService(meetingRepo, usageRepo, billingAccess);
   const startMeetingService = new StartMeetingService(meetingRepo, usageMeter, botAdapter);
-  const processService = new ProcessWebhookEventService(meetingRepo, transcriptRepo, usageRepo, botAdapter, docGen);
+  // Live transcript: the webhook ingest publishes onto the bus, the SSE route subscribes.
+  // Both live in this process — see the note in live-transcript.bus.ts.
+  const liveTranscriptBus = new LiveTranscriptBus();
+  const liveTranscriptService = new IngestLiveTranscriptService(meetingRepo, liveTranscriptRepo, liveTranscriptBus);
+  const processService = new ProcessWebhookEventService(
+    meetingRepo, transcriptRepo, usageRepo, botAdapter, docGen, liveTranscriptRepo, liveTranscriptBus,
+  );
   const uploadService = new ProcessUploadEventService(meetingRepo, transcriptRepo, usageRepo, transcription, audioStorage, docGen);
   const chatService = new ChatService(transcriptRepo, chatRepo, chatAdapter, billingAccess);
 
@@ -170,10 +180,10 @@ async function bootstrap() {
     createAuthRoutes(authService),
     createMeRoutes(usageRepo, billingAccess),
     createBillingRoutes(customerPortal, checkoutService, subscriptionUpdate),
-    createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen),
+    createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen, liveTranscriptRepo, liveTranscriptBus),
     createChatRoutes(meetingRepo, chatService),
     createUploadRoutes(meetingRepo, webhookRepo, usageMeter, audioStorage),
-    createWebhookRoutes(webhookRepo, paddleBillingRepo)
+    createWebhookRoutes(webhookRepo, paddleBillingRepo, liveTranscriptService)
   ];
 
   // 6. HTTP Server
@@ -185,6 +195,9 @@ async function bootstrap() {
   // Graceful shutdown
   const shutdown = () => {
     console.log('🛑 Shutting down server...');
+    // Before server.close(), which waits for every connection to drain: SSE streams never end
+    // on their own, so an open meeting page would otherwise hold the deploy open indefinitely.
+    liveTranscriptBus.shutdown();
     server.close(() => {
       worker.stop();
       sweepJob.stop();

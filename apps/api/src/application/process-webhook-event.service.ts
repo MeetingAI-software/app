@@ -1,13 +1,62 @@
 import type {
+  LiveTranscriptRepository,
   MeetingRepository,
   TranscriptRepository,
   UsageRepository,
 } from '../ports/repositories.port';
+import type { LiveTranscriptBus } from '../adapters/realtime/live-transcript.bus';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import type { DocumentGeneratorPort } from '../ports/document-generator.port';
 import { assertTransition } from '../domain/state-machine';
 import type { MeetingStatus, TranscriptSegment } from '../domain/types';
 import { logger } from '../config/logger';
+
+interface EventRefs {
+  botId: string | null;
+  meetingId: string | null;
+  statusCode: string | null;
+  subCode: string | null;
+}
+
+/**
+ * Pull the identifiers out of a bot-provider webhook payload.
+ *
+ * The provider's current shape nests everything two levels deep:
+ *
+ *   { event: 'bot.in_call_recording',
+ *     data: { data: { code, sub_code, updated_at },
+ *             bot:  { id, metadata: { meetingId } } } }
+ *
+ * The flat `bot_id` / `meeting_id` / `status.code` shape is still read as a fallback because
+ * that is what FakeBotAdapter emits — the fake must stay substitutable for the real thing.
+ */
+function extractEventRefs(payload: any): EventRefs {
+  const parsed = payload ?? {};
+  const data = parsed.data ?? {};
+  const inner = data.data ?? {};
+
+  const botId = data.bot?.id ?? parsed.bot_id ?? data.bot_id ?? null;
+
+  const meetingId =
+    data.bot?.metadata?.meetingId ??
+    parsed.metadata?.meetingId ??
+    parsed.meeting_id ??
+    data.meeting_id ??
+    null;
+
+  const statusCode =
+    inner.code ??
+    parsed.status?.code ??
+    (typeof parsed.status === 'string' ? parsed.status : null) ??
+    null;
+
+  return {
+    botId: botId != null ? String(botId) : null,
+    meetingId: meetingId != null ? String(meetingId) : null,
+    statusCode: statusCode != null ? String(statusCode) : null,
+    subCode: inner.sub_code != null ? String(inner.sub_code) : null,
+  };
+}
 
 function mapRecallStatusToMeetingStatus(statusCode: string): MeetingStatus | null {
   switch (statusCode) {
@@ -35,8 +84,26 @@ export class ProcessWebhookEventService {
     private readonly transcriptRepo: TranscriptRepository,
     private readonly usageRepo: UsageRepository,
     private readonly botAdapter: MeetingBotPort,
-    private readonly docGen: DocumentGeneratorPort
+    private readonly docGen: DocumentGeneratorPort,
+    private readonly liveRepo?: LiveTranscriptRepository,
+    private readonly liveBus?: LiveTranscriptBus,
   ) {}
+
+  /**
+   * A meeting has reached a terminal state. Tell any open SSE connection to close and refetch,
+   * then drop the live rows — the post-call transcript supersedes them, and keeping both would
+   * mean the same words stored twice with two different sets of timestamps.
+   *
+   * Neither step may break the pipeline: the transcript is already saved by this point.
+   */
+  private async closeLiveTranscript(meetingId: string, status: MeetingStatus): Promise<void> {
+    try {
+      this.liveBus?.publish(meetingId, { type: 'done', status });
+      await this.liveRepo?.deleteByMeeting(meetingId);
+    } catch (err: any) {
+      logger.warn({ meetingId, err: err?.message }, 'Failed to clean up live transcript segments');
+    }
+  }
 
   /** One retry. The caller treats a thrown error as "leave summary null and carry on". */
   private async generateSummaryWithRetry(segments: TranscriptSegment[]): Promise<string> {
@@ -48,10 +115,12 @@ export class ProcessWebhookEventService {
     }
   }
 
-  async processEvent(action: 'transcript_ready' | 'bot_status_change', payload: any): Promise<void> {
+  async processEvent(
+    action: 'transcript_ready' | 'transcript_failed' | 'bot_status_change',
+    payload: any
+  ): Promise<void> {
     const parsedPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
-    const botId = parsedPayload.bot_id || parsedPayload.data?.bot_id;
-    const meetingId = parsedPayload.meeting_id || parsedPayload.data?.meeting_id;
+    const { botId, meetingId, statusCode, subCode } = extractEventRefs(parsedPayload);
 
     if (!botId) {
       throw new Error('bot_id is missing from payload');
@@ -70,16 +139,27 @@ export class ProcessWebhookEventService {
       throw new Error(`Meeting not found for botId: ${botId} / meetingId: ${meetingId}`);
     }
 
+    if (action === 'transcript_failed') {
+      // The provider could not produce a transcript. There is nothing to retry on our side.
+      const reason = subCode ? `Transcription failed at provider (${subCode})` : 'Transcription failed at provider';
+      if (meeting.status === 'failed' || meeting.status === 'transcribed') {
+        return;
+      }
+      await this.meetingRepo.updateStatus(meeting.id, 'failed', { errorMessage: reason });
+      await this.closeLiveTranscript(meeting.id, 'failed');
+      logger.error({ meetingId: meeting.id, botId, subCode }, 'Transcription failed at provider');
+      return;
+    }
+
     if (action === 'bot_status_change') {
-      const rawStatus = parsedPayload.status?.code || parsedPayload.status;
-      if (!rawStatus) {
+      if (!statusCode) {
         console.warn('⚠️ bot_status_change event is missing status information, skipping.');
         return;
       }
 
-      const nextStatus = mapRecallStatusToMeetingStatus(String(rawStatus));
+      const nextStatus = mapRecallStatusToMeetingStatus(statusCode);
       if (!nextStatus) {
-        console.warn(`⚠️ Unrecognized Recall status code: ${rawStatus}, ignoring.`);
+        console.warn(`⚠️ Unrecognized Recall status code: ${statusCode}, ignoring.`);
         return;
       }
 
@@ -90,7 +170,20 @@ export class ProcessWebhookEventService {
       try {
         assertTransition(meeting.status, nextStatus);
         console.log(`👷 Transitioning meeting ${meeting.id} status from ${meeting.status} to ${nextStatus}`);
-        await this.meetingRepo.updateStatus(meeting.id, nextStatus);
+
+        if (nextStatus === 'failed') {
+          // A terminal failure carries the provider's reason in `sub_code` (e.g.
+          // `meeting_not_found` when the link is wrong or the call never started). Without it
+          // the meeting lands in `failed` with a null errorMessage and the UI has nothing to
+          // tell the user.
+          const reason = subCode
+            ? `Bot could not record the meeting (${subCode})`
+            : 'Bot could not record the meeting';
+          await this.meetingRepo.updateStatus(meeting.id, nextStatus, { errorMessage: reason });
+          await this.closeLiveTranscript(meeting.id, 'failed');
+        } else {
+          await this.meetingRepo.updateStatus(meeting.id, nextStatus);
+        }
       } catch (err: any) {
         console.error(`⚠️ Illegal transition attempted from ${meeting.status} to ${nextStatus} for meeting ${meeting.id}:`, err.message);
       }
@@ -143,6 +236,10 @@ export class ProcessWebhookEventService {
           durationSeconds,
         });
       }
+
+      // Done before the summary, which takes seconds: any browser watching the live stream
+      // should flip to the finished view as soon as the real transcript exists.
+      await this.closeLiveTranscript(meeting.id, 'transcribed');
 
       // Add to usage ledger
       await this.usageRepo.addSeconds(meeting.id, durationSeconds);
