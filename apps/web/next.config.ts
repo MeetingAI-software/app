@@ -8,15 +8,10 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
 ];
 
+// No /api/* rewrite: every API call goes straight to NEXT_PUBLIC_API_URL from the browser, so the
+// session cookie is set on the API host it belongs to. Proxying through here would also have
+// shadowed the whole /api namespace on the web origin.
 const nextConfig: NextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${process.env.INTERNAL_API_URL || 'http://localhost:3000'}/api/:path*`,
-      },
-    ];
-  },
   async headers() {
     return [
       {
