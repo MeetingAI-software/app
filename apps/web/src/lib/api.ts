@@ -357,6 +357,15 @@ export function liveStreamUrl(id: string, after: number): string {
   return `${API_BASE}/api/meetings/${id}/live/stream?after=${after}`;
 }
 
+/**
+ * A plain link, not a fetch — the browser has to follow the redirect to Google itself. It must be
+ * absolute so the whole OAuth round trip stays on the API host, which is where the callback sets
+ * the session cookie.
+ */
+export function googleOAuthUrl(): string {
+  return `${API_BASE}/api/auth/google`;
+}
+
 export async function getDocument(id: string): Promise<Document> {
   return handleResponse<Document>(await api(`/api/meetings/${id}/document`));
 }

@@ -1,0 +1,11 @@
+# argon2 is the only native dependency and the reason this file exists.
+#
+# It ships prebuilt binaries (prebuilds/linux-x64/argon2.glibc.node), and locally node-gyp-build
+# resolves one without compiling anything. Inside the Nix build image, though, detect-libc cannot
+# identify the C library, so no prebuild is considered a match and node-gyp-build falls back to
+# `node-gyp rebuild` — which fails with "Could not find any Python installation to use".
+#
+# Rather than fight the libc detection, give node-gyp what it asks for. Setting only aptPkgs here
+# merges with the Node provider's generated setup phase; the nixPkgs it picks are left alone.
+[phases.setup]
+aptPkgs = ["python3", "build-essential"]

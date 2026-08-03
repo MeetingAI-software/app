@@ -84,3 +84,6 @@ MEMORY.md
 
 # Built Visual Studio Code Extensions
 *.vsix
+
+# Local deployment runbook — kept out of the repo deliberately
+DEPLOYMENT.md
