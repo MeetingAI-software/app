@@ -22,6 +22,11 @@ export function createServer(
 ): express.Application {
   const app = express();
 
+  // Railway terminates TLS at its edge and forwards over HTTP, so without this every request looks
+  // like it came from the proxy. The rate limiters key on req.ip — the login limiter in particular
+  // ("${req.ip}:${email}") would otherwise put every client on the planet in one shared bucket.
+  app.set('trust proxy', 1);
+
   // Day 6 §1: security headers on every response (healthz + webhooks included). Helmet defaults
   // give us HSTS, X-Content-Type-Options: nosniff, and frame-blocking. We only override CORP:
   // this is a JSON API deliberately read cross-origin by the web app (dev :3001→:3000, prod
