@@ -55,6 +55,11 @@ const envSchema = z.object({
   // --- Google OAuth ---
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+  // Must match an Authorized redirect URI in the Google Cloud console exactly, and points at the
+  // API host (that is where the callback sets the session cookie). Same shape as WEB_ORIGIN: a
+  // localhost default so dev needs no config, rejected in production by superRefine. This used to
+  // be a raw process.env read in the route, which silently sent production users to localhost.
+  GOOGLE_REDIRECT_URI: z.string().url().default('http://localhost:3000/api/auth/google/callback'),
   // --- Paddle Billing ---
   PADDLE_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
   PADDLE_API_KEY: z.string().min(1).optional(),
@@ -118,6 +123,26 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['RESEND_FROM'],
       message: 'RESEND_FROM is required when EMAIL_PROVIDER is "resend"',
+    });
+  }
+
+  // WEB_ORIGIN has a localhost default so `npm run dev` needs no config, but that default is a
+  // silent outage in production: CORS and originCheck both compare it with `===`, so a wrong value
+  // means every login POST 403s and the browser reports a bare "failed to fetch".
+  if (cfg.NODE_ENV === 'production' && /localhost|127\.0\.0\.1/.test(cfg.WEB_ORIGIN)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['WEB_ORIGIN'],
+      message: 'WEB_ORIGIN must be the public site origin (e.g. https://www.syncmemos.com) when NODE_ENV is "production"',
+    });
+  }
+  // Same class of bug: the OAuth callback URL used to fall back to localhost inside the route, so
+  // "Continue with Google" sent production users to their own machine.
+  if (cfg.NODE_ENV === 'production' && cfg.GOOGLE_CLIENT_ID && /localhost|127\.0\.0\.1/.test(cfg.GOOGLE_REDIRECT_URI)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['GOOGLE_REDIRECT_URI'],
+      message: 'GOOGLE_REDIRECT_URI must be the public API callback URL (e.g. https://api.syncmemos.com/api/auth/google/callback) when NODE_ENV is "production"',
     });
   }
 
