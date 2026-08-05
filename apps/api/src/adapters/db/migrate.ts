@@ -7,7 +7,9 @@ async function runMigrate() {
   console.log('⏳ Running migrations...');
   const start = Date.now();
   
-  const migrationClient = postgres(config.DATABASE_URL, { max: 1 });
+  // prepare: false for the same reason as the app client — the migrator wraps each migration in a
+  // transaction, which the Supabase transaction pooler can silently discard. See client.ts.
+  const migrationClient = postgres(config.DATABASE_URL, { max: 1, prepare: false });
   
   try {
     await migrate(drizzle(migrationClient), { migrationsFolder: 'drizzle' });
