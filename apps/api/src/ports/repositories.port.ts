@@ -110,6 +110,8 @@ export interface VerificationTokenRepository {
   /** Atomically invalidates the user's previous token and stores the replacement. */
   replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void>;
   findByTokenHash(tokenHash: string): Promise<EmailVerificationToken | null>;
+  /** The user's single live token (unique index on user_id) — backs the resend cooldown. */
+  findForUser(userId: string): Promise<EmailVerificationToken | null>;
   deleteByTokenHash(tokenHash: string): Promise<void>;
   consumeAndVerify(input: {
     tokenHash: string;

@@ -6,6 +6,7 @@ import { readSessionCookie } from '../cookies';
 declare module 'express-serve-static-core' {
   interface Request {
     userId?: string;
+    emailVerified?: boolean;
   }
 }
 
@@ -23,6 +24,8 @@ export function requireUser(authenticate: Authenticate): RequestHandler {
       const user = await authenticate(token);
       if (!user) return res.status(401).json({ error: { code: 'UNAUTHORIZED' } });
       req.userId = user.id;
+      // Carried through so requireVerifiedEmail costs no extra query — the user is already loaded.
+      req.emailVerified = user.emailVerified;
       return next();
     } catch (err) {
       return next(err);

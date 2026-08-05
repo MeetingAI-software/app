@@ -31,7 +31,7 @@ export class ResendEmailVerificationMailer implements EmailVerificationMailer {
     const { data, error } = await this.sendEmail({
       from: this.from,
       to: message.to,
-      subject: 'Verify your MeetingAI email address',
+      subject: 'Verify your Syncmemos email address',
       text: content.text,
       html: content.html,
     });
@@ -53,13 +53,13 @@ export function createVerificationEmailContent(
   const expiry = message.expiresAt.toUTCString();
   const safeUrl = escapeHtml(message.verificationUrl);
   const text = [
-    'Verify your MeetingAI email address',
+    'Verify your Syncmemos email address',
     '',
     'Open the link below to verify your email address:',
     message.verificationUrl,
     '',
     `This link expires at ${expiry}.`,
-    'If you did not create a MeetingAI account, you can ignore this email.',
+    'If you did not create a Syncmemos account, you can ignore this email.',
   ].join('\n');
 
   const html = `<!DOCTYPE html>
@@ -68,7 +68,7 @@ export function createVerificationEmailContent(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <title>Verify your MeetingAI email address</title>
+  <title>Verify your Syncmemos email address</title>
 </head>
 <body style="margin:0; background-color:#f8fafc; font-family:Arial, Helvetica, sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
@@ -78,7 +78,7 @@ export function createVerificationEmailContent(
           <tr>
             <td style="padding-top:32px; padding-right:32px; padding-bottom:32px; padding-left:32px;">
               <p style="margin-top:0; margin-right:0; margin-bottom:20px; margin-left:0; font-family:Arial, Helvetica, sans-serif; font-size:24px; line-height:32px; color:#0f172a; font-weight:700;">Verify your email address</p>
-              <p style="margin-top:0; margin-right:0; margin-bottom:24px; margin-left:0; font-family:Arial, Helvetica, sans-serif; font-size:16px; line-height:24px; color:#475569;">Confirm your email address to finish setting up your MeetingAI account.</p>
+              <p style="margin-top:0; margin-right:0; margin-bottom:24px; margin-left:0; font-family:Arial, Helvetica, sans-serif; font-size:16px; line-height:24px; color:#475569;">Confirm your email address to finish setting up your Syncmemos account.</p>
               <table cellpadding="0" cellspacing="0" border="0" role="presentation">
                 <tr>
                   <td bgcolor="#0f172a" style="background-color:#0f172a; border-radius:6px;">
@@ -87,7 +87,7 @@ export function createVerificationEmailContent(
                 </tr>
               </table>
               <p style="margin-top:24px; margin-right:0; margin-bottom:8px; margin-left:0; font-family:Arial, Helvetica, sans-serif; font-size:13px; line-height:20px; color:#64748b;">This link expires at ${expiry}.</p>
-              <p style="margin-top:0; margin-right:0; margin-bottom:0; margin-left:0; font-family:Arial, Helvetica, sans-serif; font-size:13px; line-height:20px; color:#64748b;">If you did not create a MeetingAI account, you can ignore this email.</p>
+              <p style="margin-top:0; margin-right:0; margin-bottom:0; margin-left:0; font-family:Arial, Helvetica, sans-serif; font-size:13px; line-height:20px; color:#64748b;">If you did not create a Syncmemos account, you can ignore this email.</p>
             </td>
           </tr>
         </table>

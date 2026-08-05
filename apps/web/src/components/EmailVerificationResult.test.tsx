@@ -9,9 +9,10 @@ describe('EmailVerificationResult', () => {
     ['success', 'Email verified', 'Continue to dashboard'],
     ['missing-token', 'Verification link is incomplete', 'Back to login'],
     ['invalid-token', 'Verification link is invalid', 'Back to login'],
-    ['expired-token', 'Verification link has expired', 'Go to dashboard'],
+    ['expired-token', 'Verification link has expired', 'Go to Syncmemos'],
     ['used-token', 'Verification link was already used', 'Continue to dashboard'],
     ['already-verified', 'Email already verified', 'Continue to dashboard'],
+    ['not-persisted', 'That did not save', 'Go to Syncmemos'],
     ['error', 'Verification could not be completed', 'Back to login'],
   ] satisfies Array<[VerifyEmailState, string, string | null]>)('%s renders the correct guidance', (state, title, action) => {
     const html = renderToStaticMarkup(<EmailVerificationResult state={state} />);

@@ -37,6 +37,21 @@ export class DrizzleVerificationTokenRepository implements VerificationTokenRepo
     return row ?? null;
   }
 
+  async findForUser(userId: string): Promise<EmailVerificationToken | null> {
+    // `verification_user_id_uq` makes this at most one row, so no ordering is needed.
+    const [row] = await db
+      .select({
+        id: emailVerificationTokens.id,
+        userId: emailVerificationTokens.userId,
+        expiresAt: emailVerificationTokens.expiresAt,
+        consumedAt: emailVerificationTokens.consumedAt,
+        createdAt: emailVerificationTokens.createdAt,
+      })
+      .from(emailVerificationTokens)
+      .where(eq(emailVerificationTokens.userId, userId));
+    return row ?? null;
+  }
+
   async deleteByTokenHash(tokenHash: string): Promise<void> {
     await db.delete(emailVerificationTokens).where(eq(emailVerificationTokens.tokenHash, tokenHash));
   }

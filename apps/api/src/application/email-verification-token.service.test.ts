@@ -28,6 +28,13 @@ class FakeVerificationTokenRepository implements VerificationTokenRepository {
     return this.byHash.get(tokenHash) ?? null;
   }
 
+  async findForUser(userId: string) {
+    for (const token of this.byHash.values()) {
+      if (token.userId === userId) return token;
+    }
+    return null;
+  }
+
   async deleteByTokenHash(tokenHash: string) {
     this.byHash.delete(tokenHash);
   }

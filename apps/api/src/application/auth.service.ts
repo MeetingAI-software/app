@@ -18,6 +18,7 @@ import {
   InvalidCredentialsError,
   InvalidVerificationTokenError,
   UsedVerificationTokenError,
+  VerificationNotPersistedError,
   WeakPasswordError,
 } from '../domain/errors';
 import { logger } from '../config/logger';
@@ -105,15 +106,29 @@ export class AuthService implements AuthServiceApi {
     if (result.status === 'used') throw new UsedVerificationTokenError();
     if (result.status === 'already_verified') throw new EmailAlreadyVerifiedError();
 
-    logger.info({ userId: result.user.id }, 'Email verified successfully');
-    return result.user;
+    // Read back outside the transaction before we tell anyone this worked. A pooler can hand back a
+    // committed-looking result whose writes were dropped, and reporting that as success is the worst
+    // outcome available: the user sees "verified", the row says otherwise, and nothing looks broken.
+    const persisted = await this.users.findById(result.user.id);
+    if (!persisted?.emailVerified) {
+      logger.error({ userId: result.user.id }, 'Verification transaction reported success but did not persist');
+      throw new VerificationNotPersistedError();
+    }
+
+    logger.info({ userId: persisted.id }, 'Email verified successfully');
+    return persisted;
   }
 
   async resendVerification(email: string): Promise<void> {
     const user = await this.users.findByEmailWithHash(email);
-    if (user && !user.emailVerified) {
-      await this.verificationDelivery.sendTo(user);
+    if (!user || user.emailVerified) return;
+    // Suppressed silently: the route always answers with the same neutral 200 regardless, so
+    // reporting the cooldown here would hand back an account-existence oracle for free.
+    if (await this.verificationTokens.isWithinResendCooldown(user.id)) {
+      logger.info({ userId: user.id }, 'Verification resend suppressed by cooldown');
+      return;
     }
+    await this.verificationDelivery.sendTo(user);
   }
 
   async login(email: string, password: string): Promise<AuthResult> {

@@ -53,6 +53,23 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
     keyOf: (req) => `account:${req.userId ?? req.ip}`,
   });
 
+  // Unauthenticated and it mails a third party, so this is capped harder than login. AuthService
+  // additionally enforces a DB-backed per-account cooldown — this bucket includes the IP and so
+  // can't stand alone.
+  const resendVerificationLimiter = fixedWindowLimiter({
+    max: 3,
+    windowMs: 60 * 60 * 1000,
+    keyOf: (req) => `resend:${req.ip}:${String((req.body as { email?: string })?.email ?? '').toLowerCase()}`,
+  });
+
+  // Not about guessing the token — 256 bits of entropy already settles that. This keeps a client
+  // looping on a dead link from hammering the database.
+  const verifyEmailLimiter = fixedWindowLimiter({
+    max: 20,
+    windowMs: 15 * 60 * 1000,
+    keyOf: (req) => `verify:${req.ip}`,
+  });
+
   router.post('/api/auth/signup', authLimiter, async (req, res, next) => {
     try {
       const { email, password } = signupSchema.parse(req.body);
@@ -176,7 +193,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
   });
 
   // --- Email Verification Routes ---
-  router.post('/api/auth/verify-email', async (req, res, next) => {
+  router.post('/api/auth/verify-email', verifyEmailLimiter, async (req, res, next) => {
     try {
       const { token } = z.object({ token: z.string().min(1) }).parse(req.body);
       const user = await auth.verifyEmail(token);
@@ -186,7 +203,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
     }
   });
 
-  router.post('/api/auth/resend-verification', async (req, res, next) => {
+  router.post('/api/auth/resend-verification', resendVerificationLimiter, async (req, res, next) => {
     try {
       const { email } = z.object({ email: z.string().email() }).parse(req.body);
       await auth.resendVerification(email);

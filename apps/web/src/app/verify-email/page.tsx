@@ -46,7 +46,7 @@ export default function VerifyEmailPage() {
       <header className="w-full max-w-container-max py-4">
         <Link href="/" className="font-headline-md text-xl font-bold text-slate-900 flex items-center gap-2">
           <span className="material-symbols-outlined text-[24px]" aria-hidden="true">summarize</span>
-          MeetingAI
+          Syncmemos
         </Link>
       </header>
 
@@ -57,7 +57,7 @@ export default function VerifyEmailPage() {
       </main>
 
       <footer className="w-full py-6 text-center text-xs text-slate-400">
-        © {new Date().getFullYear()} MeetingAI Inc. All rights reserved.
+        © {new Date().getFullYear()} Syncmemos. All rights reserved.
       </footer>
     </div>
   );

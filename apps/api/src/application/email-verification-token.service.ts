@@ -7,6 +7,13 @@ import type {
 
 const TOKEN_BYTES = 32;
 export const EMAIL_VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * Minimum gap between two verification emails to the same account. The route limiter in front of
+ * /api/auth/resend-verification is in-memory and per-instance, and its bucket includes the caller's
+ * IP — so it cannot stop a rotating-IP resend loop from mailbombing an address and draining the
+ * daily send quota. This check is keyed on the account in the database, which is the durable one.
+ */
+export const EMAIL_VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
 
 export interface IssuedEmailVerificationToken {
   token: string;
@@ -53,6 +60,14 @@ export class EmailVerificationTokenService implements EmailVerificationTokenIssu
 
   findByToken(token: string): Promise<EmailVerificationToken | null> {
     return this.tokens.findByTokenHash(hashEmailVerificationToken(token));
+  }
+
+  /** True while the user's live token is younger than the cooldown, i.e. a resend should be skipped. */
+  async isWithinResendCooldown(userId: string): Promise<boolean> {
+    const existing = await this.tokens.findForUser(userId);
+    if (!existing) return false;
+    const age = this.now().getTime() - existing.createdAt.getTime();
+    return age < EMAIL_VERIFICATION_RESEND_COOLDOWN_MS;
   }
 
   deleteByToken(token: string): Promise<void> {

@@ -8,6 +8,7 @@ export type VerifyEmailState =
   | 'expired-token'
   | 'used-token'
   | 'already-verified'
+  | 'not-persisted'
   | 'error';
 
 const verificationRequests = new Map<string, Promise<AuthUserResponse>>();
@@ -28,6 +29,7 @@ export function stateForVerificationError(error: unknown): VerifyEmailState {
     case 'VERIFICATION_TOKEN_EXPIRED': return 'expired-token';
     case 'VERIFICATION_TOKEN_USED': return 'used-token';
     case 'EMAIL_ALREADY_VERIFIED': return 'already-verified';
+    case 'VERIFICATION_NOT_PERSISTED': return 'not-persisted';
     default: return 'error';
   }
 }

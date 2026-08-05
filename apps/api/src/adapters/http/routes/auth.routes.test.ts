@@ -246,4 +246,25 @@ describe('auth routes', () => {
     expect(body.error.code).toBe('VALIDATION_ERROR');
     expect(resendVerification).not.toHaveBeenCalled();
   });
+
+  // The limiter buckets on ip+email, so a dedicated address keeps this isolated from the tests
+  // above even though they all share the loopback IP and one long-lived server.
+  it('rate-limits resend attempts for the same address', async () => {
+    resendVerification.mockResolvedValue(undefined);
+    const target = 'flood@example.com';
+
+    const allowed = [
+      await requestResend(target),
+      await requestResend(target),
+      await requestResend(target),
+    ];
+    const blocked = await requestResend(target);
+    const body = await blocked.json() as { error: { code: string } };
+
+    expect(allowed.map((r) => r.status)).toEqual([200, 200, 200]);
+    expect(blocked.status).toBe(429);
+    expect(body.error.code).toBe('RATE_LIMITED');
+    // The 4th never reaches the service, so no email is generated for it.
+    expect(resendVerification).toHaveBeenCalledTimes(3);
+  });
 });

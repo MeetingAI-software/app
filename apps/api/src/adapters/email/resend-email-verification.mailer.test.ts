@@ -32,7 +32,7 @@ describe('ResendEmailVerificationMailer', () => {
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({
       from: 'MeetingAI <verify@example.com>',
       to: message.to,
-      subject: 'Verify your MeetingAI email address',
+      subject: 'Verify your Syncmemos email address',
       text: expect.stringContaining(message.verificationUrl),
       html: expect.stringContaining('Verify email address'),
     }));

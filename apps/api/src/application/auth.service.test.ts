@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import crypto from 'crypto';
 import { AuthService } from './auth.service';
-import { EmailVerificationTokenService } from './email-verification-token.service';
+import {
+  EMAIL_VERIFICATION_RESEND_COOLDOWN_MS,
+  EmailVerificationTokenService,
+} from './email-verification-token.service';
 import { EmailVerificationDeliveryService } from './email-verification-delivery.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
 import {
@@ -11,6 +14,7 @@ import {
   InvalidCredentialsError,
   InvalidVerificationTokenError,
   UsedVerificationTokenError,
+  VerificationNotPersistedError,
   WeakPasswordError,
 } from '../domain/errors';
 import type { EmailVerificationToken, User, Session, Meeting } from '../domain/types';
@@ -123,7 +127,8 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
   private seq = 0;
   private byHash = new Map<string, EmailVerificationToken>();
 
-  constructor(private readonly users: FakeUserRepo) {}
+  // Shares the suite's clock so `createdAt` moves with it — the resend cooldown reads that field.
+  constructor(private readonly users: FakeUserRepo, private readonly now: () => Date = () => new Date()) {}
 
   async replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }) {
     for (const [hash, token] of this.byHash) {
@@ -134,12 +139,19 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
       userId: input.userId,
       expiresAt: input.expiresAt,
       consumedAt: null,
-      createdAt: new Date(),
+      createdAt: this.now(),
     });
   }
 
   async findByTokenHash(tokenHash: string) {
     return this.byHash.get(tokenHash) ?? null;
+  }
+
+  async findForUser(userId: string) {
+    for (const token of this.byHash.values()) {
+      if (token.userId === userId) return token;
+    }
+    return null;
   }
 
   async deleteByTokenHash(tokenHash: string) {
@@ -165,7 +177,7 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
 
   expire(rawToken: string): void {
     const token = this.byHash.get(sha256(rawToken));
-    if (token) token.expiresAt = new Date(Date.now() - 1);
+    if (token) token.expiresAt = new Date(this.now().getTime() - 1);
   }
 
   countForUser(userId: string): number {
@@ -218,8 +230,11 @@ function build(meetingStore: Meeting[] = []) {
   const usage: UsageRepository = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
   const storage: AudioStoragePort = { upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
   const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn(), fetchTranscript: vi.fn(), deleteRecording: vi.fn() };
-  const verificationTokenRepo = new FakeVerificationTokenRepo(users);
-  const verificationTokens = new EmailVerificationTokenService(verificationTokenRepo);
+  // Mutable clock: lets a test step past the resend cooldown without actually waiting a minute.
+  const clock = { now: new Date() };
+  const nowFn = () => clock.now;
+  const verificationTokenRepo = new FakeVerificationTokenRepo(users, nowFn);
+  const verificationTokens = new EmailVerificationTokenService(verificationTokenRepo, { now: nowFn });
   const verificationMailer = new FakeVerificationMailer();
   const verificationDelivery = new EmailVerificationDeliveryService(
     verificationTokens,
@@ -232,7 +247,7 @@ function build(meetingStore: Meeting[] = []) {
   );
   return {
     service, users, sessions, meetings, transcripts, documents, chat, usage, storage, bot,
-    verificationTokenRepo, verificationMailer,
+    verificationTokenRepo, verificationMailer, clock,
   };
 }
 
@@ -281,14 +296,30 @@ describe('AuthService', () => {
   });
 
   describe('resendVerification', () => {
-    it('issues and delivers a replacement link for an unverified user', async () => {
+    it('issues and delivers a replacement link once the cooldown has elapsed', async () => {
       const { user } = await ctx.service.signup('resend@example.com', 'a-good-password');
       const firstUrl = ctx.verificationMailer.sent[0].verificationUrl;
+      ctx.clock.now = new Date(ctx.clock.now.getTime() + EMAIL_VERIFICATION_RESEND_COOLDOWN_MS);
 
       await ctx.service.resendVerification(user.email);
 
       expect(ctx.verificationMailer.sent).toHaveLength(2);
       expect(ctx.verificationMailer.sent[1].verificationUrl).not.toBe(firstUrl);
+      expect(ctx.verificationTokenRepo.countForUser(user.id)).toBe(1);
+    });
+
+    // The route limiter is in-memory and keyed partly on IP, so it can't stop a rotating-IP loop.
+    // This DB-backed check is what actually caps how often an address can be mailed.
+    it('sends nothing while the previous token is still inside the cooldown', async () => {
+      const { user } = await ctx.service.signup('cooldown@example.com', 'a-good-password');
+      const firstUrl = ctx.verificationMailer.sent[0].verificationUrl;
+      ctx.clock.now = new Date(ctx.clock.now.getTime() + EMAIL_VERIFICATION_RESEND_COOLDOWN_MS - 1);
+
+      await ctx.service.resendVerification(user.email);
+
+      expect(ctx.verificationMailer.sent).toHaveLength(1);
+      // The live token is untouched, so the link already in the user's inbox still works.
+      expect(ctx.verificationMailer.sent[0].verificationUrl).toBe(firstUrl);
       expect(ctx.verificationTokenRepo.countForUser(user.id)).toBe(1);
     });
 
@@ -349,6 +380,21 @@ describe('AuthService', () => {
       await ctx.users.markEmailVerified(user.id);
 
       await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(EmailAlreadyVerifiedError);
+    });
+
+    // What Supabase's transaction pooler actually did to us: the transaction reported success and
+    // handed back a verified-looking user, but the row was never written. Reporting that as success
+    // is the worst outcome available — the user is told they're verified and silently isn't.
+    it('refuses to report success when the write did not land', async () => {
+      const { user } = await ctx.service.signup('ghost@example.com', 'a-good-password');
+      const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
+      vi.spyOn(ctx.verificationTokenRepo, 'consumeAndVerify').mockResolvedValue({
+        status: 'verified',
+        user: { ...user, emailVerified: true },
+      });
+
+      await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(VerificationNotPersistedError);
+      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ emailVerified: false });
     });
   });
 

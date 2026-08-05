@@ -119,4 +119,16 @@ export class EmailAlreadyVerifiedError extends Error {
   }
 }
 
+/**
+ * The consume-and-verify transaction reported success but the row is still unverified — the write
+ * was lost between us and the database. Retryable on purpose: a discarded transaction leaves the
+ * token unconsumed too, so the same link still works on the next click.
+ */
+export class VerificationNotPersistedError extends Error {
+  constructor(message = 'Verification could not be completed, please try the link again') {
+    super(message);
+    this.name = 'VerificationNotPersistedError';
+  }
+}
+
 

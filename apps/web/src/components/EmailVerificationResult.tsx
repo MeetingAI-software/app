@@ -39,8 +39,8 @@ const CONTENT: Record<VerifyEmailState, {
     icon: 'schedule',
     iconClass: 'bg-amber-100 text-amber-700',
     title: 'Verification link has expired',
-    message: 'Verification links expire after 24 hours. Request a new email from your dashboard.',
-    action: { href: '/meetings', label: 'Go to dashboard' },
+    message: 'Verification links expire after 24 hours. Open Syncmemos and use "Resend email" to get a fresh one.',
+    action: { href: '/meetings', label: 'Go to Syncmemos' },
   },
   'used-token': {
     icon: 'task_alt',
@@ -55,6 +55,15 @@ const CONTENT: Record<VerifyEmailState, {
     title: 'Email already verified',
     message: 'No further action is needed for this email address.',
     action: { href: '/meetings', label: 'Continue to dashboard' },
+  },
+  // The API only sends this when a write was lost on the way to the database. It leaves the token
+  // unconsumed, so telling the user to click the same link again is genuinely the fix.
+  'not-persisted': {
+    icon: 'sync_problem',
+    iconClass: 'bg-amber-100 text-amber-700',
+    title: 'That did not save',
+    message: 'Something went wrong on our side, and your email was not verified. Open the link in your email once more — it still works.',
+    action: { href: '/meetings', label: 'Go to Syncmemos' },
   },
   error: {
     icon: 'error',

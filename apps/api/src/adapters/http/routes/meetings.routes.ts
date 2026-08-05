@@ -36,7 +36,8 @@ export function createMeetingRoutes(
     }),
   });
 
-  // POST /api/meetings
+  // POST /api/meetings. The email-verification gate lives in server.ts and runs ahead of every
+  // route, so an unverified caller never reaches this handler or spends limiter budget.
   router.post('/api/meetings', createLimiter, async (req, res, next) => {
     try {
       const parsed = createMeetingSchema.parse(req.body);
