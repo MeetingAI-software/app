@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, resendVerification, verifyEmail } from './api';
+import { ApiError, createMeeting, resendVerification, verifyEmail } from './api';
 
 describe('resendVerification', () => {
   afterEach(() => {
@@ -36,6 +36,51 @@ describe('resendVerification', () => {
       status: 503,
       message: 'Unable to send verification email',
     } satisfies Partial<ApiError>);
+  });
+
+  it('reports the rate limit so the banner can say "try again later"', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }),
+      { status: 429, headers: { 'content-type': 'application/json' } },
+    )));
+
+    await expect(resendVerification('person@example.com')).rejects.toMatchObject({
+      status: 429,
+      code: 'RATE_LIMITED',
+    });
+  });
+});
+
+describe('error codes on ordinary data calls', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // handleResponse used to drop `error.code`, which left the UI matching on message text. The
+  // verification gate depends on the code surviving, so this pins the behaviour.
+  it('preserves EMAIL_NOT_VERIFIED from a gated endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ error: { code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email address to continue' } }),
+      { status: 403, headers: { 'content-type': 'application/json' } },
+    )));
+
+    await expect(createMeeting('https://zoom.us/j/123')).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 403,
+      code: 'EMAIL_NOT_VERIFIED',
+    });
+  });
+
+  it('falls back to the status line when the body is not JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response('<html>Bad Gateway</html>', { status: 502 }),
+    ));
+
+    await expect(createMeeting('https://zoom.us/j/123')).rejects.toMatchObject({
+      status: 502,
+      code: undefined,
+      message: 'HTTP error! Status: 502',
+    });
   });
 });
 

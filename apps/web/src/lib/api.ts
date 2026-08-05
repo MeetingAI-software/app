@@ -156,14 +156,19 @@ function api(path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${API_BASE}${path}`, { ...init, credentials: 'include', cache: 'no-store' });
 }
 
-async function extractMessage(response: Response, fallback: string): Promise<string> {
+/** Reads the API's `{error:{code,message}}` envelope. The code is what callers branch on — a
+ *  message is for humans, so anything matching on copy breaks the moment the wording changes. */
+async function readError(response: Response): Promise<ApiError> {
+  let message = `HTTP error! Status: ${response.status}`;
+  let code: string | undefined;
   try {
-    const data = await response.json();
-    if (data?.error?.message) return data.error.message as string;
+    const data = (await response.json()) as { error?: { code?: string; message?: string } } | null;
+    if (data?.error?.message) message = data.error.message;
+    if (data?.error?.code) code = data.error.code;
   } catch {
-    // ignore
+    // Non-JSON body (proxy error page, empty 502) — keep the status-line fallback.
   }
-  return fallback;
+  return new ApiError(message, response.status, code);
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {
@@ -172,7 +177,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
     if (response.status === 401 && typeof window !== 'undefined') {
       window.dispatchEvent(new Event('unauthorized-api-call'));
     }
-    throw new ApiError(await extractMessage(response, `HTTP error! Status: ${response.status}`), response.status);
+    throw await readError(response);
   }
   return response.json() as Promise<T>;
 }
@@ -181,7 +186,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
  *  here means "wrong password", which the calling page shows itself. */
 async function handleVoid(response: Response): Promise<void> {
   if (!response.ok) {
-    throw new ApiError(await extractMessage(response, `HTTP error! Status: ${response.status}`), response.status);
+    throw await readError(response);
   }
 }
 
@@ -189,7 +194,7 @@ async function handleVoid(response: Response): Promise<void> {
  *  actions (change password/email) where a 401 means "wrong current password", not a lapsed session. */
 async function handleResponseQuiet<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new ApiError(await extractMessage(response, `HTTP error! Status: ${response.status}`), response.status);
+    throw await readError(response);
   }
   return response.json() as Promise<T>;
 }
@@ -236,17 +241,9 @@ export async function verifyEmail(token: string): Promise<AuthUserResponse> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token }),
   });
-  if (!response.ok) {
-    const data = await response.json().catch(() => null) as {
-      error?: { code?: string; message?: string };
-    } | null;
-    throw new ApiError(
-      data?.error?.message ?? `HTTP error! Status: ${response.status}`,
-      response.status,
-      data?.error?.code,
-    );
-  }
-  return response.json() as Promise<AuthUserResponse>;
+  // Quiet: every failure here is a token verdict (invalid/expired/used), never a lapsed session,
+  // so the global 401 redirect must not fire.
+  return handleResponseQuiet<AuthUserResponse>(response);
 }
 
 export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthUserResponse> {
@@ -415,13 +412,15 @@ export function uploadMeeting(
         window.dispatchEvent(new Event('unauthorized-api-call'));
       }
       let message = `Upload failed (${xhr.status})`;
+      let code: string | undefined;
       try {
         const data = JSON.parse(xhr.responseText);
         if (data?.error?.message) message = data.error.message;
+        if (data?.error?.code) code = data.error.code;
       } catch {
         // ignore
       }
-      reject(new ApiError(message, xhr.status));
+      reject(new ApiError(message, xhr.status, code));
     };
 
     xhr.onerror = () => reject(new Error('Network error during upload.'));
