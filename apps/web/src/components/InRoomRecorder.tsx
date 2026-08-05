@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { uploadMeeting } from '@/lib/api';
+import { ApiError, uploadMeeting } from '@/lib/api';
 import { msToClock } from '@/lib/format';
 
 type Phase = 'idle' | 'recording' | 'recorded' | 'uploading';
@@ -133,7 +133,12 @@ export default function InRoomRecorder() {
       const meeting = await uploadMeeting(audioBlob, names, setProgress);
       router.push(`/meetings/${meeting.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed.');
+      // Keep the recording in state on failure so a verification block doesn't lose their audio.
+      if (err instanceof ApiError && err.code === 'EMAIL_NOT_VERIFIED') {
+        setError('Verify your email address before uploading a recording.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Upload failed.');
+      }
       setPhase('recorded');
     }
   }

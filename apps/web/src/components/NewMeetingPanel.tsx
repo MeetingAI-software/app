@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createMeeting, type SubscriptionSummary } from '@/lib/api';
+import { ApiError, createMeeting, type SubscriptionSummary } from '@/lib/api';
 import InRoomRecorder from './InRoomRecorder';
 import Link from 'next/link';
 
@@ -27,7 +27,13 @@ export default function NewMeetingPanel({ subscription }: { subscription: Subscr
       const meeting = await createMeeting(url);
       router.push(`/meetings/${meeting.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create meeting');
+      // Only reachable if the session went stale mid-page — AppShell holds unverified accounts on
+      // the verification screen. The API's generic copy doesn't say what was refused, so name it.
+      if (err instanceof ApiError && err.code === 'EMAIL_NOT_VERIFIED') {
+        setError('Verify your email address before starting a meeting bot.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to create meeting');
+      }
       setLoading(false);
     }
   }
