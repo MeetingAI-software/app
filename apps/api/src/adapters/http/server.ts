@@ -4,6 +4,7 @@ import pinoHttp from 'pino-http';
 import { requestIdMiddleware } from './middleware/request-id';
 import { errorHandler } from './middleware/error-handler';
 import { requireUser } from './middleware/require-user';
+import { requireVerifiedEmail } from './middleware/require-verified-email';
 import { originCheck } from './middleware/origin-check';
 import type { User } from '../../domain/types';
 import { config } from '../../config/env';
@@ -13,6 +14,19 @@ function isPublicApi(method: string, path: string): boolean {
   if (method === 'GET' && path.startsWith('/share/')) return true; // public share pages
   if (method === 'POST' && (path === '/auth/signup' || path === '/auth/login' || path === '/auth/logout' || path === '/auth/verify-email' || path === '/auth/resend-verification')) return true;
   if (method === 'GET' && (path === '/auth/me' || path === '/auth/google' || path.startsWith('/auth/google/'))) return true;
+  return false;
+}
+
+/**
+ * The only authenticated endpoints an unverified account may reach. Everything else under /api is
+ * gated, so a route added later is protected by default rather than by remembering the middleware.
+ *
+ * These three exist so nobody gets trapped: a mistyped address has to be fixable, and an account
+ * you can't verify has to be one you can still leave. Paths are relative to the '/api' mount.
+ */
+function isVerificationExempt(method: string, path: string): boolean {
+  if (method === 'POST' && (path === '/auth/change-email' || path === '/auth/change-password')) return true;
+  if (method === 'DELETE' && path === '/auth/account') return true;
   return false;
 }
 
@@ -65,6 +79,15 @@ export function createServer(
   app.use('/api', (req, res, next) => {
     if (isPublicApi(req.method, req.path)) return next();
     return requireUser(authenticate)(req, res, next);
+  });
+
+  // An unverified address gets a session, but the session unlocks nothing except the verification
+  // flow itself — that's what makes an in-app resend and typo fix possible instead of a dead end at
+  // the login screen. OWASP: don't activate accounts before verification completes.
+  app.use('/api', (req, res, next) => {
+    if (isPublicApi(req.method, req.path)) return next();
+    if (isVerificationExempt(req.method, req.path)) return next();
+    return requireVerifiedEmail(req, res, next);
   });
 
   // Capture raw body for signature verification while parsing JSON

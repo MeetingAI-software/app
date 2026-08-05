@@ -38,6 +38,8 @@ export function createUploadRoutes(
     },
   });
 
+  // The email-verification gate in server.ts runs ahead of both the limiter and multer, so an
+  // unverified caller never gets to buffer a MAX_UPLOAD_MB file into heap.
   router.post('/api/meetings/upload', uploadLimiter, (req, res, next) => {
     upload.single('audio')(req, res, (err: unknown) => {
       if (err instanceof multer.MulterError) {
