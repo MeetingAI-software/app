@@ -55,6 +55,12 @@ async function main(): Promise<void> {
   for (const price of prices) {
     if (!configured(price.id)) issues.push(`${price.key} is missing`);
     else if (!price.id.startsWith('pri_')) issues.push(`${price.key} is not a Paddle price ID`);
+
+    const apiPrice = api[price.key];
+    if (!configured(apiPrice)) issues.push(`${price.key} is missing from the API configuration`);
+    else if (configured(price.id) && apiPrice !== price.id) {
+      issues.push(`${price.key} differs between the API and frontend configurations`);
+    }
   }
 
   console.log(`Paddle environment: ${environment}`);
