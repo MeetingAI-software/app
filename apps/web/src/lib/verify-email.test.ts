@@ -15,6 +15,9 @@ describe('stateForVerificationError', () => {
     ['VERIFICATION_TOKEN_EXPIRED', 'expired-token'],
     ['VERIFICATION_TOKEN_USED', 'used-token'],
     ['EMAIL_ALREADY_VERIFIED', 'already-verified'],
+    // A lost write leaves the token unconsumed, so this state has to say "click the link again"
+    // rather than share the generic error copy, which sends people back to the login page.
+    ['VERIFICATION_NOT_PERSISTED', 'not-persisted'],
   ] as const)('maps %s to %s', (code, state) => {
     expect(stateForVerificationError(new ApiError('failed', 400, code))).toBe(state);
   });

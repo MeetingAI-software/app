@@ -13,6 +13,7 @@ import {
   ExpiredVerificationTokenError,
   InvalidVerificationTokenError,
   UsedVerificationTokenError,
+  VerificationNotPersistedError,
   PlanUpgradeRequiredError,
   PaddleCustomerNotFoundError,
   PaddleNotConfiguredError,
@@ -121,6 +122,15 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   if (err instanceof EmailAlreadyVerifiedError) {
     return res.status(409).json({
       error: { code: 'EMAIL_ALREADY_VERIFIED', message: err.message },
+    });
+  }
+
+  // 503, not 500: the click was valid and retrying it is the fix. Reported to Sentry because a lost
+  // write is an infrastructure fault, not something the user did wrong.
+  if (err instanceof VerificationNotPersistedError) {
+    report5xx();
+    return res.status(503).json({
+      error: { code: 'VERIFICATION_NOT_PERSISTED', message: err.message },
     });
   }
 
