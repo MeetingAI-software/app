@@ -147,6 +147,33 @@ const envSchema = z.object({
   }
 
   const paddleApiKey = cfg.PADDLE_API_KEY ?? cfg.PADDLE_SANDBOX_API_KEY;
+  const paddleCheckoutPrices = [
+    ['NEXT_PUBLIC_PADDLE_SOLO_MONTHLY_PRICE_ID', cfg.NEXT_PUBLIC_PADDLE_SOLO_MONTHLY_PRICE_ID],
+    ['NEXT_PUBLIC_PADDLE_SOLO_ANNUAL_PRICE_ID', cfg.NEXT_PUBLIC_PADDLE_SOLO_ANNUAL_PRICE_ID],
+    ['NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID', cfg.NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID],
+    ['NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID', cfg.NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID],
+  ] as const;
+
+  // Checkout is created by the API, so Railway needs the same catalog IDs as the separately
+  // deployed frontend. Starting with an API key but an incomplete allowlist otherwise produces
+  // a misleading 400 "selected billing price is not available" before Paddle is ever called.
+  if (paddleApiKey) {
+    for (const [key, value] of paddleCheckoutPrices) {
+      if (!value || value.trim() === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when Paddle checkout is configured`,
+        });
+      } else if (!value.startsWith('pri_')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} must be a Paddle price ID`,
+        });
+      }
+    }
+  }
   if (cfg.PADDLE_NOTIFICATION_WEBHOOK_SECRET && !paddleApiKey) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

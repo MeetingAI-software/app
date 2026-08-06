@@ -4,11 +4,14 @@ import type { PaddleCheckoutPort } from '../ports/paddle-checkout.port';
 import { InvalidBillingPriceError, SubscriptionAlreadyActiveError } from '../domain/errors';
 import { CheckoutService } from './checkout.service';
 
-function setup(options: { customerId?: string; status?: string } = {}) {
+function setup(options: { customerId?: string; recoveredCustomerId?: string; status?: string } = {}) {
   const billingRepo = {
     listSubscriptionsForUser: vi.fn().mockResolvedValue(options.status ? [{ status: options.status }] : []),
     findCustomerForUser: vi.fn().mockResolvedValue(options.customerId
       ? { customerId: options.customerId, subscriptionIds: [] }
+      : null),
+    findCustomerByEmail: vi.fn().mockResolvedValue(options.recoveredCustomerId
+      ? { customerId: options.recoveredCustomerId, subscriptionIds: [] }
       : null),
     upsertCustomer: vi.fn(),
   } as unknown as PaddleBillingRepository;
@@ -45,6 +48,27 @@ describe('CheckoutService', () => {
     expect(checkout.createTransaction).toHaveBeenCalledWith({
       customerId: 'ctm_existing', priceId: 'pri_solo', appUserId: 'user-1',
     });
+  });
+
+  it('reclaims an orphaned Paddle customer when the same email registers again', async () => {
+    const { service, billingRepo, checkout } = setup({ recoveredCustomerId: 'ctm_recovered' });
+
+    await service.createForUser('user-1', 'pri_solo');
+
+    expect(billingRepo.findCustomerByEmail).toHaveBeenCalledWith('person@example.com');
+    expect(billingRepo.upsertCustomer).toHaveBeenCalledWith({
+      customerId: 'ctm_recovered', email: 'person@example.com',
+    });
+    expect(checkout.createCustomer).not.toHaveBeenCalled();
+    expect(checkout.createTransaction).toHaveBeenCalledWith({
+      customerId: 'ctm_recovered', priceId: 'pri_solo', appUserId: 'user-1',
+    });
+  });
+
+  it('blocks checkout when a reclaimed customer still has paid access', async () => {
+    const { service, checkout } = setup({ recoveredCustomerId: 'ctm_recovered', status: 'active' });
+    await expect(service.createForUser('user-1', 'pri_solo')).rejects.toThrow(SubscriptionAlreadyActiveError);
+    expect(checkout.createTransaction).not.toHaveBeenCalled();
   });
 
   it('rejects price ids outside the server catalog', async () => {
