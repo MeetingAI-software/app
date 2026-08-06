@@ -7,6 +7,8 @@ import { createMeRoutes } from '../adapters/http/routes/me.routes';
 import { AuthService } from '../application/auth.service';
 import { EmailVerificationTokenService } from '../application/email-verification-token.service';
 import { EmailVerificationDeliveryService } from '../application/email-verification-delivery.service';
+import { EmailSendBudgetService } from '../application/email-send-budget.service';
+import { DrizzleEmailSendLedgerRepository } from '../adapters/db/repositories/email-send-ledger.repository';
 import { StartMeetingService } from '../application/start-meeting.service';
 import { UsageMeterService } from '../application/usage-meter.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
@@ -41,11 +43,15 @@ async function main() {
   const usageRepo = new DrizzleUsageRepository();
   const webhookRepo = new DrizzleWebhookEventRepository();
   const verificationTokens = new EmailVerificationTokenService(new DrizzleVerificationTokenRepository());
+  const sendBudget = new EmailSendBudgetService(
+    new DrizzleEmailSendLedgerRepository(), config.EMAIL_DAILY_SEND_BUDGET,
+  );
   const authService = new AuthService(
     userRepo, sessionRepo, new Argon2Hasher(), 30, meetingRepo, transcriptRepo, documentRepo,
     new DrizzleChatMessageRepository(), usageRepo, new SupabaseStorageAdapter(), new RecallAdapter(),
     verificationTokens,
-    new EmailVerificationDeliveryService(verificationTokens, new LogEmailVerificationMailer(), config.WEB_ORIGIN),
+    new EmailVerificationDeliveryService(verificationTokens, new LogEmailVerificationMailer(), config.WEB_ORIGIN, sendBudget),
+    sendBudget,
   );
   const billingAccess = {
     getAccess: async () => ({

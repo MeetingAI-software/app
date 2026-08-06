@@ -6,9 +6,11 @@ import {
   EmailVerificationTokenService,
 } from './email-verification-token.service';
 import { EmailVerificationDeliveryService } from './email-verification-delivery.service';
+import { EmailSendBudgetService } from './email-send-budget.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
 import {
   EmailAlreadyVerifiedError,
+  EmailSendBudgetExhaustedError,
   EmailTakenError,
   ExpiredVerificationTokenError,
   InvalidCredentialsError,
@@ -27,6 +29,8 @@ import type {
   ChatMessageRepository,
   UsageRepository,
   VerificationTokenRepository,
+  EmailSendLedgerRepository,
+  EmailSendTrigger,
 } from '../ports/repositories.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
@@ -195,6 +199,28 @@ class FakeVerificationMailer implements EmailVerificationMailer {
   }
 }
 
+class FakeEmailSendLedgerRepo implements EmailSendLedgerRepository {
+  readonly rows: { userId: string | null; trigger: EmailSendTrigger; createdAt: Date }[] = [];
+
+  constructor(private readonly now: () => Date) {}
+
+  async countSince(since: Date) {
+    return this.rows.filter((row) => row.createdAt.getTime() >= since.getTime()).length;
+  }
+  async record(input: { userId: string | null; trigger: EmailSendTrigger }) {
+    this.rows.push({ ...input, createdAt: this.now() });
+  }
+  async deleteOlderThan(cutoff: Date) {
+    const kept = this.rows.filter((row) => row.createdAt.getTime() >= cutoff.getTime());
+    const removed = this.rows.length - kept.length;
+    this.rows.splice(0, this.rows.length, ...kept);
+    return removed;
+  }
+}
+
+// Generous enough that only the tests explicitly about exhaustion ever reach it.
+const TEST_SEND_BUDGET = 50;
+
 // Meeting repo backed by an inspectable store; the rest of its surface is unused here.
 function meetingRepoOver(store: Meeting[]): MeetingRepository {
   return {
@@ -236,18 +262,27 @@ function build(meetingStore: Meeting[] = []) {
   const verificationTokenRepo = new FakeVerificationTokenRepo(users, nowFn);
   const verificationTokens = new EmailVerificationTokenService(verificationTokenRepo, { now: nowFn });
   const verificationMailer = new FakeVerificationMailer();
+  const sendLedger = new FakeEmailSendLedgerRepo(nowFn);
+  const sendBudget = new EmailSendBudgetService(sendLedger, TEST_SEND_BUDGET, { now: nowFn });
   const verificationDelivery = new EmailVerificationDeliveryService(
     verificationTokens,
     verificationMailer,
     'https://app.example.test',
+    sendBudget,
   );
   const service = new AuthService(
     users, sessions, hasher, TTL_DAYS, meetings, transcripts, documents, chat, usage, storage, bot,
-    verificationTokens, verificationDelivery,
+    verificationTokens, verificationDelivery, sendBudget,
   );
+  /** Burn the whole budget so the next send is refused, without sending anything real. */
+  const exhaustSendBudget = async () => {
+    for (let i = 0; i < TEST_SEND_BUDGET; i++) {
+      await sendLedger.record({ userId: null, trigger: 'signup' });
+    }
+  };
   return {
     service, users, sessions, meetings, transcripts, documents, chat, usage, storage, bot,
-    verificationTokenRepo, verificationMailer, clock,
+    verificationTokenRepo, verificationMailer, clock, sendLedger, exhaustSendBudget,
   };
 }
 
@@ -292,6 +327,28 @@ describe('AuthService', () => {
     it('rejects a duplicate email with EmailTakenError', async () => {
       await ctx.service.signup('dup@example.com', 'a-good-password');
       await expect(ctx.service.signup('DUP@example.com', 'another-good-one')).rejects.toBeInstanceOf(EmailTakenError);
+    });
+
+    // Throwing here would leave a ghost account whose retry 409s — strictly worse than an
+    // unverified one the user can resend from once the budget window rolls.
+    it('keeps the new account usable when the send budget is exhausted', async () => {
+      await ctx.exhaustSendBudget();
+
+      const result = await ctx.service.signup('over-budget@example.com', 'a-good-password');
+
+      await expect(ctx.service.getUserForToken(result.sessionToken)).resolves.toMatchObject({
+        email: 'over-budget@example.com',
+      });
+      expect(ctx.verificationMailer.sent).toHaveLength(0);
+      // No token was issued either, so nothing was spent on a link that was never delivered.
+      expect(ctx.verificationTokenRepo.countForUser(result.user.id)).toBe(0);
+    });
+
+    it('spends one unit of send budget per delivered signup email', async () => {
+      await ctx.service.signup('budgeted@example.com', 'a-good-password');
+
+      expect(ctx.sendLedger.rows).toHaveLength(1);
+      expect(ctx.sendLedger.rows[0].trigger).toBe('signup');
     });
   });
 
@@ -338,6 +395,19 @@ describe('AuthService', () => {
 
       expect(ctx.verificationMailer.sent).toHaveLength(1);
       expect(ctx.verificationTokenRepo.countForUser(user.id)).toBe(1);
+    });
+
+    // This route returns early for unknown and already-verified addresses, so a budget check made
+    // any later than the lookup would raise for real accounts and stay silent for fake ones — a
+    // free account-existence oracle, exactly what the neutral 200 exists to prevent.
+    it('reports exhaustion identically for a known and an unknown address', async () => {
+      const { user } = await ctx.service.signup('known@example.com', 'a-good-password');
+      await ctx.exhaustSendBudget();
+
+      await expect(ctx.service.resendVerification(user.email))
+        .rejects.toBeInstanceOf(EmailSendBudgetExhaustedError);
+      await expect(ctx.service.resendVerification('never-registered@example.com'))
+        .rejects.toBeInstanceOf(EmailSendBudgetExhaustedError);
     });
   });
 
@@ -511,6 +581,32 @@ describe('AuthService', () => {
       await ctx.service.signup('taken@example.com', 'a-good-password');
       const { user } = await ctx.service.signup('nate@example.com', 'a-good-password');
       await expect(ctx.service.changeEmail(user.id, 'a-good-password', 'TAKEN@example.com')).rejects.toBeInstanceOf(EmailTakenError);
+    });
+
+    // "Sign up, spot the typo, fix it" is the most common legitimate route through here, and the
+    // signup token is seconds old. If the resend cooldown ever gated this path, the address would
+    // change, no mail would go out, the call would report success, and the account would be
+    // permanently stranded behind requireVerifiedEmail with no way back.
+    it('sends a fresh link on change-email inside the resend cooldown', async () => {
+      const { user } = await ctx.service.signup('typo@example.com', 'a-good-password');
+      ctx.clock.now = new Date(ctx.clock.now.getTime() + EMAIL_VERIFICATION_RESEND_COOLDOWN_MS - 1);
+
+      await ctx.service.changeEmail(user.id, 'a-good-password', 'fixed@example.com');
+
+      expect(ctx.verificationMailer.sent).toHaveLength(2);
+      expect(ctx.verificationMailer.sent[1].to).toBe('fixed@example.com');
+    });
+
+    // The address correction must land even with no budget left: refusing it would strand the user
+    // on an address they cannot reach. They discover the truth from the holding page's resend.
+    it('still changes the address when the send budget is exhausted', async () => {
+      const { user } = await ctx.service.signup('stuck@example.com', 'a-good-password');
+      await ctx.exhaustSendBudget();
+
+      const updated = await ctx.service.changeEmail(user.id, 'a-good-password', 'moved@example.com');
+
+      expect(updated.email).toBe('moved@example.com');
+      expect(ctx.verificationMailer.sent).toHaveLength(1); // only the original signup mail
     });
   });
 

@@ -14,6 +14,7 @@ import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import {
   EmailAlreadyVerifiedError,
+  EmailSendBudgetExhaustedError,
   ExpiredVerificationTokenError,
   InvalidCredentialsError,
   InvalidVerificationTokenError,
@@ -22,6 +23,7 @@ import {
   WeakPasswordError,
 } from '../domain/errors';
 import { logger } from '../config/logger';
+import type { EmailSendBudget } from './email-send-budget.service';
 import type { EmailVerificationTokenService } from './email-verification-token.service';
 import type { EmailVerificationDelivery } from './email-verification-delivery.service';
 
@@ -80,6 +82,7 @@ export class AuthService implements AuthServiceApi {
     private readonly bot: MeetingBotPort,
     private readonly verificationTokens: EmailVerificationTokenService,
     private readonly verificationDelivery: EmailVerificationDelivery,
+    private readonly sendBudget: EmailSendBudget,
   ) {}
 
   async signup(email: string, password: string): Promise<AuthResult> {
@@ -90,10 +93,12 @@ export class AuthService implements AuthServiceApi {
     const user = await this.users.create({ email, passwordHash, emailVerified: false });
     logger.info({ userId: user.id }, 'User signed up');
     try {
-      await this.verificationDelivery.sendTo(user);
+      await this.verificationDelivery.sendTo(user, 'signup');
     } catch (err) {
       // The account already exists at this point. Keep signup usable and let the user retry from
       // the verification notice instead of returning an error that encourages a duplicate signup.
+      // An exhausted send budget lands here too, deliberately: throwing would leave a ghost account
+      // whose retry 409s, which is strictly worse than an unverified one they can resend from.
       logger.error({ userId: user.id, err: msg(err) }, 'Initial verification email delivery failed');
     }
     return this.startSession(user);
@@ -120,6 +125,13 @@ export class AuthService implements AuthServiceApi {
   }
 
   async resendVerification(email: string): Promise<void> {
+    // Before the lookup, not inside the send. This route returns early for unknown and already
+    // verified addresses, so a budget error raised further down would surface only for real
+    // unverified accounts — a free enumeration oracle, exactly what the neutral 200 exists to
+    // prevent. Exhaustion is a global condition, so answering it identically for every caller
+    // leaks nothing about any account.
+    if (!(await this.sendBudget.hasRemaining())) throw new EmailSendBudgetExhaustedError();
+
     const user = await this.users.findByEmailWithHash(email);
     if (!user || user.emailVerified) return;
     // Suppressed silently: the route always answers with the same neutral 200 regardless, so
@@ -128,7 +140,7 @@ export class AuthService implements AuthServiceApi {
       logger.info({ userId: user.id }, 'Verification resend suppressed by cooldown');
       return;
     }
-    await this.verificationDelivery.sendTo(user);
+    await this.verificationDelivery.sendTo(user, 'resend');
   }
 
   async login(email: string, password: string): Promise<AuthResult> {
@@ -210,7 +222,11 @@ export class AuthService implements AuthServiceApi {
     const updated = await this.users.updateEmail(userId, newEmail); // EmailTakenError bubbles up
     logger.info({ userId }, 'Email changed');
     try {
-      await this.verificationDelivery.sendTo(updated);
+      // No cooldown check here on purpose. This is the only escape hatch for a mistyped address on
+      // a gated account, and the signup token is seconds old — gating it would make "sign up, spot
+      // the typo, fix it" save the new address, send nothing, and report success, stranding the
+      // user permanently. Bounded instead by the per-account route limiter and the global budget.
+      await this.verificationDelivery.sendTo(updated, 'change_email');
     } catch (err) {
       logger.error({ userId, err: msg(err) }, 'Verification email delivery after address change failed');
     }
