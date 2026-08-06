@@ -39,7 +39,14 @@ export function createServer(
   // Railway terminates TLS at its edge and forwards over HTTP, so without this every request looks
   // like it came from the proxy. The rate limiters key on req.ip — the login limiter in particular
   // ("${req.ip}:${email}") would otherwise put every client on the planet in one shared bucket.
-  app.set('trust proxy', 1);
+  //
+  // Two hops, not one: Railway's edge and its internal router each add an entry, so a request
+  // arrives as "<client>, <railway-internal>". Trusting one hop stops a step short and hands back
+  // the internal address — which rotates between requests, so every IP-keyed limit silently reset
+  // its own bucket and never fired. Safe to count hops here because the edge overwrites any
+  // client-supplied X-Forwarded-For rather than appending to it, so the chain is always exactly
+  // these two and a forged header cannot shift which entry this picks.
+  app.set('trust proxy', 2);
 
   // Day 6 §1: security headers on every response (healthz + webhooks included). Helmet defaults
   // give us HSTS, X-Content-Type-Options: nosniff, and frame-blocking. We only override CORP:
