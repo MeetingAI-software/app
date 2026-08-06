@@ -151,6 +151,22 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Copy for the two transient server-side walls in front of the email-sending routes: the per-client
+ * rate limiters (429) and the global daily send budget (503). Neither is the user's fault and both
+ * clear on their own, so they get a plain sentence instead of the raw server string — and they live
+ * here so the signup, settings, and verification screens cannot drift apart. Returns null when the
+ * error is something else, leaving the caller's own handling in charge.
+ */
+export function throttleMessage(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  if (err.status === 429) return 'Too many attempts. Please wait a while and try again.';
+  if (err.code === 'EMAIL_BUDGET_EXHAUSTED') {
+    return 'We are temporarily unable to send verification emails. Please try again in a few hours.';
+  }
+  return null;
+}
+
 /** All API calls send the session cookie. Auth is cookie-based since Day 5 — no tokens in JS. */
 function api(path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${API_BASE}${path}`, { ...init, credentials: 'include', cache: 'no-store' });
