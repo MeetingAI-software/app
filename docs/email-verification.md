@@ -33,6 +33,9 @@ Google supplies a verified email claim.
 
    Migration `0004_lethal_human_robot.sql` creates the token table and adds the user verification flag.
    Migration `0005_flowery_omega_flight.sql` adds single-use token consumption tracking.
+   Migration `0008_deep_warbird.sql` creates `email_send_ledger`, which backs the global daily send
+   budget. Run it **before** deploying the API version that reads it — the budget fails open on a
+   missing table (so signups keep working), but until it exists nothing is enforced.
 
 5. Start the API and frontend in separate terminals:
 
@@ -77,6 +80,10 @@ state rather than verifying it again.
 | `GET /api/auth/me` | `200` with current verification status | Used to refresh the banner after verification. |
 | `POST /api/auth/verify-email` | `200` with a verified user | Accepts `{ "token": "..." }`; invalid, expired, used, and already-verified tokens have distinct codes. |
 | `POST /api/auth/resend-verification` | `200` with a neutral message | Accepts `{ "email": "..." }` without revealing whether an account exists. |
+| `POST /api/auth/change-email` | `200` with the updated user | Resets verification and mails the new address. |
+
+Every route above answers `429 RATE_LIMITED` with a `Retry-After` header when its limiter trips, and
+the three that send mail answer `503 EMAIL_BUDGET_EXHAUSTED` once the global daily budget is spent.
 
 The frontend routes unverified login and signup results to `/meetings?verification=required`. The app
 shell then renders the verification banner from the server-provided user status rather than trusting
@@ -93,6 +100,30 @@ the query parameter.
   response, reducing account-enumeration risk.
 - Changing an email resets verification and issues a link for the new address.
 - A verified Google identity can mark a matching password account as verified.
+
+## Abuse limits
+
+Sending mail costs money and burns a finite provider quota, so the three routes that send are capped
+in layers. Each layer covers a gap the one above it cannot.
+
+| Control | Limit | Storage | Stops |
+| --- | --- | --- | --- |
+| Signup per client IP | 5 / hour | in memory | Unlimited account creation from one machine. The older signup bucket keyed on IP **and** email, so every fresh address was a fresh bucket. |
+| Change-email per account | 3 / hour | in memory | Mailbombing a third party — this route sends to whatever address the caller types. Keyed on the account, so rotating IPs gains nothing. |
+| Resend per IP + email | 3 / hour | in memory | Repeated resends for one address from one client. |
+| Resend cooldown per account | 60 s | database | A rotating-IP resend loop against a single known address. |
+| **Global send budget** | **30 / rolling 24h** | **database** | Everything the above miss: it is indifferent to IP rotation and survives restarts, which is what makes draining the provider quota impossible. |
+
+The in-memory limiters are per-instance and reset on deploy — acceptable because the global budget is
+the durable guarantee. If the API ever runs more than one replica, every in-memory limit multiplies by
+the replica count and the ledger's read-then-write stops being near-atomic; see the note on
+`EmailSendLedgerRepository`.
+
+When the global budget is spent: signup still returns `201` and creates the account (throwing would
+leave a ghost account whose retry `409`s), change-email still applies the address change, and both log
+the suppressed send. Resend returns `503 EMAIL_BUDGET_EXHAUSTED` — checked before the account lookup so
+the response is identical for real and unknown addresses, preserving the enumeration guarantee above.
+The verification holding page is where users see the truth, so its copy carries the recovery message.
 
 Verification is currently advisory: unverified authenticated users can use protected application
 pages while the banner remains visible. Any future feature that must require verification should enforce
@@ -111,7 +142,9 @@ Also verify that:
 - `RESEND_FROM` exactly matches a verified sender domain;
 - the sender domain has SPF and DKIM configured, with DMARC added for stronger trust;
 - delivery failures and bounce rates are monitored without recording verification URLs;
-- migrations `0004` and `0005` have run before the new API version receives traffic.
+- migrations `0004`, `0005`, and `0008` have run before the new API version receives traffic;
+- `EMAIL_DAILY_SEND_BUDGET` sits below the provider's own daily cap (default `30`, against Resend's
+  free-plan hard block of 100/day).
 
 ## Release checks
 
