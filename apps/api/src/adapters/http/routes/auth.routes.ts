@@ -45,12 +45,34 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
     keyOf: (req) => `${req.ip}:${String((req.body as { email?: string })?.email ?? '').toLowerCase()}`,
   });
 
+  // Deliberately IP-only, with no email in the key. authLimiter above cannot cap signup at all:
+  // its bucket includes the address, so every new email is a fresh bucket and one script could
+  // create unlimited accounts — each sending a verification email and draining the daily Resend
+  // quota. 5/hour covers a typo'd retry and a shared-NAT household while capping one IP at a sixth
+  // of the daily send budget. Mounted before authLimiter so a walled IP never allocates a bucket.
+  const signupIpLimiter = fixedWindowLimiter({
+    max: 5,
+    windowMs: 60 * 60 * 1000,
+    keyOf: (req) => `signup:${req.ip}`,
+  });
+
   // Authenticated account-change abuse guard: keyed on the session user (req.userId is set by
-  // requireUser, which runs before these routes).
+  // requireUser, which runs before these routes). Change-email used to share this bucket; it was
+  // split out below because 10/15 min is only defensible for a route that sends no mail.
   const accountLimiter = fixedWindowLimiter({
     max: 10,
     windowMs: 15 * 60 * 1000,
     keyOf: (req) => `account:${req.userId ?? req.ip}`,
+  });
+
+  // Change-email mails an address the caller types, so it is a mailbomb primitive aimed at a third
+  // party — the abuse that gets a sending domain blacklisted. Keyed on the account rather than the
+  // IP so rotating IPs buys nothing. 3/hour: correcting a typo takes one or two tries, and one
+  // compromised account then cannot reach 10% of the daily send budget.
+  const changeEmailLimiter = fixedWindowLimiter({
+    max: 3,
+    windowMs: 60 * 60 * 1000,
+    keyOf: (req) => `change-email:${req.userId ?? req.ip}`,
   });
 
   // Unauthenticated and it mails a third party, so this is capped harder than login. AuthService
@@ -70,7 +92,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
     keyOf: (req) => `verify:${req.ip}`,
   });
 
-  router.post('/api/auth/signup', authLimiter, async (req, res, next) => {
+  router.post('/api/auth/signup', signupIpLimiter, authLimiter, async (req, res, next) => {
     try {
       const { email, password } = signupSchema.parse(req.body);
       const { user, sessionToken, expiresAt } = await auth.signup(email, password);
@@ -128,7 +150,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
   });
 
   // Change email: verify current password, then swap the (unverified) email. EmailTaken → 409.
-  router.post('/api/auth/change-email', accountLimiter, async (req, res, next) => {
+  router.post('/api/auth/change-email', changeEmailLimiter, async (req, res, next) => {
     try {
       const { currentPassword, newEmail } = changeEmailSchema.parse(req.body);
       const user = await auth.changeEmail(req.userId as string, currentPassword, newEmail);
