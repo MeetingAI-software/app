@@ -34,6 +34,12 @@ const envSchema = z.object({
   EMAIL_PROVIDER: z.enum(['log', 'resend']).default('log'),
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM: z.string().min(1).optional(),
+  // Global cap on verification emails per rolling 24h — the backstop the in-memory route limiters
+  // cannot be: it survives restarts and is indifferent to IP rotation. Sits well below Resend's
+  // free-plan hard block of 100/day so a burst can never reach the provider's own wall, and env
+  // rather than code (like MONTHLY_CAP_SECONDS) because it is the one number worth raising from
+  // the dashboard at 2am without a deploy.
+  EMAIL_DAILY_SEND_BUDGET: z.coerce.number().int().positive().default(30),
   // --- Day 3: in-room recording + chat ---
   ASSEMBLYAI_API_KEY: z.string().optional(),
   ASSEMBLYAI_BASE_URL: z.string().url().default('https://api.assemblyai.com'),
