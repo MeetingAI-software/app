@@ -24,7 +24,7 @@ jobs:
         run: npm run test --workspace api
 
   web:
-    name: Web (build + typecheck)
+    name: Web (build + typecheck + test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +33,12 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm ci
+      # The web suite exists to catch client/server drift — constants that mirror an API value and
+      # silently stop matching it. Unrun, those tests are decoration: the resend backoff drifted
+      # from the server's limiter and no build here ever went red.
+      - name: Test
+        run: npm run test --workspace web
       # `next build` generates next-env.d.ts (gitignored) and runs TypeScript, so it both
-      # typechecks and catches route/config errors. apps/web has no test suite yet.
+      # typechecks and catches route/config errors.
       - name: Build
         run: npm run build --workspace web
