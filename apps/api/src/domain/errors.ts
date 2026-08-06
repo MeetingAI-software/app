@@ -131,4 +131,16 @@ export class VerificationNotPersistedError extends Error {
   }
 }
 
+/**
+ * The global daily verification-email budget is spent, so no further mail goes out until the
+ * rolling window frees up. A deliberate stop well below Resend's hard cap, not a fault: the
+ * request was valid and retrying later is the fix.
+ */
+export class EmailSendBudgetExhaustedError extends Error {
+  constructor(message = 'Verification emails are temporarily unavailable, please try again later') {
+    super(message);
+    this.name = 'EmailSendBudgetExhaustedError';
+  }
+}
+
 
