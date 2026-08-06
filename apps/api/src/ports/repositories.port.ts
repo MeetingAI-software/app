@@ -119,6 +119,27 @@ export interface VerificationTokenRepository {
   }): Promise<VerificationTokenConsumeResult>;
 }
 
+/** What triggered a verification email — the breakdown you need when the daily budget blows. */
+export type EmailSendTrigger = 'signup' | 'resend' | 'change_email';
+
+/**
+ * Append-only record of verification emails spent, backing the global daily send budget.
+ *
+ * `countSince` takes the window start rather than computing it, so the service owns the clock and
+ * the window constant — which is what keeps the budget testable without a database.
+ *
+ * Read-then-write is only near-atomic, which is fine at one replica: the gap is a single Postgres
+ * round-trip, so overshoot is a row or two against 70 emails of headroom. If numReplicas ever
+ * exceeds 1, replace this with an atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count`.
+ */
+export interface EmailSendLedgerRepository {
+  /** Rows created at or after `since`. */
+  countSince(since: Date): Promise<number>;
+  record(input: { userId: string | null; trigger: EmailSendTrigger }): Promise<void>;
+  /** Retention janitor, mirroring SessionRepository.deleteExpired. Returns the count removed. */
+  deleteOlderThan(cutoff: Date): Promise<number>;
+}
+
 export interface SessionRepository {
   create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<Session>;
   findByTokenHash(tokenHash: string): Promise<Session | null>;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SweepJob } from './sweep';
+import { EMAIL_SEND_LEDGER_RETENTION_MS, SweepJob } from './sweep';
 import type { MeetingRepository } from '../ports/repositories.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
@@ -10,6 +10,7 @@ describe('SweepJob', () => {
   let storage: any;
   let botAdapter: any;
   let sessionRepo: any;
+  let emailSendLedgerRepo: any;
   let sweepJob: SweepJob;
 
   beforeEach(() => {
@@ -49,7 +50,13 @@ describe('SweepJob', () => {
       deleteExpired: vi.fn().mockResolvedValue(0),
     };
 
-    sweepJob = new SweepJob(meetingRepo, storage, botAdapter, sessionRepo);
+    emailSendLedgerRepo = {
+      countSince: vi.fn(),
+      record: vi.fn(),
+      deleteOlderThan: vi.fn().mockResolvedValue(0),
+    };
+
+    sweepJob = new SweepJob(meetingRepo, storage, botAdapter, sessionRepo, emailSendLedgerRepo);
   });
 
   describe('runSweep', () => {
@@ -155,6 +162,36 @@ describe('SweepJob', () => {
 
       await expect(sweepJob.runSweep()).resolves.toBeUndefined();
       expect(storage.delete).toHaveBeenCalledWith('a/1'); // the rest of the sweep still ran
+    });
+
+    it('prunes email send ledger rows past the retention window', async () => {
+      // Stateful store standing in for the DB: one row inside retention, one long past it.
+      const store = [
+        { id: 'l-old', createdAt: new Date(Date.now() - EMAIL_SEND_LEDGER_RETENTION_MS - 1000) },
+        { id: 'l-recent', createdAt: new Date(Date.now() - 60_000) },
+      ];
+      emailSendLedgerRepo.deleteOlderThan.mockImplementation(async (cutoff: Date) => {
+        const before = store.length;
+        for (let i = store.length - 1; i >= 0; i--) {
+          if (store[i].createdAt.getTime() < cutoff.getTime()) store.splice(i, 1);
+        }
+        return before - store.length;
+      });
+
+      await sweepJob.runSweep();
+
+      expect(emailSendLedgerRepo.deleteOlderThan).toHaveBeenCalled();
+      expect(store.map((row) => row.id)).toEqual(['l-recent']);
+    });
+
+    it('keeps meeting cleanup running even if ledger cleanup throws', async () => {
+      emailSendLedgerRepo.deleteOlderThan.mockRejectedValue(new Error('ledger store down'));
+      meetingRepo.findTranscribedOlderThan.mockResolvedValue([
+        { id: 'm-2', source: 'bot', status: 'transcribed', botId: 'bot-2', audioStoragePath: 'a/2', platform: 'zoom', shareToken: 't', createdAt: new Date(), updatedAt: new Date() } as any,
+      ]);
+
+      await expect(sweepJob.runSweep()).resolves.toBeUndefined();
+      expect(storage.delete).toHaveBeenCalledWith('a/2');
     });
   });
 });

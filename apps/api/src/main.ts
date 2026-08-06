@@ -10,6 +10,7 @@ import { DrizzleDocumentRepository } from './adapters/db/repositories/document.r
 import { DrizzleChatMessageRepository } from './adapters/db/repositories/chat-message.repository';
 import { DrizzleUserRepository } from './adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from './adapters/db/repositories/session.repository';
+import { DrizzleEmailSendLedgerRepository } from './adapters/db/repositories/email-send-ledger.repository';
 import { DrizzleVerificationTokenRepository } from './adapters/db/repositories/verification-token.repository';
 import { DrizzlePaddleBillingRepository } from './adapters/db/repositories/paddle-billing.repository';
 import { createEmailVerificationMailer } from './adapters/email/email-verification-mailer.factory';
@@ -29,6 +30,7 @@ import { paddleCheckoutPriceIds, paddlePlanChangePrices, paddlePriceCatalog } fr
 import { AuthService } from './application/auth.service';
 import { EmailVerificationTokenService } from './application/email-verification-token.service';
 import { EmailVerificationDeliveryService } from './application/email-verification-delivery.service';
+import { EmailSendBudgetService } from './application/email-send-budget.service';
 import { WebhookWorker } from './jobs/worker';
 import { SweepJob } from './jobs/sweep';
 import { createMeetingRoutes } from './adapters/http/routes/meetings.routes';
@@ -154,16 +156,19 @@ async function bootstrap() {
     resendApiKey: config.RESEND_API_KEY,
     resendFrom: config.RESEND_FROM,
   });
+  const emailSendLedgerRepo = new DrizzleEmailSendLedgerRepository();
+  const emailSendBudget = new EmailSendBudgetService(emailSendLedgerRepo, config.EMAIL_DAILY_SEND_BUDGET);
   const emailVerificationDelivery = new EmailVerificationDeliveryService(
     emailVerificationTokens,
     emailVerificationMailer,
     config.WEB_ORIGIN,
+    emailSendBudget,
   );
   const passwordHasher = new Argon2Hasher();
   const authService = new AuthService(
     userRepo, sessionRepo, passwordHasher, config.SESSION_TTL_DAYS,
     meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter,
-    emailVerificationTokens, emailVerificationDelivery,
+    emailVerificationTokens, emailVerificationDelivery, emailSendBudget,
   );
 
   // 4. Web Worker
@@ -171,7 +176,7 @@ async function bootstrap() {
   worker.start();
 
   // 4b. Sweep Job (runs on boot + every 6 hours)
-  const sweepJob = new SweepJob(meetingRepo, audioStorage, botAdapter, sessionRepo);
+  const sweepJob = new SweepJob(meetingRepo, audioStorage, botAdapter, sessionRepo, emailSendLedgerRepo);
   sweepJob.start();
 
   // 5. Server Routes

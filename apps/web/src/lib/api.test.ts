@@ -1,5 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, createMeeting, resendVerification, verifyEmail } from './api';
+import { ApiError, createMeeting, resendVerification, throttleMessage, verifyEmail } from './api';
+
+describe('throttleMessage', () => {
+  it('gives the rate limit its own sentence instead of the raw server string', () => {
+    expect(throttleMessage(new ApiError('Too many attempts, try again later', 429, 'RATE_LIMITED')))
+      .toBe('Too many attempts. Please wait a while and try again.');
+  });
+
+  it('explains an exhausted send budget as temporary and not the user\'s fault', () => {
+    expect(throttleMessage(new ApiError('unavailable', 503, 'EMAIL_BUDGET_EXHAUSTED')))
+      .toContain('temporarily unable to send verification emails');
+  });
+
+  // Returning null rather than a fallback string is what lets each screen keep its own specific
+  // copy for 401/409 — this helper only claims the two errors it actually knows about.
+  it('declines everything else so the caller keeps its own handling', () => {
+    expect(throttleMessage(new ApiError('Incorrect password', 401))).toBeNull();
+    expect(throttleMessage(new ApiError('Email taken', 409, 'EMAIL_TAKEN'))).toBeNull();
+    expect(throttleMessage(new Error('offline'))).toBeNull();
+    expect(throttleMessage(null)).toBeNull();
+  });
+});
 
 describe('resendVerification', () => {
   afterEach(() => {

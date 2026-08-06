@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { signup, ApiError } from '@/lib/api';
+import { signup, ApiError, throttleMessage } from '@/lib/api';
 import { destinationAfterAuthentication } from '@/lib/auth-flow';
 import AuthForm from '@/components/AuthForm';
 
@@ -23,7 +23,11 @@ export default function SignupPage() {
       const response = await signup(email.trim(), password);
       router.replace(destinationAfterAuthentication(response)); // signup auto-logs-in
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) setError('That email already has an account.');
+      // 429 is reachable here now that signup is capped per IP, and it is not a credentials
+      // problem — checked before the status branches so it never falls through to the raw message.
+      const throttled = throttleMessage(err);
+      if (throttled) setError(throttled);
+      else if (err instanceof ApiError && err.status === 409) setError('That email already has an account.');
       else if (err instanceof ApiError && err.status === 400) setError('Password must be at least 10 characters.');
       else setError(err instanceof Error ? err.message : 'Sign up failed.');
       setLoading(false);

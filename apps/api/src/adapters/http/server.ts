@@ -71,6 +71,9 @@ export function createServer(
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Retry-After is not a CORS-safelisted response header, so without this the limiter's backoff
+    // hint is set on the wire but invisible to the browser — decoration, not a signal.
+    res.setHeader('Access-Control-Expose-Headers', 'Retry-After');
     res.setHeader('Vary', 'Origin');
     if (req.method === 'OPTIONS') {
       res.sendStatus(204);

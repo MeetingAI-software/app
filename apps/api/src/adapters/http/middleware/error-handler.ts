@@ -14,6 +14,7 @@ import {
   InvalidVerificationTokenError,
   UsedVerificationTokenError,
   VerificationNotPersistedError,
+  EmailSendBudgetExhaustedError,
   PlanUpgradeRequiredError,
   PaddleCustomerNotFoundError,
   PaddleNotConfiguredError,
@@ -131,6 +132,15 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     report5xx();
     return res.status(503).json({
       error: { code: 'VERIFICATION_NOT_PERSISTED', message: err.message },
+    });
+  }
+
+  // 503 rather than 429: the caller did nothing wrong and has no per-client quota to back off
+  // from — the whole service is out of send budget until the rolling window frees up. Not reported
+  // to Sentry; the budget service already logs the exhaustion once, and this fires per request.
+  if (err instanceof EmailSendBudgetExhaustedError) {
+    return res.status(503).json({
+      error: { code: 'EMAIL_BUDGET_EXHAUSTED', message: err.message },
     });
   }
 

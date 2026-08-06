@@ -114,6 +114,27 @@ export const emailVerificationTokens = pgTable('email_verification_tokens', {
   verificationUserIdUq: uniqueIndex('verification_user_id_uq').on(t.userId),
 }));
 
+/**
+ * One row per verification email actually spent, backing the global daily send budget. Resend's
+ * free plan hard-blocks at 100/day, and the route limiters are in-memory and IP-keyed — neither
+ * survives a restart nor stops a rotating-IP flood. This ledger is the durable backstop.
+ *
+ * A ledger rather than a counter row because when the budget blows, `group by trigger` is what
+ * tells you whether it was signup spam or change-email abuse. Volume is bounded by the budget
+ * itself (tens of rows a day), and the sweep job prunes it.
+ *
+ * userId is nullable with `set null`: GDPR erasure deletes the user, and the send still happened.
+ */
+export const emailSendLedger = pgTable('email_send_ledger', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  trigger: text('trigger').notNull(),                              // 'signup' | 'resend' | 'change_email'
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Every read is "how many since <timestamp>", over a rolling 24h window.
+  emailSendLedgerCreatedAtIdx: index('email_send_ledger_created_at_idx').on(t.createdAt),
+}));
+
 export const sessions = pgTable('sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id),

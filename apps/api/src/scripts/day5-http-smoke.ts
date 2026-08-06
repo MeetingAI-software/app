@@ -5,6 +5,8 @@ import { createAuthRoutes } from '../adapters/http/routes/auth.routes';
 import { AuthService } from '../application/auth.service';
 import { EmailVerificationTokenService } from '../application/email-verification-token.service';
 import { EmailVerificationDeliveryService } from '../application/email-verification-delivery.service';
+import { EmailSendBudgetService } from '../application/email-send-budget.service';
+import { DrizzleEmailSendLedgerRepository } from '../adapters/db/repositories/email-send-ledger.repository';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
 import { DrizzleUserRepository } from '../adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from '../adapters/db/repositories/session.repository';
@@ -26,12 +28,16 @@ const ORIGIN = config.WEB_ORIGIN;
 async function main() {
   const userRepo = new DrizzleUserRepository();
   const verificationTokens = new EmailVerificationTokenService(new DrizzleVerificationTokenRepository());
+  const sendBudget = new EmailSendBudgetService(
+    new DrizzleEmailSendLedgerRepository(), config.EMAIL_DAILY_SEND_BUDGET,
+  );
   const authService = new AuthService(
     userRepo, new DrizzleSessionRepository(), new Argon2Hasher(), 30,
     new DrizzleMeetingRepository(), new DrizzleTranscriptRepository(), new DrizzleDocumentRepository(),
     new DrizzleChatMessageRepository(), new DrizzleUsageRepository(), new SupabaseStorageAdapter(), new RecallAdapter(),
     verificationTokens,
-    new EmailVerificationDeliveryService(verificationTokens, new LogEmailVerificationMailer(), config.WEB_ORIGIN),
+    new EmailVerificationDeliveryService(verificationTokens, new LogEmailVerificationMailer(), config.WEB_ORIGIN, sendBudget),
+    sendBudget,
   );
   const app = createServer([createAuthRoutes(authService)], (t) => authService.getUserForToken(t));
   const server = app.listen(0);

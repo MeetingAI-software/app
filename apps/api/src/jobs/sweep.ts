@@ -1,9 +1,15 @@
-import type { MeetingRepository, SessionRepository } from '../ports/repositories.port';
+import type { EmailSendLedgerRepository, MeetingRepository, SessionRepository } from '../ports/repositories.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import { assertTransition } from '../domain/state-machine';
 import { logger } from '../config/logger';
 import { captureError } from '../adapters/observability/sentry';
+
+/**
+ * How long spent-email records are kept. Long enough to investigate an abuse incident and to
+ * sanity-check volume against the monthly provider cap; the budget itself only ever reads 24h.
+ */
+export const EMAIL_SEND_LEDGER_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export class SweepJob {
   private intervalId: NodeJS.Timeout | null = null;
@@ -12,7 +18,8 @@ export class SweepJob {
     private readonly meetingRepo: MeetingRepository,
     private readonly storage: AudioStoragePort,
     private readonly botAdapter: MeetingBotPort,
-    private readonly sessionRepo: SessionRepository
+    private readonly sessionRepo: SessionRepository,
+    private readonly emailSendLedgerRepo: EmailSendLedgerRepository
   ) {}
 
   start() {
@@ -130,6 +137,17 @@ export class SweepJob {
       logger.info({ count: removed }, 'Sweep deleted expired sessions');
     } catch (err: any) {
       logger.error({ err }, 'Error deleting expired sessions');
+      captureError(err);
+    }
+
+    // 4. Prune the email send ledger. Same isolation rule as above: the budget only ever reads the
+    // last 24h, so a failure here costs disk, never enforcement.
+    try {
+      const cutoff = new Date(Date.now() - EMAIL_SEND_LEDGER_RETENTION_MS);
+      const removed = await this.emailSendLedgerRepo.deleteOlderThan(cutoff);
+      logger.info({ count: removed }, 'Sweep pruned the email send ledger');
+    } catch (err: any) {
+      logger.error({ err }, 'Error pruning the email send ledger');
       captureError(err);
     }
 
