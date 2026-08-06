@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ApiError, changeEmail, resendVerification, type User } from '../lib/api';
+import { ApiError, changeEmail, resendVerification, throttleMessage, type User } from '../lib/api';
 import {
-  RESEND_COOLDOWN_MS,
+  resendRetryDelayMs,
   verificationBannerButtonLabel,
   type VerificationBannerStatus,
 } from '../lib/email-verification';
@@ -25,11 +25,14 @@ export default function VerificationRequired({
   const [status, setStatus] = useState<VerificationBannerStatus>('idle');
   const [editing, setEditing] = useState(false);
 
-  // Re-arm the button once the server-side cooldown has elapsed. Without this the page is stuck on
-  // "Email sent" until it unmounts, so a link that never arrives can't be re-requested.
+  // Re-arm the button once the relevant server-side window has elapsed. Without this the page is
+  // stuck on "Email sent" until it unmounts, so a link that never arrives can't be re-requested.
+  // The delay depends on which wall was hit — the 60s cooldown and the hourly limiter are
+  // different clocks, and re-arming a 429 on the shorter one just walks into another 429.
   useEffect(() => {
-    if (status !== 'sent' && status !== 'rate-limited') return;
-    const timer = setTimeout(() => setStatus('idle'), RESEND_COOLDOWN_MS);
+    const delay = resendRetryDelayMs(status);
+    if (delay === null) return;
+    const timer = setTimeout(() => setStatus('idle'), delay);
     return () => clearTimeout(timer);
   }, [status]);
 
@@ -40,7 +43,9 @@ export default function VerificationRequired({
       await resendVerification(user.email);
       setStatus('sent');
     } catch (err) {
-      setStatus(err instanceof ApiError && err.status === 429 ? 'rate-limited' : 'error');
+      if (err instanceof ApiError && err.status === 429) setStatus('rate-limited');
+      else if (err instanceof ApiError && err.code === 'EMAIL_BUDGET_EXHAUSTED') setStatus('budget-exhausted');
+      else setStatus('error');
     }
   };
 
@@ -71,7 +76,8 @@ export default function VerificationRequired({
 
           <p className="mt-3 min-h-5 text-sm text-on-surface-variant" aria-live="polite">
             {status === 'sent' && 'A new verification email has been sent.'}
-            {status === 'rate-limited' && 'Too many requests. Wait a minute before trying again.'}
+            {status === 'rate-limited' && 'Too many resend requests. Try again later, or change your address below.'}
+            {status === 'budget-exhausted' && 'We are temporarily unable to send verification emails. Please try again in a few hours.'}
             {status === 'error' && 'We could not send the email. Please try again.'}
           </p>
 
@@ -146,7 +152,13 @@ function ChangeEmailForm({
       const { user } = await changeEmail(currentPassword, newEmail);
       onChanged(user);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not change the address. Please try again.');
+      // Change-email is now capped at 3/hour per account, so a user correcting a typo can genuinely
+      // hit the wall here — on the one screen where this form is their only way forward. Say when
+      // to come back rather than echoing the server's terse sentence.
+      setError(
+        throttleMessage(err)
+        ?? (err instanceof ApiError ? err.message : 'Could not change the address. Please try again.')
+      );
       setSaving(false);
     }
   };

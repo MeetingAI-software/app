@@ -12,6 +12,7 @@ import {
   getSubscription,
   previewSubscriptionChange,
   ApiError,
+  throttleMessage,
   type SubscriptionChangePreview,
   type SubscriptionSummary,
 } from '@/lib/api';
@@ -325,14 +326,17 @@ function ChangeEmailCard() {
       setEmail('');
       setDone(true);
     } catch (err) {
+      // Capped at 3/hour per account since it mails whatever address is typed here, so 429 and the
+      // global-budget 503 are both reachable — neither means the password was wrong.
       setError(
-        err instanceof ApiError && err.status === 401
+        throttleMessage(err)
+        ?? (err instanceof ApiError && err.status === 401
           ? 'Incorrect password.'
           : err instanceof ApiError && err.status === 409
             ? 'That email is already in use.'
             : err instanceof Error
               ? err.message
-              : 'Could not change email.'
+              : 'Could not change email.')
       );
     } finally {
       setLoading(false);
