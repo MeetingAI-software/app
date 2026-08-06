@@ -16,6 +16,7 @@ import {
   type SubscriptionSummary,
 } from '@/lib/api';
 import { getPaddlePriceId } from '@/lib/paddle';
+import { canManageSubscription } from '@/lib/subscription';
 
 const CARD = 'bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-6 shadow-sm';
 const INPUT =
@@ -74,6 +75,9 @@ function SubscriptionCard() {
     || currentPriceId === getPaddlePriceId('team', true);
   const targetPlan = subscription?.plan === 'solo' ? 'team' : subscription?.plan === 'team' ? 'solo' : null;
   const availableTargetPriceId = targetPlan ? getPaddlePriceId(targetPlan, isAnnual) : null;
+  const showManageSubscription = subscription
+    ? canManageSubscription(subscription.status, Boolean(subscription.subscription))
+    : false;
 
   async function openBillingPortal() {
     if (openingPortal) return;
@@ -146,7 +150,7 @@ function SubscriptionCard() {
           )}
         </div>
         <div className="flex flex-col gap-2">
-          {subscription?.subscription && (
+          {showManageSubscription && (
             <button
               type="button"
               onClick={openBillingPortal}
