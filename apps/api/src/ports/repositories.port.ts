@@ -131,6 +131,10 @@ export interface PaddleBillingRepository {
     customerId: string;
     subscriptionIds: string[];
   } | null>;
+  findCustomerByEmail(email: string): Promise<{
+    customerId: string;
+    subscriptionIds: string[];
+  } | null>;
   upsertCustomer(input: {
     customerId: string;
     email: string;

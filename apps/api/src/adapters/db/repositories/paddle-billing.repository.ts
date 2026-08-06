@@ -21,6 +21,25 @@ export class DrizzlePaddleBillingRepository implements PaddleBillingRepository {
     };
   }
 
+  async findCustomerByEmail(inputEmail: string) {
+    const email = inputEmail.trim().toLowerCase();
+    const [customer] = await db.select({ customerId: paddleCustomers.customerId })
+      .from(paddleCustomers)
+      .where(eq(paddleCustomers.email, email))
+      .orderBy(desc(paddleCustomers.updatedAt))
+      .limit(1);
+    if (!customer) return null;
+
+    const subscriptions = await db.select({ subscriptionId: paddleSubscriptions.subscriptionId })
+      .from(paddleSubscriptions)
+      .where(eq(paddleSubscriptions.customerId, customer.customerId));
+
+    return {
+      customerId: customer.customerId,
+      subscriptionIds: subscriptions.map((item) => item.subscriptionId),
+    };
+  }
+
   async listSubscriptionsForUser(userId: string) {
     return db.select({
       subscriptionId: paddleSubscriptions.subscriptionId,
