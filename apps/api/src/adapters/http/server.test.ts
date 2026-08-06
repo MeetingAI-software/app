@@ -27,6 +27,7 @@ function testRoutes(): express.Router {
   router.post('/api/auth/change-password', ok);
   router.delete('/api/auth/account', ok);
   router.get('/api/some-route-added-later', ok);
+  router.get('/api/echo-ip', (req, res) => res.status(200).json({ ip: req.ip }));
   return router;
 }
 
@@ -91,5 +92,32 @@ describe('email verification gate', () => {
     const response = await call('GET', '/api/meetings');
 
     expect(response.status).toBe(200);
+  });
+
+  /**
+   * Every IP-keyed rate limit — login being the one that matters — is only as good as req.ip.
+   * Railway forwards "<client>, <railway-internal>", and the internal address rotates, so trusting
+   * one hop too few gives each request a fresh bucket and no limit ever fires.
+   */
+  describe('client IP behind Railway', () => {
+    async function echoIp(forwardedFor: string): Promise<string> {
+      sessionUser = verified;
+      const response = await fetch(`${baseUrl}/api/echo-ip`, {
+        headers: { origin: config.WEB_ORIGIN, cookie: 'session=t', 'x-forwarded-for': forwardedFor },
+      });
+      return (await response.json() as { ip: string }).ip;
+    }
+
+    it('resolves the client, not the internal proxy that rotates', async () => {
+      expect(await echoIp('94.234.69.0, 79.127.151.145')).toBe('94.234.69.0');
+      expect(await echoIp('94.234.69.0, 79.127.151.146')).toBe('94.234.69.0');
+    });
+
+    it('keeps one client in one bucket across the rotation', async () => {
+      const first = await echoIp('94.234.69.0, 79.127.151.145');
+      const second = await echoIp('94.234.69.0, 79.127.151.146');
+
+      expect(first).toBe(second);
+    });
   });
 });
