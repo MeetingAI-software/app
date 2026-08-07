@@ -20,6 +20,7 @@ import {
   PaddleNotConfiguredError,
   InvalidBillingPriceError,
   SubscriptionAlreadyActiveError,
+  SubscriptionPaymentDeclinedError,
 } from '../../../domain/errors';
 import { captureError } from '../../observability/sentry';
 
@@ -72,6 +73,12 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   if (err instanceof SubscriptionAlreadyActiveError) {
     return res.status(409).json({
       error: { code: 'SUBSCRIPTION_ALREADY_ACTIVE', message: err.message },
+    });
+  }
+
+  if (err instanceof SubscriptionPaymentDeclinedError) {
+    return res.status(402).json({
+      error: { code: 'SUBSCRIPTION_PAYMENT_DECLINED', message: err.message },
     });
   }
 

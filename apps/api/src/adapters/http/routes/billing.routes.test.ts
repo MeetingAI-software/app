@@ -5,6 +5,7 @@ import { config } from '../../../config/env';
 import type { CustomerPortalService } from '../../../application/customer-portal.service';
 import type { CheckoutService } from '../../../application/checkout.service';
 import type { SubscriptionUpdateService } from '../../../application/subscription-update.service';
+import { SubscriptionPaymentDeclinedError } from '../../../domain/errors';
 import { createServer } from '../server';
 import { createBillingRoutes } from './billing.routes';
 
@@ -67,6 +68,28 @@ describe('billing portal route', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ accepted: true, status: 'active', priceId: 'pri_team' });
     expect(updateForUser).toHaveBeenCalledWith('user-1', 'pri_team');
+  });
+
+  it('returns a useful client error when Paddle declines the plan-change charge', async () => {
+    updateForUser.mockRejectedValueOnce(new SubscriptionPaymentDeclinedError());
+
+    const response = await fetch(`${baseUrl}/api/me/subscription/change`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN,
+        cookie: 'session=valid-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ priceId: 'pri_team' }),
+    });
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'SUBSCRIPTION_PAYMENT_DECLINED',
+        message: 'Payment was declined. Your subscription remains on the current plan.',
+      },
+    });
   });
 
   it('creates checkout only for the authenticated user', async () => {
