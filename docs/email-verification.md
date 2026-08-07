@@ -37,8 +37,13 @@ Google supplies a verified email claim.
    budget. Run it **before** deploying the API version that reads it — the budget fails open on a
    missing table (so signups keep working), but until it exists nothing is enforced.
 
-   This is the local setup step. **In production the deploy pipeline runs migrations itself**, before
-   the deploy, on every merge to `main` — see `DEPLOYMENT.md`.
+   This is the local setup step, and it assumes step 1 pointed `DATABASE_URL` at a *development*
+   database. Against a remote host the command refuses to run from an interactive shell, because
+   migrating production by reflex is the mistake worth preventing; override with
+   `ALLOW_PRODUCTION_MIGRATION=yes` only when that is genuinely the intent.
+
+   **In production the deploy pipeline runs migrations itself**, before the deploy, on every merge
+   to `main` — see `DEPLOYMENT.md`. The guard keys on a TTY, so the pipeline is unaffected.
 
 5. Start the API and frontend in separate terminals:
 
