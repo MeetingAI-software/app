@@ -37,6 +37,9 @@ Google supplies a verified email claim.
    budget. Run it **before** deploying the API version that reads it — the budget fails open on a
    missing table (so signups keep working), but until it exists nothing is enforced.
 
+   This is the local setup step. **In production the deploy pipeline runs migrations itself**, before
+   the deploy, on every merge to `main` — see `DEPLOYMENT.md`.
+
 5. Start the API and frontend in separate terminals:
 
    ```shell
@@ -142,7 +145,8 @@ Also verify that:
 - `RESEND_FROM` exactly matches a verified sender domain;
 - the sender domain has SPF and DKIM configured, with DMARC added for stronger trust;
 - delivery failures and bounce rates are monitored without recording verification URLs;
-- migrations `0004`, `0005`, and `0008` have run before the new API version receives traffic;
+- migrations `0004`, `0005`, and `0008` have run before the new API version receives traffic (the
+  deploy pipeline now enforces this ordering on every merge to `main`);
 - `EMAIL_DAILY_SEND_BUDGET` sits below the provider's own daily cap (default `30`, against Resend's
   free-plan hard block of 100/day).
 

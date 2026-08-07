@@ -54,6 +54,10 @@ const envSchema = z.object({
   SESSION_TTL_DAYS: z.coerce.number().int().default(30),
   // --- Day 6: observability ---
   SENTRY_DSN: z.string().optional(),   // optional everywhere; observability is a no-op when unset
+  // Set by the deploy pipeline to the merged commit SHA and echoed by /healthz. `railway up`
+  // uploads a directory, not a commit, so without this there is no way to ask production which
+  // code it is actually running — the previous answer was to fingerprint an incidental header.
+  GIT_COMMIT: z.string().default('unknown'),
   // --- Day 7: Gemini provider (behind the existing chat/document ports) ---
   GEMINI_API_KEY: z.string().optional(),       // required at boot IF either provider is 'gemini' (see superRefine)
   GEMINI_CHAT_MODEL: z.string().default(''),   // set a real id from Google's current docs, e.g. gemini-2.5-flash
