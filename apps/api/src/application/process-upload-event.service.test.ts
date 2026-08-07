@@ -23,7 +23,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     status: 'processing' as MeetingStatus,
     source: 'upload',
     botId: null,
-    ownerUserId: null,
+    ownerUserId: 'u1',
     durationSeconds: null,
     errorMessage: null,
     summary: null,

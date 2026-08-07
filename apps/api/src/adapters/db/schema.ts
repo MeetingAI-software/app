@@ -15,7 +15,7 @@ export const meetings = pgTable('meetings', {
   participantNames: jsonb('participant_names'),                    // Day 3: string[] entered before an in-room recording
   audioStoragePath: text('audio_storage_path'),                   // Day 3: Supabase Storage path for uploads
   transcriptionJobId: text('transcription_job_id'),               // Day 3: AssemblyAI job id for uploads
-  ownerUserId: uuid('owner_user_id').references(() => users.id),   // Day 5: null = unclaimed legacy row
+  ownerUserId: uuid('owner_user_id').notNull().references(() => users.id),  // Day 6 §6: the DB is the guard — an ownerless meeting is invisible, so make it impossible
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
