@@ -56,8 +56,14 @@ export class PaddleSubscriptionUpdateAdapter implements SubscriptionUpdatePort {
 }
 
 export function isPaddlePaymentDeclined(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && error.code === 'subscription_payment_declined';
+  if (typeof error !== 'object' || error === null) return false;
+
+  const paddleError = error as Record<string, unknown>;
+  const documentationUrl = paddleError.documentationUrl ?? paddleError.documentation_url;
+  const detail = paddleError.detail ?? paddleError.message;
+
+  return paddleError.code === 'subscription_payment_declined'
+    || (typeof documentationUrl === 'string'
+      && documentationUrl.endsWith('/subscription_payment_declined'))
+    || (typeof detail === 'string' && detail.toLowerCase() === 'payment declined');
 }
