@@ -41,6 +41,13 @@ export class SubscriptionAlreadyActiveError extends Error {
   }
 }
 
+export class SubscriptionPaymentDeclinedError extends Error {
+  constructor(message = 'Payment was declined. Your subscription remains on the current plan.') {
+    super(message);
+    this.name = 'SubscriptionPaymentDeclinedError';
+  }
+}
+
 export class InvalidTransitionError extends Error {
   constructor(message: string) {
     super(message);
