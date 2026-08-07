@@ -21,7 +21,7 @@ export interface Meeting {
   status: MeetingStatus;
   source: MeetingSource;                  // Day 3: 'bot' | 'upload'
   botId: string | null;
-  ownerUserId: string | null;             // Day 5: null = unclaimed legacy row (invisible to all users)
+  ownerUserId: string;                    // Day 6 §6: NOT NULL in the DB — every meeting has an owner
   durationSeconds: number | null;
   errorMessage: string | null;
   summary: string | null;

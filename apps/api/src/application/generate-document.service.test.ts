@@ -23,7 +23,7 @@ function meetingWith(status: MeetingStatus): Meeting {
     status,
     source: 'bot',
     botId: 'bot-1',
-    ownerUserId: null,
+    ownerUserId: 'user-1',
     durationSeconds: 18,
     errorMessage: null,
     summary: null,

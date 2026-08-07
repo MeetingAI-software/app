@@ -239,7 +239,7 @@ function meetingRepoOver(store: Meeting[]): MeetingRepository {
 function makeMeeting(over: Partial<Meeting>): Meeting {
   return {
     id: 'm1', meetingUrl: null, platform: 'zoom', status: 'transcribed', source: 'bot',
-    botId: null, ownerUserId: null, durationSeconds: 60, errorMessage: null, summary: null,
+    botId: null, ownerUserId: 'u1', durationSeconds: 60, errorMessage: null, summary: null,
     shareToken: 'tok', participantNames: null, audioStoragePath: null, transcriptionJobId: null,
     createdAt: new Date(), updatedAt: new Date(), ...over,
   };
