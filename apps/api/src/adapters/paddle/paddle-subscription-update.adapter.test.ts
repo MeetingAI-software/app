@@ -37,6 +37,17 @@ describe('PaddleSubscriptionUpdateAdapter', () => {
     });
   });
 
+  it('recognizes the declined-payment shape emitted in Railway runtime logs', () => {
+    const railwayError = Object.assign(new Error('payment declined'), {
+      detail: 'payment declined',
+      documentationUrl: 'https://developer.paddle.com/v1/errors/subscriptions/subscription_payment_declined',
+      errors: null,
+      retryAfter: null,
+    });
+
+    expect(isPaddlePaymentDeclined(railwayError)).toBe(true);
+  });
+
   it('does not hide unrelated Paddle errors', async () => {
     const error = Object.assign(new Error('request failed'), { code: 'request_error' });
     update.mockImplementationOnce(() => { throw error; });
