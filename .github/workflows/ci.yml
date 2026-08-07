@@ -6,6 +6,9 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Manual trigger. Also the recovery path when Actions is degraded: during the 2026-08-06 outage a
+  # merge produced no run at all, and there was nothing to re-run because nothing was ever created.
+  workflow_dispatch:
 
 jobs:
   api:
@@ -42,3 +45,63 @@ jobs:
       # typechecks and catches route/config errors.
       - name: Build
         run: npm run build --workspace web
+
+  # Ships the API on every merge to main, the way Vercel already ships the web app. The API is
+  # deployed by CLI upload rather than Railway's GitHub integration, because that integration
+  # cannot run migrations before the new code serves traffic and cannot wait for the tests.
+  deploy:
+    name: Deploy API to Railway
+    needs: [api, web]                      # never deploy code the tests have not passed
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Job-level so pull request runs are not serialised behind each other. Queue deploys rather
+    # than cancelling: a cancelled deploy would silently skip a merge that is already on main.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      # The project token. Scoped to this project + environment, so it needs no org-level GitHub
+      # App install — which is what made the native Railway integration unavailable here.
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      # Installs devDependencies too, which is where tsx lives — db:migrate needs it.
+      - run: npm ci
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+
+      # --skip-deploys matters: setting a variable normally triggers its own redeploy, which would
+      # race the real one below and could leave the older image serving the newer commit label.
+      - name: Stamp the commit
+        run: railway variables set --service api --environment production --skip-deploys "GIT_COMMIT=${{ github.sha }}"
+
+      # Migrations run BEFORE the deploy, so new code never meets an old schema. This runs on the
+      # runner with production variables injected. Keep it as `npm -w api`: that sets the working
+      # directory to apps/api, which is what makes migrate.ts's relative `migrationsFolder:
+      # 'drizzle'` resolve. A failure here stops the job with the previous version still serving.
+      - name: Migrate
+        run: railway run --service api --environment production -- npm run db:migrate -w api
+
+      - name: Deploy
+        run: railway up --service api --environment production --ci
+
+      # Poll for the exact merged SHA, not just a 200 — the previous build answers 200 as well, so
+      # status alone cannot tell "deployed" apart from "still running yesterday's code".
+      - name: Verify the merged commit is serving
+        run: |
+          for i in $(seq 1 30); do
+            got=$(curl -sf https://api.syncmemos.com/healthz \
+              | python3 -c 'import sys,json;print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || true)
+            if [ "$got" = "${{ github.sha }}" ]; then
+              echo "live: $got"
+              exit 0
+            fi
+            echo "attempt $i/30: serving '$got'"
+            sleep 10
+          done
+          echo "::error::API never reported ${{ github.sha }} after 5 minutes"
+          exit 1
