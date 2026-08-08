@@ -1,13 +1,22 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Header } from '@/components/Header';
 import { PricingToggle } from '@/components/pricing/PricingToggle';
 import { PricingCards } from '@/components/pricing/PricingCards';
 import { PricingTable } from '@/components/pricing/PricingTable';
+import { getPaddle } from '@/lib/paddle';
 
 export default function PricingPage() {
   const [isAnnual, setIsAnnual] = useState(true);
+
+  // Paddle's transaction payment links append `_ptxn` to this public page. Initializing on load
+  // lets Paddle.js detect that parameter and open the matching checkout without a button click.
+  useEffect(() => {
+    void getPaddle().catch((error) => {
+      console.error('Unable to initialize Paddle.js on the pricing page', error);
+    });
+  }, []);
 
   // Magnetic button handler for CTA section
   const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
