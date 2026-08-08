@@ -12,3 +12,4 @@ delete process.env.PADDLE_API_KEY;
 delete process.env.PADDLE_SANDBOX_API_KEY;
 delete process.env.PADDLE_NOTIFICATION_WEBHOOK_SECRET;
 process.env.PADDLE_ENV = 'sandbox';
+process.env.BILLING_MUTATIONS_ENABLED = 'false';

@@ -26,6 +26,7 @@ import { BillingAccessService } from './application/billing-access.service';
 import { CustomerPortalService } from './application/customer-portal.service';
 import { CheckoutService } from './application/checkout.service';
 import { SubscriptionUpdateService } from './application/subscription-update.service';
+import { BillingContextService } from './application/billing-context.service';
 import { paddleCheckoutPriceIds, paddlePlanChangePrices, paddlePriceCatalog } from './config/billing-catalog';
 import { AuthService } from './application/auth.service';
 import { EmailVerificationTokenService } from './application/email-verification-token.service';
@@ -148,6 +149,7 @@ async function bootstrap() {
   const subscriptionUpdate = new SubscriptionUpdateService(
     paddleBillingRepo, new PaddleSubscriptionUpdateAdapter(), paddlePlanChangePrices,
   );
+  const billingContext = new BillingContextService(paddleBillingRepo);
   const sessionRepo = new DrizzleSessionRepository();
   const verificationTokenRepo = new DrizzleVerificationTokenRepository();
   const emailVerificationTokens = new EmailVerificationTokenService(verificationTokenRepo);
@@ -184,7 +186,13 @@ async function bootstrap() {
     createHealthRoutes(),
     createAuthRoutes(authService),
     createMeRoutes(usageRepo, billingAccess),
-    createBillingRoutes(customerPortal, checkoutService, subscriptionUpdate),
+    createBillingRoutes(
+      customerPortal,
+      checkoutService,
+      subscriptionUpdate,
+      billingContext,
+      config.BILLING_MUTATIONS_ENABLED,
+    ),
     createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen, liveTranscriptRepo, liveTranscriptBus),
     createChatRoutes(meetingRepo, chatService),
     createUploadRoutes(meetingRepo, webhookRepo, usageMeter, audioStorage),

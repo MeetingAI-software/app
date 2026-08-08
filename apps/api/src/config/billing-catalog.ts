@@ -15,10 +15,7 @@ export const paddlePriceCatalog: PaddlePriceCatalog = {
     config.NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID,
     config.NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID,
   ]),
-  business: configured([
-    config.NEXT_PUBLIC_PADDLE_BUSINESS_MONTHLY_PRICE_ID,
-    config.NEXT_PUBLIC_PADDLE_BUSINESS_ANNUAL_PRICE_ID,
-  ]),
+  business: [],
 };
 
 export const paddleCheckoutPriceIds = new Set([

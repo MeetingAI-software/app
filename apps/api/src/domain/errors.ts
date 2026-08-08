@@ -27,6 +27,13 @@ export class PaddleNotConfiguredError extends Error {
   }
 }
 
+export class BillingMutationsDisabledError extends Error {
+  constructor(message = 'Billing changes are temporarily unavailable. Existing subscriptions can still be managed in Settings.') {
+    super(message);
+    this.name = 'BillingMutationsDisabledError';
+  }
+}
+
 export class InvalidBillingPriceError extends Error {
   constructor(message: string) {
     super(message);
