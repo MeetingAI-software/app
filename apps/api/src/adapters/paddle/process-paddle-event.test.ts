@@ -45,6 +45,35 @@ describe('processPaddleEvent', () => {
       subscriptionId: 'sub_1', customerId: 'ctm_1', status: 'active',
       priceId: 'pri_1', productId: 'pro_1', quantity: 3,
       scheduledChangeAction: 'cancel',
+      occurredAt: new Date('2026-07-27T12:00:00Z'),
+    }));
+  });
+
+  it('forwards occurred_at so the repository can reject out-of-order subscription events', async () => {
+    const repo = repository();
+    const subscription = {
+      id: 'sub_1', customerId: 'ctm_1', status: 'active', items: [],
+      currentBillingPeriod: null, scheduledChange: null,
+    };
+
+    await processPaddleEvent({
+      eventType: 'subscription.updated',
+      occurredAt: '2026-08-08T12:00:00Z',
+      data: subscription,
+    } as unknown as EventEntity, repo);
+    await processPaddleEvent({
+      eventType: 'subscription.created',
+      occurredAt: '2026-08-07T12:00:00Z',
+      data: subscription,
+    } as unknown as EventEntity, repo);
+
+    expect(repo.upsertSubscription).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      subscriptionId: 'sub_1',
+      occurredAt: new Date('2026-08-08T12:00:00Z'),
+    }));
+    expect(repo.upsertSubscription).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      subscriptionId: 'sub_1',
+      occurredAt: new Date('2026-08-07T12:00:00Z'),
     }));
   });
 
