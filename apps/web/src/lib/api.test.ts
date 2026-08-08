@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, createMeeting, resendVerification, throttleMessage, verifyEmail } from './api';
+import {
+  ApiError,
+  createMeeting,
+  getOptionalBillingContext,
+  resendVerification,
+  throttleMessage,
+  verifyEmail,
+} from './api';
 
 describe('throttleMessage', () => {
   it('gives the rate limit its own sentence instead of the raw server string', () => {
@@ -102,6 +109,30 @@ describe('error codes on ordinary data calls', () => {
       code: undefined,
       message: 'HTTP error! Status: 502',
     });
+  });
+});
+
+describe('getOptionalBillingContext', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns the authenticated Paddle customer id', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ paddleCustomerId: 'ctm_1' }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )));
+
+    await expect(getOptionalBillingContext()).resolves.toEqual({ paddleCustomerId: 'ctm_1' });
+  });
+
+  it('treats an anonymous pricing-page visitor as having no Paddle customer', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } }),
+      { status: 401, headers: { 'content-type': 'application/json' } },
+    )));
+
+    await expect(getOptionalBillingContext()).resolves.toBeNull();
   });
 });
 

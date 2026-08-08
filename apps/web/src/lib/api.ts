@@ -139,6 +139,10 @@ export interface SubscriptionSummary {
   } | null;
 }
 
+export interface BillingContext {
+  paddleCustomerId: string | null;
+}
+
 /** Carries the HTTP status so callers can tell 409 (not ready) from 429 (at cap). */
 export class ApiError extends Error {
   status: number;
@@ -294,6 +298,16 @@ export async function getUsage(): Promise<UsageSummary> {
 
 export async function getSubscription(): Promise<SubscriptionSummary> {
   return handleResponse<SubscriptionSummary>(await api('/api/me/subscription'));
+}
+
+/**
+ * `/pricing` is public, so an anonymous 401 is an expected "no Paddle customer yet" result and
+ * must not trigger the application's global session-expired redirect.
+ */
+export async function getOptionalBillingContext(): Promise<BillingContext | null> {
+  const response = await api('/api/me/billing-context');
+  if (response.status === 401) return null;
+  return handleResponseQuiet<BillingContext>(response);
 }
 
 export async function createBillingPortalSession(): Promise<{ url: string }> {
