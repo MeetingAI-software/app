@@ -18,6 +18,7 @@ import {
   PlanUpgradeRequiredError,
   PaddleCustomerNotFoundError,
   PaddleNotConfiguredError,
+  BillingMutationsDisabledError,
   InvalidBillingPriceError,
   SubscriptionAlreadyActiveError,
   SubscriptionPaymentDeclinedError,
@@ -61,6 +62,12 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   if (err instanceof PaddleNotConfiguredError) {
     return res.status(503).json({
       error: { code: 'PADDLE_NOT_CONFIGURED', message: err.message },
+    });
+  }
+
+  if (err instanceof BillingMutationsDisabledError) {
+    return res.status(503).json({
+      error: { code: 'BILLING_MUTATIONS_DISABLED', message: err.message },
     });
   }
 

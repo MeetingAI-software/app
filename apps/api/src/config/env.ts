@@ -72,6 +72,9 @@ const envSchema = z.object({
   GOOGLE_REDIRECT_URI: z.string().url().default('http://localhost:3000/api/auth/google/callback'),
   // --- Paddle Billing ---
   PADDLE_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
+  // Server-controlled billing kill switch. Safe by default: a missing variable can never open
+  // checkout or mutate a subscription during a deploy.
+  BILLING_MUTATIONS_ENABLED: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
   PADDLE_API_KEY: z.string().min(1).optional(),
   PADDLE_SANDBOX_API_KEY: z.string().min(1).optional(),
   PADDLE_NOTIFICATION_WEBHOOK_SECRET: z.string().min(1).optional(),
@@ -79,8 +82,6 @@ const envSchema = z.object({
   NEXT_PUBLIC_PADDLE_SOLO_ANNUAL_PRICE_ID: z.string().optional(),
   NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID: z.string().optional(),
   NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID: z.string().optional(),
-  NEXT_PUBLIC_PADDLE_BUSINESS_MONTHLY_PRICE_ID: z.string().optional(),
-  NEXT_PUBLIC_PADDLE_BUSINESS_ANNUAL_PRICE_ID: z.string().optional(),
 }).superRefine((cfg, ctx) => {
   // Same fail-fast standard as everything else: don't boot half-configured for a paid vendor.
   if (cfg.BOT_PROVIDER === 'recall') {

@@ -94,6 +94,8 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
       if (error instanceof ApiError && error.status === 401) {
         setCheckoutError('Sign in before choosing a paid plan.');
         window.setTimeout(() => window.location.assign('/login'), 800);
+      } else if (error instanceof ApiError && error.code === 'BILLING_MUTATIONS_DISABLED') {
+        setCheckoutError('Billing changes are temporarily unavailable while we complete maintenance.');
       } else if (error instanceof ApiError && error.status === 409) {
         setCheckoutError('You already have an active subscription. Manage it from Settings.');
       } else {

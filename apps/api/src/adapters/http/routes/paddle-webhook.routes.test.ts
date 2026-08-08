@@ -82,4 +82,22 @@ describe('Paddle webhook route', () => {
     const response = await post('{}', 'ts=1;h1=signature');
     expect(response.status).toBe(500);
   });
+
+  it('acknowledges a replay so the idempotent resource upsert can converge', async () => {
+    const event = {
+      eventType: 'subscription.updated',
+      eventId: 'evt_replayed',
+      occurredAt: '2026-08-08T12:00:00Z',
+      data: { id: 'sub_1' },
+    };
+    unmarshal.mockResolvedValue(event);
+
+    const first = await post('{"event_id":"evt_replayed"}', 'ts=1;h1=signature');
+    const replay = await post('{"event_id":"evt_replayed"}', 'ts=2;h1=signature');
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect(processPaddleEvent).toHaveBeenNthCalledWith(1, event, expect.anything());
+    expect(processPaddleEvent).toHaveBeenNthCalledWith(2, event, expect.anything());
+  });
 });
