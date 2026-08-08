@@ -95,9 +95,28 @@ describe('SupabaseStorageAdapter', () => {
       await expect(adapterWith(fetchFn).delete('m1/gone.webm')).resolves.toBeUndefined();
     });
 
+    // The shape Supabase actually returns, copied from a production Sentry event: HTTP 400 with the
+    // real 404 in the body. The 404 case above passed all along while the sweep job threw every run.
+    it('treats a 400 carrying NoSuchKey as already-deleted', async () => {
+      fetchFn.mockResolvedValue(
+        makeRes(400, { statusCode: '404', error: 'not_found', message: 'Object not found', code: 'NoSuchKey' })
+      );
+      await expect(adapterWith(fetchFn).delete('m1/gone.webm')).resolves.toBeUndefined();
+    });
+
+    it('still throws when the bucket is missing, which is a real misconfiguration', async () => {
+      fetchFn.mockResolvedValue(makeRes(400, { statusCode: '404', error: 'Bucket not found', message: 'Bucket not found' }));
+      await expect(adapterWith(fetchFn).delete('m1/audio.webm')).rejects.toThrow(/Bucket not found/);
+    });
+
     it('throws on a real delete failure', async () => {
       fetchFn.mockResolvedValue(makeRes(500, 'server error'));
       await expect(adapterWith(fetchFn).delete('m1/audio.webm')).rejects.toThrow(/Supabase delete failed: 500/);
+    });
+
+    it('throws when a 400 body is not JSON at all', async () => {
+      fetchFn.mockResolvedValue(makeRes(400, 'gateway barfed'));
+      await expect(adapterWith(fetchFn).delete('m1/audio.webm')).rejects.toThrow(/Supabase delete failed: 400/);
     });
   });
 
