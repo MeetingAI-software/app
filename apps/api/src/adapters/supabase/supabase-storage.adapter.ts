@@ -15,6 +15,22 @@ export interface SupabaseStorageOptions {
   fetchFn?: FetchFn;
 }
 
+/**
+ * Supabase Storage reports a missing object as `400 Bad Request` with the real status buried in the
+ * body: `{"statusCode":"404","error":"not_found","message":"Object not found","code":"NoSuchKey"}`.
+ * A plain `res.status === 404` check therefore never fires, which is what broke `delete`'s
+ * idempotency in production. Matched narrowly — a missing *bucket* answers with `error: "Bucket not
+ * found"`, which is a real misconfiguration and must keep throwing.
+ */
+function isObjectNotFound(body: string): boolean {
+  try {
+    const parsed = JSON.parse(body) as { statusCode?: string; error?: string; code?: string };
+    return parsed.code === 'NoSuchKey' || (parsed.statusCode === '404' && parsed.error === 'not_found');
+  } catch {
+    return false; // not JSON — treat as a genuine failure and let the caller see the raw body
+  }
+}
+
 /** `audio/webm;codecs=opus` → `.webm`; unknown → `.bin`. */
 function extForMime(mimeType: string): string {
   const subtype = mimeType.split('/')[1]?.split(';')[0]?.trim();
@@ -113,6 +129,8 @@ export class SupabaseStorageAdapter implements AudioStoragePort {
     if (res.ok || res.status === 404) return;
 
     const body = await res.text().catch(() => '');
+    if (isObjectNotFound(body)) return;
+
     throw new Error(`Supabase delete failed: ${res.status} ${res.statusText} ${body}`.trim());
   }
 }
