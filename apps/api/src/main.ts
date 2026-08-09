@@ -34,6 +34,7 @@ import { EmailVerificationDeliveryService } from './application/email-verificati
 import { EmailSendBudgetService } from './application/email-send-budget.service';
 import { WebhookWorker } from './jobs/worker';
 import { SweepJob } from './jobs/sweep';
+import { blocksRemoteDatabaseBoot } from './adapters/db/remote-database-guard';
 import { createMeetingRoutes } from './adapters/http/routes/meetings.routes';
 import { createHealthRoutes } from './adapters/http/routes/health.routes';
 import { createWebhookRoutes } from './adapters/http/routes/webhooks.routes';
@@ -62,6 +63,26 @@ import type { MeetingChatPort } from './ports/chat.port';
 import type { TranscriptionPort } from './ports/transcription.port';
 
 async function bootstrap() {
+  // Before anything connects. This process runs the sweep job on boot and exposes account deletion,
+  // so "started against production by accident" is not a recoverable state — it is data loss that
+  // has already happened. See remote-database-guard.ts for why this is keyed on a TTY.
+  if (blocksRemoteDatabaseBoot({
+    databaseUrl: config.DATABASE_URL,
+    isTty: Boolean(process.stdout.isTTY),
+    override: process.env.ALLOW_REMOTE_DB,
+    nodeEnv: config.NODE_ENV,
+  })) {
+    console.error('❌ Refusing to start against a remote database from an interactive shell.');
+    console.error('   This process runs the sweep job on boot, which deletes meeting audio, and');
+    console.error('   serves account deletion, which erases a user outright. Both hit live data.');
+    console.error('   Start the local database instead:');
+    console.error('     docker compose up -d');
+    console.error('     npm run db:migrate -w api && npm run db:seed -w api');
+    console.error('   See docs/local-development.md. If you really mean to point at production:');
+    console.error('     ALLOW_REMOTE_DB=yes npm run dev -w api');
+    process.exit(1);
+  }
+
   // Day 6 §5: start error monitoring before anything else so boot-time failures are captured too.
   initObservability();
 

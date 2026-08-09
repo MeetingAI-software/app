@@ -1,0 +1,43 @@
+# Local development database.
+#
+# Production is Supabase Postgres; this is a plain Postgres container, and that is deliberate. The
+# schema uses no extensions — `gen_random_uuid()` has been built in since Postgres 13 — so nothing
+# in `apps/api/drizzle/` needs the rest of the Supabase stack. Running `supabase start` instead
+# would pull ~4 GB of images and idle on 2-4 GB of RAM to give us the one service we actually use.
+#
+# Storage is intentionally NOT replicated here. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are
+# optional in the env schema, and SupabaseStorageAdapter.ensureConfigured() throws a clear
+# "not configured" error when they are blank. Local upload flows therefore fail loudly and locally
+# instead of quietly reaching into the live bucket.
+#
+#   docker compose up -d          start it
+#   docker compose down           stop it, keep the data
+#   docker compose down -v        stop it and wipe the data (then re-run db:migrate + db:seed)
+#
+# See docs/local-development.md.
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: meetingai-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: meetingai_dev
+    ports:
+      # Host 5432. Credentials are deliberately trivial: this database holds only seeded fake data
+      # and is reachable from localhost only.
+      - '5432:5432'
+    volumes:
+      - meetingai-db-data:/var/lib/postgresql/data
+    healthcheck:
+      # Lets `docker compose up -d --wait` block until the server actually accepts connections,
+      # so `npm run db:migrate -w api` immediately afterwards cannot lose the race.
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d meetingai_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  meetingai-db-data:

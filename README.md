@@ -12,6 +12,19 @@ Providers are swappable via env vars (`BOT_PROVIDER`, `DOC_PROVIDER`, `TRANSCRIP
 `CHAT_PROVIDER`), each with a `fake` implementation so the whole app runs end-to-end without any real
 vendor or spend.
 
+## Getting started
+
+```bash
+docker compose up -d
+npm ci
+npm run db:migrate -w api && npm run db:seed -w api
+npm run dev -w api      # and `npm run dev -w web` in a second terminal
+```
+
+Local development runs against a throwaway Postgres container with fabricated data, never production.
+The API refuses to start against a remote database from a terminal — see
+[local development](docs/local-development.md) for the full setup and the guards you will meet.
+
 ## Email verification
 
 Password signups receive a single-use, 24-hour email verification link. Delivery can use structured
@@ -26,6 +39,9 @@ HTTP contract, security properties, and the production mail-delivery requirement
 The EU is the data-residency baseline: the Postgres database and the Supabase Storage bucket are
 created in an EU region, and **both** recording paths delete the audio once the summary succeeds —
 the transcript is the source of truth from that point on.
+
+Every retention period, what enforces it, and the known gaps are documented in
+[data retention](docs/data-retention.md).
 
 **Known gap — AssemblyAI region (verify before go-live).** In-room recordings are transcribed by
 AssemblyAI. AssemblyAI offers an EU endpoint (`https://api.eu.assemblyai.com`) that requires an
