@@ -2,10 +2,10 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import { config } from '../../config/env';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { blocksInteractiveRemoteMigration } from './migration-guard';
+import { blocksInteractiveRemoteDatabase } from './remote-database-guard';
 
 async function runMigrate() {
-  if (blocksInteractiveRemoteMigration(config.DATABASE_URL, Boolean(process.stdout.isTTY), process.env.ALLOW_PRODUCTION_MIGRATION)) {
+  if (blocksInteractiveRemoteDatabase(config.DATABASE_URL, Boolean(process.stdout.isTTY), process.env.ALLOW_PRODUCTION_MIGRATION)) {
     console.error('❌ Refusing to migrate a remote database from an interactive shell.');
     console.error('   Migrations run automatically on every merge to main — see the deploy job in');
     console.error('   .github/workflows/ci.yml. Local .env points at the production project.');
