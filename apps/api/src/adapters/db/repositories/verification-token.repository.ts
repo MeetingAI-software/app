@@ -1,6 +1,6 @@
 import { db } from '../client';
 import { emailVerificationTokens, users } from '../schema';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt } from 'drizzle-orm';
 import type {
   VerificationTokenConsumeResult,
   VerificationTokenRepository,
@@ -95,5 +95,19 @@ export class DrizzleVerificationTokenRepository implements VerificationTokenRepo
       if (existingUser?.emailVerified) return { status: 'already_verified' };
       throw new Error(`Verification token references missing user: ${claimed.userId}`);
     });
+  }
+
+  /**
+   * The sweep's janitor call. Strictly `<` is the complement of consumeAndVerify's
+   * `gt(expiresAt, now)` above, so this can never delete a row a verification link would still have
+   * been allowed to spend. No index on expires_at, which is fine: `verification_user_id_uq` caps the
+   * table at one row per user.
+   */
+  async deleteExpired(): Promise<number> {
+    const removed = await db
+      .delete(emailVerificationTokens)
+      .where(lt(emailVerificationTokens.expiresAt, new Date()))
+      .returning({ id: emailVerificationTokens.id });
+    return removed.length;
   }
 }

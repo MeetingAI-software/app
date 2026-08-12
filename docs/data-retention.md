@@ -15,9 +15,9 @@ Every period here is our own decision, not a statutory minimum.
 | Meeting audio (Supabase Storage) | 1 hour after transcription | sweep job | [sweep.ts:52-62](../apps/api/src/jobs/sweep.ts#L52-L62) |
 | Provider-side recording (Recall) | same pass as the audio above | sweep job | [sweep.ts:65-69](../apps/api/src/jobs/sweep.ts#L65-L69) |
 | Live transcript segments | until the final transcript lands | pipeline | [process-webhook-event.service.ts:102](../apps/api/src/application/process-webhook-event.service.ts#L102) |
-| Sessions | `SESSION_TTL_DAYS` (30 days), then deleted | sweep job | [sweep.ts:136](../apps/api/src/jobs/sweep.ts#L136) |
+| Sessions | `SESSION_TTL_DAYS` (30 days), then deleted | sweep job | [sweep.ts:137](../apps/api/src/jobs/sweep.ts#L137) |
 | Email send ledger | 30 days | sweep job | [sweep.ts:12](../apps/api/src/jobs/sweep.ts#L12) |
-| Email verification tokens | 24-hour TTL | expiry checked on use | [email-verification-token.service.ts:9](../apps/api/src/application/email-verification-token.service.ts#L9) |
+| Email verification tokens | 24-hour TTL, then deleted | sweep job | [sweep.ts:161](../apps/api/src/jobs/sweep.ts#L161) |
 | Transcripts, documents, chat, usage | until the account is deleted | user-triggered erasure | [auth.service.ts:236-264](../apps/api/src/application/auth.service.ts#L236-L264) |
 
 ### Why audio goes first
@@ -47,8 +47,9 @@ after transcription and is deleted at the next pass, so real-world lifetime is b
 could not evidence.
 
 Every pass logs its counts — `Sweep found old transcribed meetings`, `Cleared meeting
-audioStoragePath in DB`, `Sweep deleted expired sessions`, `Sweep pruned the email send ledger` — and
-failures are reported to Sentry. Those logs are the evidence that the schedule executes.
+audioStoragePath in DB`, `Sweep deleted expired sessions`, `Sweep pruned the email send ledger`,
+`Sweep deleted expired verification tokens` — and failures are reported to Sentry. Those logs are the
+evidence that the schedule executes.
 
 ## Account deletion
 
@@ -63,13 +64,9 @@ anti-abuse budget still needs to count it; once detached from the user it is no 
 
 ## Known gaps
 
-- **Verification token rows are never pruned.** The 24-hour TTL is enforced when a token is *used*,
-  but expired rows are not deleted. A unique index caps this at one row per user
-  ([schema.ts:114](../apps/api/src/adapters/db/schema.ts#L114)), so it is bounded and small — but
-  "expired" and "deleted" are not the same thing, and only the second is storage limitation. A fifth
-  section in the sweep would close it.
-- **AssemblyAI region.** In-room audio may be transcribed outside the EU until the EU endpoint is
-  confirmed on our plan. Tracked in the README.
+- **AssemblyAI region.** The endpoint is a config switch — `ASSEMBLYAI_BASE_URL` — not a code change,
+  but it only achieves EU processing with an EU-provisioned account and key. Until those are confirmed
+  on our plan, in-room audio may be transcribed outside the EU. Tracked in the README.
 
 ## Development environments
 
