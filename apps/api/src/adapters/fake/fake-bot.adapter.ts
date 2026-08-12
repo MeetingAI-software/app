@@ -14,7 +14,7 @@ export class FakeBotAdapter implements MeetingBotPort {
     
     // Generate realistic segments
     const segments: TranscriptSegment[] = [
-      { startMs: 0, endMs: 2000, speaker: 'Alper Eken', text: 'Välkomna till MeetingAI startup-mötet!' },
+      { startMs: 0, endMs: 2000, speaker: 'Alper Eken', text: 'Välkomna till Syncmemos startup-mötet!' },
       { startMs: 2500, endMs: 5000, speaker: 'AbdulRehman Khan', text: 'Tack Alper! Jag har satt upp Recall.ai adaptern nu.' },
       { startMs: 5500, endMs: 8000, speaker: 'Alper Eken', text: 'Kanon, jag har byggt klart databas- och Express-lagret.' },
       { startMs: 8500, endMs: 12000, speaker: 'AbdulRehman Khan', text: 'Perfekt. Låt oss köra integrationstester mot vår Frankfurt DB.' },

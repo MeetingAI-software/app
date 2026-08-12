@@ -13,12 +13,12 @@ describe('createEmailVerificationMailer', () => {
     expect(createEmailVerificationMailer({
       provider: 'resend',
       resendApiKey: 're_test',
-      resendFrom: 'MeetingAI <verify@example.com>',
+      resendFrom: 'Syncmemos <verify@example.com>',
     })).toBeInstanceOf(ResendEmailVerificationMailer);
   });
 
   it.each([
-    [{ provider: 'resend', resendFrom: 'MeetingAI <verify@example.com>' } as const, 'RESEND_API_KEY'],
+    [{ provider: 'resend', resendFrom: 'Syncmemos <verify@example.com>' } as const, 'RESEND_API_KEY'],
     [{ provider: 'resend', resendApiKey: 're_test' } as const, 'RESEND_FROM'],
   ])('fails fast when required Resend configuration is missing', (config, expectedVariable) => {
     expect(() => createEmailVerificationMailer(config)).toThrow(expectedVariable);

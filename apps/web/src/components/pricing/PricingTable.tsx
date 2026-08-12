@@ -155,11 +155,6 @@ export function PricingTable({ isAnnual }: PricingTableProps) {
               </th>
             </tr>
             <Row
-              title="100% EU data residency (Frankfurt/Stockholm)"
-              getValue={(p) => p.features.euDataResidency}
-              renderVal={renderValue}
-            />
-            <Row
               title="Automatic audio deletion after processing"
               getValue={(p) => p.features.autoAudioDeletion}
               renderVal={renderValue}

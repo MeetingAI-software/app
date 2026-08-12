@@ -6,6 +6,7 @@ import { PricingToggle } from '@/components/pricing/PricingToggle';
 import { PricingCards } from '@/components/pricing/PricingCards';
 import { PricingTable } from '@/components/pricing/PricingTable';
 import { getPaddle } from '@/lib/paddle';
+import { BUSINESS_CONTACT_HREF } from '@/lib/brand';
 
 export default function PricingPage() {
   const [isAnnual, setIsAnnual] = useState(true);
@@ -41,13 +42,13 @@ export default function PricingPage() {
       {/* Animated Hero section */}
       <div className="max-w-4xl mx-auto text-center mb-12 blur-in">
         <span className="inline-flex items-center px-3.5 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 border border-blue-200 mb-4 shadow-xs">
-          Transparent EU Pricing
+          Transparent Pricing
         </span>
         <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-slate-900 mb-4">
           Simple pricing for real meeting intelligence
         </h1>
         <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-          No hidden fees, no fake urgency, no asterisk discounts. Every plan is hosted 100% in the EU with complete data privacy.
+          No hidden fees, no fake urgency, no asterisk discounts. Clear limits and automatic audio deletion after processing.
         </p>
 
         {/* Toggle */}
@@ -72,7 +73,7 @@ export default function PricingPage() {
               Ready to make every meeting count?
             </h2>
             <p className="text-slate-300 text-base mb-8">
-              Start in under 60 seconds with 100% EU data residency. No credit card required.
+              Start in under 60 seconds. No credit card required for the Free plan.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -86,7 +87,7 @@ export default function PricingPage() {
                 <span className="ml-1.5 font-bold text-xs opacity-90">&gt;</span>
               </a>
               <a
-                href="mailto:sales@meetingai.eu?subject=Meeting%20AI%20Demo%20Request"
+                href={BUSINESS_CONTACT_HREF}
                 onMouseMove={handleMagneticMouseMove}
                 onMouseLeave={handleMagneticMouseLeave}
                 className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-sm border border-slate-700 transition-colors"

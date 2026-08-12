@@ -86,7 +86,7 @@ async function bootstrap() {
   // Day 6 §5: start error monitoring before anything else so boot-time failures are captured too.
   initObservability();
 
-  console.log(`🚀 Bootstrapping MeetingAI (Env: ${config.NODE_ENV}, Port: ${config.PORT})`);
+  console.log(`🚀 Bootstrapping Syncmemos (Env: ${config.NODE_ENV}, Port: ${config.PORT})`);
 
   // 1. Repositories
   const meetingRepo = new DrizzleMeetingRepository();
