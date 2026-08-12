@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiError, createMeeting, type SubscriptionSummary } from '@/lib/api';
 import InRoomRecorder from './InRoomRecorder';
+import InRoomUnavailableNotice from './InRoomUnavailableNotice';
 import Link from 'next/link';
 
 type Tab = 'online' | 'inroom';
@@ -14,7 +15,9 @@ export default function NewMeetingPanel({ subscription }: { subscription: Subscr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const canUseInRoom = subscription?.entitlements.phoneInRoomRecording ?? false;
+  const inRoomRecordingEnabled = subscription?.inRoomRecordingEnabled ?? false;
+  const canUseInRoom = inRoomRecordingEnabled
+    && (subscription?.entitlements.phoneInRoomRecording ?? false);
 
   async function handleOnlineSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -88,6 +91,8 @@ export default function NewMeetingPanel({ subscription }: { subscription: Subscr
             {loading ? 'Adding bot to meeting…' : 'Start meeting bot'}
           </button>
         </form>
+      ) : !inRoomRecordingEnabled ? (
+        <InRoomUnavailableNotice />
       ) : canUseInRoom ? (
         <InRoomRecorder />
       ) : (
