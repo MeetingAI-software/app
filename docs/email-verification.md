@@ -1,6 +1,6 @@
 # Email verification runbook
 
-MeetingAI requires password accounts to confirm ownership of their email address. Signup still creates
+Syncmemos requires password accounts to confirm ownership of their email address. Signup still creates
 an authenticated session so the user can enter the application, where a persistent banner explains the
 pending status and can request a replacement link. Google accounts are treated as verified only when
 Google supplies a verified email claim.
@@ -21,7 +21,7 @@ Google supplies a verified email claim.
    ```env
    EMAIL_PROVIDER=resend
    RESEND_API_KEY=re_...
-   RESEND_FROM=MeetingAI <verify@updates.your-domain.com>
+   RESEND_FROM=Syncmemos <verify@updates.your-domain.com>
    ```
 
    The API refuses to start in Resend mode when either credential is missing.
@@ -72,7 +72,7 @@ written to application logs in this mode. API errors become delivery failures so
 and resend banner can respond as designed.
 
 Resend requires a verified domain to send to arbitrary recipients. Until a custom domain is verified,
-`MeetingAI <onboarding@resend.dev>` can be used for initial testing, but Resend normally restricts that
+`Syncmemos <onboarding@resend.dev>` can be used for initial testing, but Resend normally restricts that
 sender to the email address associated with the Resend account.
 
 A successful verification updates the current application tab and other open tabs. The verification

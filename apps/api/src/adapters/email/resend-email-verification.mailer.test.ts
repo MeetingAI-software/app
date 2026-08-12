@@ -22,7 +22,7 @@ describe('ResendEmailVerificationMailer', () => {
     const info = vi.fn();
     const mailer = new ResendEmailVerificationMailer(
       're_test',
-      'MeetingAI <verify@example.com>',
+      'Syncmemos <verify@example.com>',
       sendEmail,
       { info } as unknown as Pick<Logger, 'info'>,
     );
@@ -30,7 +30,7 @@ describe('ResendEmailVerificationMailer', () => {
     await mailer.sendVerificationEmail(message);
 
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({
-      from: 'MeetingAI <verify@example.com>',
+      from: 'Syncmemos <verify@example.com>',
       to: message.to,
       subject: 'Verify your Syncmemos email address',
       text: expect.stringContaining(message.verificationUrl),
@@ -53,7 +53,7 @@ describe('ResendEmailVerificationMailer', () => {
     } as CreateEmailResponse);
     const mailer = new ResendEmailVerificationMailer(
       're_test',
-      'MeetingAI <verify@example.com>',
+      'Syncmemos <verify@example.com>',
       sendEmail,
     );
 
