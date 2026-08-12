@@ -1,7 +1,7 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState, useRef } from 'react';
+import { useParams } from 'next/navigation';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import {
   getMeeting,
@@ -74,9 +74,12 @@ function describeFailure(errorMessage: string | null | undefined) {
   };
 }
 
+function messageFromError(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export default function MeetingDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const id = params.id as string;
 
   const [meeting, setMeeting] = useState<Meeting | null>(null);
@@ -99,53 +102,14 @@ export default function MeetingDetailPage() {
   // Refs for tracking active polling
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    fetchInitialData();
-
-    return () => {
-      stopPolling();
-    };
-  }, [id]);
-
-  const fetchInitialData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const m = await getMeeting(id);
-      setMeeting(m);
-
-      if (m.status === 'transcribed') {
-        // Load transcript and document if available
-        fetchTranscriptAndDoc(m.id);
-      } else if (m.status !== 'failed') {
-        startPolling();
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to load meeting details');
-    } finally {
-      setLoading(false);
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
     }
-  };
+  }, []);
 
-  /**
-   * Reload the meeting without the full-screen spinner. The live stream calls this when the
-   * server says the meeting is over; blanking the page at that moment would throw away the
-   * transcript the user is reading before the finished view is ready to replace it.
-   */
-  const refreshMeeting = async () => {
-    try {
-      const m = await getMeeting(id);
-      setMeeting(m);
-      if (m.status === 'transcribed') {
-        stopPolling();
-        fetchTranscriptAndDoc(m.id);
-      }
-    } catch (err) {
-      console.warn('Refresh after live stream ended failed:', err);
-    }
-  };
-
-  const fetchTranscriptAndDoc = async (meetingId: string) => {
+  const fetchTranscriptAndDoc = useCallback(async (meetingId: string) => {
     try {
       const t = await getTranscript(meetingId);
       setTranscript(t);
@@ -159,11 +123,11 @@ export default function MeetingDetailPage() {
     } catch (err) {
       console.warn('Document not generated yet:', err);
     }
-  };
+  }, []);
 
-  const startPolling = () => {
+  const startPolling = useCallback(() => {
     if (pollingRef.current) return;
-    
+
     pollingRef.current = setInterval(async () => {
       try {
         const m = await getMeeting(id);
@@ -171,7 +135,7 @@ export default function MeetingDetailPage() {
 
         if (m.status === 'transcribed') {
           stopPolling();
-          fetchTranscriptAndDoc(m.id);
+          void fetchTranscriptAndDoc(m.id);
         } else if (m.status === 'failed') {
           stopPolling();
         }
@@ -179,14 +143,50 @@ export default function MeetingDetailPage() {
         console.error('Polling error:', err);
       }
     }, 3000);
-  };
+  }, [fetchTranscriptAndDoc, id, stopPolling]);
 
-  const stopPolling = () => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
+  useEffect(() => {
+    let active = true;
+    void getMeeting(id)
+      .then((loadedMeeting) => {
+        if (!active) return;
+        setMeeting(loadedMeeting);
+        if (loadedMeeting.status === 'transcribed') {
+          void fetchTranscriptAndDoc(loadedMeeting.id);
+        } else if (loadedMeeting.status !== 'failed') {
+          startPolling();
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (active) setError(messageFromError(loadError, 'Failed to load meeting details'));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+      stopPolling();
+    };
+  }, [fetchTranscriptAndDoc, id, startPolling, stopPolling]);
+
+  /**
+   * Reload the meeting without the full-screen spinner. The live stream calls this when the
+   * server says the meeting is over; blanking the page at that moment would throw away the
+   * transcript the user is reading before the finished view is ready to replace it.
+   */
+  const refreshMeeting = useCallback(async () => {
+    try {
+      const m = await getMeeting(id);
+      setMeeting(m);
+      if (m.status === 'transcribed') {
+        stopPolling();
+        void fetchTranscriptAndDoc(m.id);
+      }
+    } catch (err) {
+      console.warn('Refresh after live stream ended failed:', err);
     }
-  };
+  }, [fetchTranscriptAndDoc, id, stopPolling]);
 
   const handleGenerateDoc = async (regenerate = false) => {
     setGenerating(true);
@@ -194,8 +194,8 @@ export default function MeetingDetailPage() {
     try {
       const res = await generateDocument(id, regenerate);
       setDocument(res.document);
-    } catch (err: any) {
-      setGenError(err.message || 'Failed to generate document');
+    } catch (err: unknown) {
+      setGenError(messageFromError(err, 'Failed to generate document'));
     } finally {
       setGenerating(false);
     }
