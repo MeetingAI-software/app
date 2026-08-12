@@ -44,9 +44,11 @@ Every retention period, what enforces it, and the known gaps are documented in
 [data retention](docs/data-retention.md).
 
 **Known gap — AssemblyAI region (verify before go-live).** In-room recordings are transcribed by
-AssemblyAI. AssemblyAI offers an EU endpoint (`https://api.eu.assemblyai.com`) that requires an
-EU-provisioned account and API key. The adapter defaults to the standard endpoint
-(`https://api.assemblyai.com`); to keep transcription in the EU, point `AssemblyAIAdapter`'s
-`baseUrl` option at the EU endpoint and use an EU key. **Until that is confirmed on our plan, audio
-sent for transcription may be processed outside the EU** — a known gap in the GDPR story to close at
-go-live.
+AssemblyAI, which offers an EU endpoint (`https://api.eu.assemblyai.com`) alongside its default
+(`https://api.assemblyai.com`). Choosing between them needs no code change: set
+`ASSEMBLYAI_BASE_URL`, which the adapter reads at startup.
+
+The endpoint is only half of it. The EU endpoint requires an **EU-provisioned account and an EU API
+key** — pointing a non-EU account at that hostname does not move where the audio is processed.
+**Until the account and key are confirmed EU-provisioned on our plan, audio sent for transcription
+may be processed outside the EU** — a known gap in the GDPR story to close at go-live.
