@@ -121,6 +121,7 @@ export interface SubscriptionSummary {
   plan: PlanId;
   status: string | 'none';
   hasPaidAccess: boolean;
+  inRoomRecordingEnabled: boolean;
   entitlements: {
     monthlySecondsCap: number;
     maxMeetingSeconds: number;

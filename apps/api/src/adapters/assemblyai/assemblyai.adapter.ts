@@ -4,8 +4,9 @@ import type { TranscriptSegment } from '../../domain/types';
 import { normalizeAssemblyTranscript } from './assemblyai.normalizer';
 import { TRANSCRIPTION_WEBHOOK_HEADER } from './transcription-webhook.verifier';
 
-// Default endpoint. For EU data residency use 'https://api.eu.assemblyai.com' with an EU-provisioned
-// account/key — see README (Architecture-Day3 §2: verify the EU option, don't assume it).
+// Default endpoint for local/non-production use. Production in-room recording is fail-closed in
+// config/env.ts and accepts only the EU API origin plus an externally verified provisioned account.
+// A hostname alone is not evidence of the account's processing region.
 const DEFAULT_BASE_URL = 'https://api.assemblyai.com';
 
 // Same HTTP discipline as the Day 1 Recall adapter: abort a slow request, retry once on a transient

@@ -58,16 +58,16 @@ describe('SweepJob', () => {
     };
 
     verificationTokenRepo = {
-      replaceForUser: vi.fn(),
-      findByTokenHash: vi.fn(),
-      findForUser: vi.fn(),
-      deleteByTokenHash: vi.fn(),
-      consumeAndVerify: vi.fn(),
       deleteExpired: vi.fn().mockResolvedValue(0),
     };
 
     sweepJob = new SweepJob(
-      meetingRepo, storage, botAdapter, sessionRepo, emailSendLedgerRepo, verificationTokenRepo,
+      meetingRepo,
+      storage,
+      botAdapter,
+      sessionRepo,
+      emailSendLedgerRepo,
+      verificationTokenRepo,
     );
   });
 
@@ -176,6 +176,36 @@ describe('SweepJob', () => {
       expect(storage.delete).toHaveBeenCalledWith('a/1'); // the rest of the sweep still ran
     });
 
+    it('deletes expired verification tokens while preserving valid tokens', async () => {
+      const now = Date.now();
+      const store = [
+        { id: 'v-expired', expiresAt: new Date(now - 1000) },
+        { id: 'v-valid', expiresAt: new Date(now + 60_000) },
+      ];
+      verificationTokenRepo.deleteExpired.mockImplementation(async (cutoff: Date) => {
+        const before = store.length;
+        for (let i = store.length - 1; i >= 0; i--) {
+          if (store[i].expiresAt.getTime() <= cutoff.getTime()) store.splice(i, 1);
+        }
+        return before - store.length;
+      });
+
+      await sweepJob.runSweep();
+
+      expect(verificationTokenRepo.deleteExpired).toHaveBeenCalledWith(expect.any(Date));
+      expect(store.map((token) => token.id)).toEqual(['v-valid']);
+    });
+
+    it('keeps meeting cleanup running if verification token cleanup throws', async () => {
+      verificationTokenRepo.deleteExpired.mockRejectedValue(new Error('verification store down'));
+      meetingRepo.findTranscribedOlderThan.mockResolvedValue([
+        { id: 'm-token', source: 'bot', status: 'transcribed', botId: 'bot-token', audioStoragePath: 'a/token', platform: 'zoom', shareToken: 't', createdAt: new Date(), updatedAt: new Date() } as any,
+      ]);
+
+      await expect(sweepJob.runSweep()).resolves.toBeUndefined();
+      expect(storage.delete).toHaveBeenCalledWith('a/token');
+    });
+
     it('prunes email send ledger rows past the retention window', async () => {
       // Stateful store standing in for the DB: one row inside retention, one long past it.
       const store = [
@@ -206,36 +236,5 @@ describe('SweepJob', () => {
       expect(storage.delete).toHaveBeenCalledWith('a/2');
     });
 
-    it('deletes expired verification tokens while live ones survive', async () => {
-      // Stateful store standing in for the DB: one token past its 24h TTL, one still spendable.
-      // The predicate mirrors the repository's `lt(expiresAt, now)` — a live token must never go.
-      const store = [
-        { id: 'v-expired', expiresAt: new Date(Date.now() - 1000) },
-        { id: 'v-live', expiresAt: new Date(Date.now() + 60_000) },
-      ];
-      verificationTokenRepo.deleteExpired.mockImplementation(async () => {
-        const now = Date.now();
-        const before = store.length;
-        for (let i = store.length - 1; i >= 0; i--) {
-          if (store[i].expiresAt.getTime() < now) store.splice(i, 1);
-        }
-        return before - store.length;
-      });
-
-      await sweepJob.runSweep();
-
-      expect(verificationTokenRepo.deleteExpired).toHaveBeenCalled();
-      expect(store.map((row) => row.id)).toEqual(['v-live']);
-    });
-
-    it('keeps meeting cleanup running even if verification token cleanup throws', async () => {
-      verificationTokenRepo.deleteExpired.mockRejectedValue(new Error('token store down'));
-      meetingRepo.findTranscribedOlderThan.mockResolvedValue([
-        { id: 'm-3', source: 'bot', status: 'transcribed', botId: 'bot-3', audioStoragePath: 'a/3', platform: 'zoom', shareToken: 't', createdAt: new Date(), updatedAt: new Date() } as any,
-      ]);
-
-      await expect(sweepJob.runSweep()).resolves.toBeUndefined();
-      expect(storage.delete).toHaveBeenCalledWith('a/3');
-    });
   });
 });
