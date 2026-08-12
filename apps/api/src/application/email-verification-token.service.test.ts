@@ -55,6 +55,11 @@ class FakeVerificationTokenRepository implements VerificationTokenRepository {
       },
     };
   }
+
+  // Port surface only — pruning belongs to the sweep, which this suite does not run.
+  async deleteExpired() {
+    return 0;
+  }
 }
 
 const sha256 = (value: string) => crypto.createHash('sha256').update(value).digest('hex');

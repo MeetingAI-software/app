@@ -117,6 +117,8 @@ export interface VerificationTokenRepository {
     tokenHash: string;
     now: Date;
   }): Promise<VerificationTokenConsumeResult>;
+  /** Retention janitor: deletes every token with expires_at < now(). Returns the count removed. */
+  deleteExpired(): Promise<number>;
 }
 
 /** What triggered a verification email — the breakdown you need when the daily budget blows. */

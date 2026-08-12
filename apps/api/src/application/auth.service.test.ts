@@ -179,6 +179,12 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
     return { status: 'verified' as const, user: verified };
   }
 
+  // Port surface only — pruning belongs to the sweep, which this suite does not run. A constant is
+  // honest here; implementing it would invite a test to assert behaviour nothing in AuthService owns.
+  async deleteExpired() {
+    return 0;
+  }
+
   expire(rawToken: string): void {
     const token = this.byHash.get(sha256(rawToken));
     if (token) token.expiresAt = new Date(this.now().getTime() - 1);
