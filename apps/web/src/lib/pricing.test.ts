@@ -50,7 +50,9 @@ describe('Pricing single source of truth (pricing.ts)', () => {
     expect(team?.ctaHref).toBe('/signup');
     expect(team?.ctaLabel).toBe('Start free');
 
-    expect(business?.ctaHref).toBe('mailto:sales@meetingai.eu?subject=Business%20Plan%20Inquiry');
+    expect(business?.ctaHref).toBe(
+      'mailto:support@syncmemos.com?subject=Syncmemos%20Business%20inquiry',
+    );
     expect(business?.ctaLabel).toBe('Contact us');
   });
 
@@ -62,11 +64,11 @@ describe('Pricing single source of truth (pricing.ts)', () => {
     expect(nonTeamBadges.every((b) => b === undefined)).toBe(true);
   });
 
-  it('guarantees EU data residency and privacy across ALL plans', () => {
+  it('advertises only implemented deletion controls across all plans', () => {
     PLANS.forEach((plan) => {
-      expect(plan.features.euDataResidency).toBe(true);
       expect(plan.features.autoAudioDeletion).toBe(true);
       expect(plan.features.accountErasure).toBe(true);
+      expect(plan.shortFeatures.join(' ')).not.toMatch(/EU data residency/i);
     });
   });
 

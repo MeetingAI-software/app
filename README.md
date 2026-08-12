@@ -1,4 +1,4 @@
-# MeetingAI
+# Syncmemos
 
 Turns meetings into shareable documents and a grounded chat. Two recording paths feed the same
 pipeline — bot-joined online meetings (Recall) and in-room recordings (browser mic → AssemblyAI) —

@@ -5,13 +5,12 @@ import Link from 'next/link';
 import type { ShareResponse } from '@/lib/api';
 import { msToClock } from '@/lib/format';
 import DocumentView from '@/components/DocumentView';
+import { BRAND_NAME } from '@/lib/brand';
 
 export default function SharePageClient({
   initialData,
-  token,
 }: {
   initialData: ShareResponse;
-  token: string;
 }) {
   const [shareData] = useState<ShareResponse>(initialData);
   const [isAccordionOpen, setIsAccordionOpen] = useState(false);
@@ -28,7 +27,7 @@ export default function SharePageClient({
         {/* Header Actions */}
         <div className="flex justify-between items-center mb-8 print:hidden">
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <span className="text-indigo-400 font-bold tracking-tight">MeetingAI Share</span>
+            <span className="text-indigo-400 font-bold tracking-tight">{BRAND_NAME} Share</span>
           </Link>
 
           <button
@@ -102,7 +101,7 @@ export default function SharePageClient({
       {/* Public Footer */}
       <footer className="w-full text-center border-t border-gray-900/80 pt-8 pb-4 print:hidden">
         <p className="text-xs text-gray-600">
-          Generated automatically by <span className="font-semibold text-gray-400">MeetingAI</span> — The smart recording assistant.
+          Generated automatically by <span className="font-semibold text-gray-400">{BRAND_NAME}</span> — The smart recording assistant.
         </p>
       </footer>
     </main>

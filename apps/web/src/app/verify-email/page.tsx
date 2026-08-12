@@ -16,10 +16,7 @@ function VerifyEmailContent() {
   const [state, setState] = useState<VerifyEmailState>('verifying');
 
   useEffect(() => {
-    if (!token) {
-      setState('missing-token');
-      return;
-    }
+    if (!token) return;
 
     let active = true;
     verifyEmailOnce(token)
@@ -37,7 +34,7 @@ function VerifyEmailContent() {
     };
   }, [token]);
 
-  return <EmailVerificationResult state={state} />;
+  return <EmailVerificationResult state={token ? state : 'missing-token'} />;
 }
 
 export default function VerifyEmailPage() {

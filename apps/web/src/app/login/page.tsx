@@ -49,7 +49,7 @@ export default function LoginPage() {
       onSubmit={onSubmit}
       footer={
         <>
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <Link href="/signup" className="text-slate-900 font-medium hover:underline decoration-slate-200 underline-offset-4">
             Sign up
           </Link>

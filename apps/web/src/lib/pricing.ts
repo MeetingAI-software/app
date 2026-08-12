@@ -1,3 +1,5 @@
+import { BUSINESS_CONTACT_HREF } from './brand';
+
 export const ANNUAL_DISCOUNT = 0.2; // 20% discount on annual billing
 
 export type PlanId = 'free' | 'solo' | 'team' | 'business';
@@ -21,7 +23,6 @@ export interface PlanComparisonFeatures {
   timestampGroundedAnswers: boolean;
 
   // Privacy & Security
-  euDataResidency: boolean;
   autoAudioDeletion: boolean;
   accountErasure: boolean;
   adminControlsAndAuditLog: boolean;
@@ -70,7 +71,7 @@ export const PLANS: PricingPlan[] = [
       '2 hours of meeting recording / mo',
       '10 AI chat questions per meeting',
       'Structured document & timestamps',
-      'EU data residency (Frankfurt/Stockholm)',
+      'Automatic audio deletion after processing',
       'Standard support',
     ],
     features: {
@@ -85,7 +86,6 @@ export const PLANS: PricingPlan[] = [
       pdfPrintExport: true,
       chatQuestionsPerMeeting: '10 / meeting',
       timestampGroundedAnswers: true,
-      euDataResidency: true,
       autoAudioDeletion: true,
       accountErasure: true,
       adminControlsAndAuditLog: false,
@@ -105,7 +105,7 @@ export const PLANS: PricingPlan[] = [
       '100 AI chat questions per meeting',
       'Structured document & timestamps',
       'Share links & PDF/print export',
-      'EU data residency (Frankfurt/Stockholm)',
+      'Automatic audio deletion after processing',
     ],
     features: {
       monthlyHours: '10 h/mo',
@@ -119,7 +119,6 @@ export const PLANS: PricingPlan[] = [
       pdfPrintExport: true,
       chatQuestionsPerMeeting: '100 / meeting',
       timestampGroundedAnswers: true,
-      euDataResidency: true,
       autoAudioDeletion: true,
       accountErasure: true,
       adminControlsAndAuditLog: false,
@@ -140,7 +139,7 @@ export const PLANS: PricingPlan[] = [
       '200 AI chat questions per meeting',
       'In-room phone recording support',
       'Structured document & timestamps',
-      'EU data residency (Frankfurt/Stockholm)',
+      'Automatic audio deletion after processing',
     ],
     features: {
       monthlyHours: '20 h/mo / seat',
@@ -154,7 +153,6 @@ export const PLANS: PricingPlan[] = [
       pdfPrintExport: true,
       chatQuestionsPerMeeting: '200 / meeting',
       timestampGroundedAnswers: true,
-      euDataResidency: true,
       autoAudioDeletion: true,
       accountErasure: true,
       adminControlsAndAuditLog: false,
@@ -168,13 +166,13 @@ export const PLANS: PricingPlan[] = [
     monthlyEur: 79,
     perSeat: true,
     ctaLabel: 'Contact us',
-    ctaHref: 'mailto:sales@meetingai.eu?subject=Business%20Plan%20Inquiry',
+    ctaHref: BUSINESS_CONTACT_HREF,
     shortFeatures: [
       '40 hours / mo per seat',
       '500 AI chat questions per meeting',
       'Admin controls & audit log',
       'Priority support & SLA',
-      'EU data residency (Frankfurt/Stockholm)',
+      'Account erasure controls',
     ],
     features: {
       monthlyHours: '40 h/mo / seat',
@@ -188,7 +186,6 @@ export const PLANS: PricingPlan[] = [
       pdfPrintExport: true,
       chatQuestionsPerMeeting: '500 / meeting',
       timestampGroundedAnswers: true,
-      euDataResidency: true,
       autoAudioDeletion: true,
       accountErasure: true,
       adminControlsAndAuditLog: true,

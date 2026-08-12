@@ -38,7 +38,10 @@ export function useLiveTranscript(
   // handler, and re-running the effect on every new segment would tear the connection down.
   const cursorRef = useRef(0);
   const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
+
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  }, [onDone]);
 
   const addSegments = useCallback((incoming: LiveSegment[]) => {
     if (incoming.length === 0) return;

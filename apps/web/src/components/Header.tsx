@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { BRAND_NAME } from '@/lib/brand';
 
 export function Header() {
   const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -32,7 +33,7 @@ export function Header() {
           >
             summarize
           </span>
-          MeetingAI
+          {BRAND_NAME}
         </Link>
         <nav className="hidden md:flex items-center gap-8">
           <Link

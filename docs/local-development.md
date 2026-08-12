@@ -16,6 +16,10 @@ npm run dev -w web                      # http://localhost:3001
 
 Sign in with **`dev@localhost`** / **`devpassword123`**.
 
+The local database, Docker container/volume, and browser verification storage key intentionally keep
+their historical `meetingai` identifiers. They are compatibility identifiers rather than
+customer-facing branding; renaming them would discard existing local data or browser state.
+
 Reset local data at any time — the seeder clears its own rows first, so it is safe to re-run:
 
 ```bash
