@@ -235,5 +235,6 @@ describe('SweepJob', () => {
       await expect(sweepJob.runSweep()).resolves.toBeUndefined();
       expect(storage.delete).toHaveBeenCalledWith('a/2');
     });
+
   });
 });

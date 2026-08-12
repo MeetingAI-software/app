@@ -63,6 +63,7 @@ class FakeVerificationTokenRepository implements VerificationTokenRepository {
       },
     };
   }
+
 }
 
 const sha256 = (value: string) => crypto.createHash('sha256').update(value).digest('hex');

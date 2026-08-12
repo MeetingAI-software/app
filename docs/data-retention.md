@@ -15,7 +15,7 @@ Every period here is our own decision, not a statutory minimum.
 | Meeting audio (Supabase Storage) | 1 hour after transcription | sweep job | [sweep.ts:52-62](../apps/api/src/jobs/sweep.ts#L52-L62) |
 | Provider-side recording (Recall) | same pass as the audio above | sweep job | [sweep.ts:65-69](../apps/api/src/jobs/sweep.ts#L65-L69) |
 | Live transcript segments | until the final transcript lands | pipeline | [process-webhook-event.service.ts:102](../apps/api/src/application/process-webhook-event.service.ts#L102) |
-| Sessions | `SESSION_TTL_DAYS` (30 days), then deleted | sweep job | [sweep.ts:136](../apps/api/src/jobs/sweep.ts#L136) |
+| Sessions | `SESSION_TTL_DAYS` (30 days), then deleted | sweep job | [sweep.ts:137](../apps/api/src/jobs/sweep.ts#L137) |
 | Email send ledger | 30 days | sweep job | [sweep.ts:12](../apps/api/src/jobs/sweep.ts#L12) |
 | Email verification tokens | 24-hour TTL, then next sweep | expiry checked on use + sweep job | [sweep.ts](../apps/api/src/jobs/sweep.ts) |
 | Transcripts, documents, chat, usage | until the account is deleted | user-triggered erasure | [auth.service.ts:236-264](../apps/api/src/application/auth.service.ts#L236-L264) |
