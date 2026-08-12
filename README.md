@@ -34,20 +34,18 @@ resend controls, and the `/verify-email` landing page.
 See [the email verification runbook](docs/email-verification.md) for migrations, local testing, the
 HTTP contract, security properties, and the production mail-delivery requirement.
 
-## Data residency & GDPR
+## Data protection
 
-The EU is the data-residency baseline: the Postgres database and the Supabase Storage bucket are
-created in an EU region, and **both** recording paths delete the audio once the summary succeeds —
-the transcript is the source of truth from that point on.
+Both recording paths make audio eligible for automatic deletion after successful processing; the
+transcript is the source of truth from that point on. Exact deletion timing and the external facts
+that still need verification are documented rather than presented as residency guarantees.
 
-Every retention period, what enforces it, and the known gaps are documented in
+Every retention period, what enforces it, and the remaining external checks are documented in
 [data retention](docs/data-retention.md). The provider-by-provider engineering inventory and its
 outstanding Live checks are maintained in the [production data processor map](docs/data-processors.md).
 
-**Known gap — AssemblyAI region (verify before go-live).** In-room recordings are transcribed by
-AssemblyAI. AssemblyAI offers an EU endpoint (`https://api.eu.assemblyai.com`) that requires an
-EU-provisioned account and API key. The adapter defaults to the standard endpoint
-(`https://api.assemblyai.com`); to keep transcription in the EU, point `AssemblyAIAdapter`'s
-`baseUrl` option at the EU endpoint and use an EU key. **Until that is confirmed on our plan, audio
-sent for transcription may be processed outside the EU** — a known gap in the GDPR story to close at
-go-live.
+In-room recording is fail-closed and disabled by default. Enabling it in production makes API
+startup require AssemblyAI, the exact `https://api.eu.assemblyai.com` endpoint, a provisioned API
+key and webhook secret, and complete Supabase configuration. That technical guard does not prove
+the external account's region; operators must still verify the deployed values, account
+provisioning, provider settings, retention, and DPA before Live.

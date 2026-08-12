@@ -17,7 +17,7 @@ Every period here is our own decision, not a statutory minimum.
 | Live transcript segments | until the final transcript lands | pipeline | [process-webhook-event.service.ts:102](../apps/api/src/application/process-webhook-event.service.ts#L102) |
 | Sessions | `SESSION_TTL_DAYS` (30 days), then deleted | sweep job | [sweep.ts:136](../apps/api/src/jobs/sweep.ts#L136) |
 | Email send ledger | 30 days | sweep job | [sweep.ts:12](../apps/api/src/jobs/sweep.ts#L12) |
-| Email verification tokens | 24-hour TTL | expiry checked on use | [email-verification-token.service.ts:9](../apps/api/src/application/email-verification-token.service.ts#L9) |
+| Email verification tokens | 24-hour TTL, then next sweep | expiry checked on use + sweep job | [sweep.ts](../apps/api/src/jobs/sweep.ts) |
 | Transcripts, documents, chat, usage | until the account is deleted | user-triggered erasure | [auth.service.ts:236-264](../apps/api/src/application/auth.service.ts#L236-L264) |
 
 ### Why audio goes first
@@ -47,8 +47,9 @@ after transcription and is deleted at the next pass, so real-world lifetime is b
 could not evidence.
 
 Every pass logs its counts — `Sweep found old transcribed meetings`, `Cleared meeting
-audioStoragePath in DB`, `Sweep deleted expired sessions`, `Sweep pruned the email send ledger` — and
-failures are reported to Sentry. Those logs are the evidence that the schedule executes.
+audioStoragePath in DB`, `Sweep deleted expired sessions`, `Sweep deleted expired email verification
+tokens`, `Sweep pruned the email send ledger` — and failures are reported to Sentry. Token values and
+hashes are never included in cleanup logs. Those logs are the evidence that the schedule executes.
 
 ## Account deletion
 
@@ -61,15 +62,12 @@ One deliberate exception: `email_send_ledger.user_id` is set to `NULL` rather th
 ([schema.ts:130](../apps/api/src/adapters/db/schema.ts#L130)). The send still happened and the
 anti-abuse budget still needs to count it; once detached from the user it is no longer personal data.
 
-## Known gaps
+## External verification still required
 
-- **Verification token rows are never pruned.** The 24-hour TTL is enforced when a token is *used*,
-  but expired rows are not deleted. A unique index caps this at one row per user
-  ([schema.ts:114](../apps/api/src/adapters/db/schema.ts#L114)), so it is bounded and small — but
-  "expired" and "deleted" are not the same thing, and only the second is storage limitation. A fifth
-  section in the sweep would close it.
-- **AssemblyAI region.** In-room audio may be transcribed outside the EU until the EU endpoint is
-  confirmed on our plan. Tracked in the README.
+In-room recording is disabled by default. Production startup accepts enablement only with the exact
+AssemblyAI EU API origin and complete AssemblyAI/Supabase configuration. An endpoint check cannot
+prove account provisioning, deployed dashboard settings, provider retention, or contractual terms;
+those facts remain explicit Live checks in the [data processor map](data-processors.md).
 
 ## Development environments
 
