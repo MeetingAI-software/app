@@ -41,7 +41,8 @@ created in an EU region, and **both** recording paths delete the audio once the 
 the transcript is the source of truth from that point on.
 
 Every retention period, what enforces it, and the known gaps are documented in
-[data retention](docs/data-retention.md).
+[data retention](docs/data-retention.md). The provider-by-provider engineering inventory and its
+outstanding Live checks are maintained in the [production data processor map](docs/data-processors.md).
 
 **Known gap — AssemblyAI region (verify before go-live).** In-room recordings are transcribed by
 AssemblyAI. AssemblyAI offers an EU endpoint (`https://api.eu.assemblyai.com`) that requires an
