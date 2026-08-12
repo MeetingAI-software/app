@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { googleOAuthUrl } from '@/lib/api';
+import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 
 interface Props {
   mode: 'signup' | 'login';
@@ -23,7 +24,6 @@ interface Props {
 
 export default function AuthForm(props: Props) {
   const [showPassword, setShowPassword] = useState(false);
-  const contactEmail = "hello@meetingai.eu";
 
   const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
     const btn = e.currentTarget;
@@ -42,11 +42,6 @@ export default function AuthForm(props: Props) {
 
   return (
     <>
-      {/* External Fonts */}
-      <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
-      <link href="https://fonts.googleapis.com" rel="preconnect"/>
-      <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-
       <div className="font-body-md text-on-surface bg-[#f9f9f9] min-h-screen flex flex-col justify-between selection:bg-slate-200">
         
         {/* TopNavBar — Fixed Header */}
@@ -56,7 +51,7 @@ export default function AuthForm(props: Props) {
               <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>
                 summarize
               </span>
-              MeetingAI
+              {BRAND_NAME}
             </Link>
             <nav className="hidden md:flex items-center gap-gutter">
               <Link href="/#features" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Features</Link>
@@ -243,10 +238,10 @@ export default function AuthForm(props: Props) {
             <div className="col-span-1 md:col-span-2 lg:col-span-1 flex flex-col gap-4">
               <Link href="/" className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2 hover:text-secondary transition-colors duration-200">
                 <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
-                MeetingAI
+                {BRAND_NAME}
               </Link>
               <p className="text-on-surface text-sm mt-2">
-                © {new Date().getFullYear()} MeetingAI. All rights reserved. Precise summaries for high-performing teams.
+                © {new Date().getFullYear()} {BRAND_NAME}. All rights reserved. Precise summaries for high-performing teams.
               </p>
             </div>
             <div className="flex flex-col gap-3">
@@ -257,7 +252,7 @@ export default function AuthForm(props: Props) {
             </div>
             <div className="flex flex-col gap-3">
               <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">Company</h4>
-              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href={`mailto:${contactEmail}`}>Contact Us</a>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href={`mailto:${SUPPORT_EMAIL}`}>Contact Us</a>
               <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Twitter</a>
               <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">LinkedIn</a>
             </div>
