@@ -3,10 +3,10 @@ import type { DocumentContent } from '../../domain/document';
 import type { TranscriptSegment } from '../../domain/types';
 
 const CANNED_SUMMARY =
-  'The team reviewed progress on the MeetingAI backend pipeline. AbdulRehman finished the Recall.ai adapter and Alper completed the database and Express layers. Both halves were wired together and tested against the Frankfurt Postgres instance. The pipeline now runs end to end, so the team agreed to move on to the document generation work.';
+  'The team reviewed progress on the Syncmemos backend pipeline. AbdulRehman finished the Recall.ai adapter and Alper completed the database and Express layers. Both halves were wired together and tested against the Frankfurt Postgres instance. The pipeline now runs end to end, so the team agreed to move on to the document generation work.';
 
 const CANNED_CONTENT: DocumentContent = {
-  title: 'MeetingAI Backend Sync — 16 Jul 2026',
+  title: 'Syncmemos Backend Sync — 16 Jul 2026',
   missed5: [
     'The Recall.ai adapter is done and wired behind the MeetingBotPort, so switching bot vendors later means writing one new adapter rather than touching the application layer.',
     'The database and Express layers are complete, running against Supabase Postgres in Frankfurt, which keeps the GDPR wedge intact.',
