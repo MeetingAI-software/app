@@ -2,13 +2,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import Script from 'next/script';
+import * as THREE from 'three';
 import { BackgroundPaths } from '@/components/ui/background-paths';
+import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 
 export default function Home() {
-  const demoLink = "/s/demo"; // Real production demo link
-  const contactEmail = "hello@meetingai.eu";
-
   // View switcher state
   const [activeView, setActiveView] = useState<'summary' | 'transcript'>('summary');
   
@@ -56,15 +54,14 @@ export default function Home() {
     card.style.boxShadow = '0 2px 10px -4px rgba(0,0,0,0.05)';
   };
 
-  // Initialize Three.js scene when THREE is loaded globally
+  // Initialize the bundled Three.js scene.
   const initThreeScene = () => {
     const container = threeContainerRef.current;
-    if (!container || typeof window === 'undefined' || !(window as any).THREE) return;
+    if (!container || typeof window === 'undefined') return;
     
     // Avoid double initialization
     if (threeInstanceRef.current) return;
 
-    const THREE = (window as any).THREE;
     const width = container.clientWidth || window.innerWidth / 2;
     const height = container.clientHeight || window.innerHeight;
 
@@ -80,7 +77,7 @@ export default function Home() {
 
     const group = new THREE.Group();
     const barCount = 24;
-    const bars: any[] = [];
+    const bars: Array<THREE.Mesh<THREE.BoxGeometry, THREE.MeshPhongMaterial>> = [];
     const geometry = new THREE.BoxGeometry(0.04, 0.3, 0.04);
 
     for (let i = 0; i < barCount; i++) {
@@ -104,10 +101,9 @@ export default function Home() {
     scene.add(light);
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
-    let mouseX = 0, mouseY = 0;
+    let mouseX = 0;
     const handleMouseMove = (e: MouseEvent) => {
       mouseX = (e.clientX / window.innerWidth) * 2 - 1;
-      mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
     };
     window.addEventListener('mousemove', handleMouseMove);
 
@@ -170,10 +166,7 @@ export default function Home() {
   };
 
   useEffect(() => {
-    // Try to initialize in case script is already loaded
-    if (typeof window !== 'undefined' && (window as any).THREE) {
-      initThreeScene();
-    }
+    initThreeScene();
     return () => {
       if (threeInstanceRef.current) {
         threeInstanceRef.current.destroy();
@@ -196,16 +189,6 @@ export default function Home() {
 
   return (
     <>
-      <Script 
-        src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" 
-        strategy="lazyOnload"
-        onLoad={initThreeScene}
-      />
-      {/* Stylesheets for fonts */}
-      <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
-      <link href="https://fonts.googleapis.com" rel="preconnect"/>
-      <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-
       <div className="font-body-md text-body-md bg-transparent min-h-screen relative overflow-x-hidden selection:bg-slate-200">
         
         {/* TopNavBar */}
@@ -439,10 +422,10 @@ export default function Home() {
             <div className="col-span-1 md:col-span-2 lg:col-span-1 flex flex-col gap-4">
               <Link href="/" className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2 hover:text-secondary transition-colors duration-200">
                 <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
-                MeetingAI
+                {BRAND_NAME}
               </Link>
               <p className="text-on-surface text-sm mt-2">
-                © 2024 MeetingAI. All rights reserved. Precise summaries for high-performing teams.
+                © {new Date().getFullYear()} {BRAND_NAME}. All rights reserved. Precise summaries for high-performing teams.
               </p>
             </div>
             <div className="flex flex-col gap-3">
@@ -453,7 +436,7 @@ export default function Home() {
             </div>
             <div className="flex flex-col gap-3">
               <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">Company</h4>
-              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href={`mailto:${contactEmail}`}>Contact Us</a>
+              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href={`mailto:${SUPPORT_EMAIL}`}>Contact Us</a>
               <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Twitter</a>
               <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">LinkedIn</a>
             </div>
