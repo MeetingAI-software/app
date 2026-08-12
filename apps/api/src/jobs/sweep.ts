@@ -1,4 +1,9 @@
-import type { EmailSendLedgerRepository, MeetingRepository, SessionRepository } from '../ports/repositories.port';
+import type {
+  EmailSendLedgerRepository,
+  MeetingRepository,
+  SessionRepository,
+  VerificationTokenRepository,
+} from '../ports/repositories.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import { assertTransition } from '../domain/state-machine';
@@ -19,7 +24,8 @@ export class SweepJob {
     private readonly storage: AudioStoragePort,
     private readonly botAdapter: MeetingBotPort,
     private readonly sessionRepo: SessionRepository,
-    private readonly emailSendLedgerRepo: EmailSendLedgerRepository
+    private readonly emailSendLedgerRepo: EmailSendLedgerRepository,
+    private readonly verificationTokenRepo: VerificationTokenRepository,
   ) {}
 
   start() {
@@ -140,7 +146,17 @@ export class SweepJob {
       captureError(err);
     }
 
-    // 4. Prune the email send ledger. Same isolation rule as above: the budget only ever reads the
+    // 4. Delete expired email verification credentials. Log only the count: token values and hashes
+    // are credentials and must never become retention telemetry.
+    try {
+      const removed = await this.verificationTokenRepo.deleteExpired(new Date());
+      logger.info({ count: removed }, 'Sweep deleted expired email verification tokens');
+    } catch (err: any) {
+      logger.error({ err }, 'Error deleting expired email verification tokens');
+      captureError(err);
+    }
+
+    // 5. Prune the email send ledger. Same isolation rule as above: the budget only ever reads the
     // last 24h, so a failure here costs disk, never enforcement.
     try {
       const cutoff = new Date(Date.now() - EMAIL_SEND_LEDGER_RETENTION_MS);

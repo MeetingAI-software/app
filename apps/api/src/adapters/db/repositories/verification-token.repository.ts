@@ -1,6 +1,6 @@
 import { db } from '../client';
 import { emailVerificationTokens, users } from '../schema';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, lte } from 'drizzle-orm';
 import type {
   VerificationTokenConsumeResult,
   VerificationTokenRepository,
@@ -54,6 +54,14 @@ export class DrizzleVerificationTokenRepository implements VerificationTokenRepo
 
   async deleteByTokenHash(tokenHash: string): Promise<void> {
     await db.delete(emailVerificationTokens).where(eq(emailVerificationTokens.tokenHash, tokenHash));
+  }
+
+  async deleteExpired(now: Date): Promise<number> {
+    const removed = await db
+      .delete(emailVerificationTokens)
+      .where(lte(emailVerificationTokens.expiresAt, now))
+      .returning({ id: emailVerificationTokens.id });
+    return removed.length;
   }
 
   async consumeAndVerify(input: { tokenHash: string; now: Date }): Promise<VerificationTokenConsumeResult> {

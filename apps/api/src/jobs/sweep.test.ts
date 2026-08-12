@@ -11,6 +11,7 @@ describe('SweepJob', () => {
   let botAdapter: any;
   let sessionRepo: any;
   let emailSendLedgerRepo: any;
+  let verificationTokenRepo: any;
   let sweepJob: SweepJob;
 
   beforeEach(() => {
@@ -56,7 +57,18 @@ describe('SweepJob', () => {
       deleteOlderThan: vi.fn().mockResolvedValue(0),
     };
 
-    sweepJob = new SweepJob(meetingRepo, storage, botAdapter, sessionRepo, emailSendLedgerRepo);
+    verificationTokenRepo = {
+      deleteExpired: vi.fn().mockResolvedValue(0),
+    };
+
+    sweepJob = new SweepJob(
+      meetingRepo,
+      storage,
+      botAdapter,
+      sessionRepo,
+      emailSendLedgerRepo,
+      verificationTokenRepo,
+    );
   });
 
   describe('runSweep', () => {
@@ -162,6 +174,36 @@ describe('SweepJob', () => {
 
       await expect(sweepJob.runSweep()).resolves.toBeUndefined();
       expect(storage.delete).toHaveBeenCalledWith('a/1'); // the rest of the sweep still ran
+    });
+
+    it('deletes expired verification tokens while preserving valid tokens', async () => {
+      const now = Date.now();
+      const store = [
+        { id: 'v-expired', expiresAt: new Date(now - 1000) },
+        { id: 'v-valid', expiresAt: new Date(now + 60_000) },
+      ];
+      verificationTokenRepo.deleteExpired.mockImplementation(async (cutoff: Date) => {
+        const before = store.length;
+        for (let i = store.length - 1; i >= 0; i--) {
+          if (store[i].expiresAt.getTime() <= cutoff.getTime()) store.splice(i, 1);
+        }
+        return before - store.length;
+      });
+
+      await sweepJob.runSweep();
+
+      expect(verificationTokenRepo.deleteExpired).toHaveBeenCalledWith(expect.any(Date));
+      expect(store.map((token) => token.id)).toEqual(['v-valid']);
+    });
+
+    it('keeps meeting cleanup running if verification token cleanup throws', async () => {
+      verificationTokenRepo.deleteExpired.mockRejectedValue(new Error('verification store down'));
+      meetingRepo.findTranscribedOlderThan.mockResolvedValue([
+        { id: 'm-token', source: 'bot', status: 'transcribed', botId: 'bot-token', audioStoragePath: 'a/token', platform: 'zoom', shareToken: 't', createdAt: new Date(), updatedAt: new Date() } as any,
+      ]);
+
+      await expect(sweepJob.runSweep()).resolves.toBeUndefined();
+      expect(storage.delete).toHaveBeenCalledWith('a/token');
     });
 
     it('prunes email send ledger rows past the retention window', async () => {

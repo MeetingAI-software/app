@@ -162,6 +162,14 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
     this.byHash.delete(tokenHash);
   }
 
+  async deleteExpired(now: Date): Promise<number> {
+    const before = this.byHash.size;
+    for (const [tokenHash, token] of this.byHash) {
+      if (token.expiresAt.getTime() <= now.getTime()) this.byHash.delete(tokenHash);
+    }
+    return before - this.byHash.size;
+  }
+
   async consumeAndVerify(input: { tokenHash: string; now: Date }) {
     const token = this.byHash.get(input.tokenHash);
     if (!token) return { status: 'invalid' as const };
