@@ -16,6 +16,7 @@ import {
   VerificationNotPersistedError,
   EmailSendBudgetExhaustedError,
   PlanUpgradeRequiredError,
+  FeatureUnavailableError,
   PaddleCustomerNotFoundError,
   PaddleNotConfiguredError,
   BillingMutationsDisabledError,
@@ -48,6 +49,15 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(403).json({
       error: {
         code: 'PLAN_UPGRADE_REQUIRED',
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof FeatureUnavailableError) {
+    return res.status(503).json({
+      error: {
+        code: 'FEATURE_UNAVAILABLE',
         message: err.message,
       },
     });

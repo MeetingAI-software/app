@@ -150,7 +150,12 @@ async function bootstrap() {
   // 4. Services
   const billingAccess = new BillingAccessService(paddleBillingRepo, paddlePriceCatalog);
   const customerPortal = new CustomerPortalService(paddleBillingRepo, new PaddleCustomerPortalAdapter());
-  const usageMeter = new UsageMeterService(meetingRepo, usageRepo, billingAccess);
+  const usageMeter = new UsageMeterService(
+    meetingRepo,
+    usageRepo,
+    billingAccess,
+    config.IN_ROOM_RECORDING_ENABLED,
+  );
   const startMeetingService = new StartMeetingService(meetingRepo, usageMeter, botAdapter);
   // Live transcript: the webhook ingest publishes onto the bus, the SSE route subscribes.
   // Both live in this process — see the note in live-transcript.bus.ts.
@@ -206,7 +211,7 @@ async function bootstrap() {
   const routes = [
     createHealthRoutes(),
     createAuthRoutes(authService),
-    createMeRoutes(usageRepo, billingAccess),
+    createMeRoutes(usageRepo, billingAccess, config.IN_ROOM_RECORDING_ENABLED),
     createBillingRoutes(
       customerPortal,
       checkoutService,

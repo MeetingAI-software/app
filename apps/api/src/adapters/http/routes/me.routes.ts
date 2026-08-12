@@ -3,7 +3,11 @@ import type { UsageRepository } from '../../../ports/repositories.port';
 import type { BillingAccessProvider } from '../../../domain/billing';
 
 /** GET /api/me/usage — this month's recorded seconds vs the cap; feeds the header indicator (§6). */
-export function createMeRoutes(usageRepo: UsageRepository, billingAccess: BillingAccessProvider): Router {
+export function createMeRoutes(
+  usageRepo: UsageRepository,
+  billingAccess: BillingAccessProvider,
+  inRoomRecordingEnabled = false,
+): Router {
   const router = Router();
 
   router.get('/api/me/usage', async (req, res, next) => {
@@ -20,7 +24,8 @@ export function createMeRoutes(usageRepo: UsageRepository, billingAccess: Billin
 
   router.get('/api/me/subscription', async (req, res, next) => {
     try {
-      return res.status(200).json(await billingAccess.getAccess(req.userId!));
+      const access = await billingAccess.getAccess(req.userId!);
+      return res.status(200).json({ ...access, inRoomRecordingEnabled });
     } catch (err) {
       return next(err);
     }
