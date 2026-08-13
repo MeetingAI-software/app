@@ -245,6 +245,20 @@ export const envSchema = z.object({
       message: 'Production must use PADDLE_API_KEY; a sandbox key is never used as a fallback',
     });
   }
+  if (cfg.PADDLE_ENV === 'production' && cfg.PADDLE_SANDBOX_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PADDLE_SANDBOX_API_KEY'],
+      message: 'PADDLE_SANDBOX_API_KEY must be removed when PADDLE_ENV is "production"',
+    });
+  }
+  if (cfg.PADDLE_ENV === 'production' && !cfg.PADDLE_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PADDLE_API_KEY'],
+      message: 'Production Paddle requires PADDLE_API_KEY',
+    });
+  }
   if (paddleApiKey && cfg.PADDLE_ENV === 'sandbox' && !paddleApiKey.startsWith('pdl_sdbx_apikey_')) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

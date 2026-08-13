@@ -53,3 +53,39 @@ describe('in-room recording environment validation', () => {
     }
   });
 });
+
+describe('Paddle Live environment validation', () => {
+  const liveBase = {
+    ...productionBase,
+    PADDLE_ENV: 'production',
+    PADDLE_API_KEY: 'pdl_live_apikey_example',
+    PADDLE_NOTIFICATION_WEBHOOK_SECRET: 'pdl_ntfset_example',
+    NEXT_PUBLIC_PADDLE_SOLO_MONTHLY_PRICE_ID: 'pri_solo_monthly',
+    NEXT_PUBLIC_PADDLE_SOLO_ANNUAL_PRICE_ID: 'pri_solo_annual',
+    NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID: 'pri_team_monthly',
+    NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID: 'pri_team_annual',
+  };
+
+  it('accepts a complete Live-only configuration', () => {
+    expect(envSchema.safeParse(liveBase).success).toBe(true);
+  });
+
+  it('requires the Live API key even while billing mutations are disabled', () => {
+    const { PADDLE_API_KEY: _omitted, ...withoutKey } = liveBase;
+    const result = envSchema.safeParse(withoutKey);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.PADDLE_API_KEY).toContain('Production Paddle requires PADDLE_API_KEY');
+    }
+  });
+
+  it('rejects a retained sandbox key in production', () => {
+    const result = envSchema.safeParse({ ...liveBase, PADDLE_SANDBOX_API_KEY: 'pdl_sdbx_apikey_old' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.PADDLE_SANDBOX_API_KEY).toContain(
+        'PADDLE_SANDBOX_API_KEY must be removed when PADDLE_ENV is "production"',
+      );
+    }
+  });
+});
