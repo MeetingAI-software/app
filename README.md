@@ -57,3 +57,7 @@ Paddle Live remains blocked until the owners complete the
 registered business, legal supplier, or public seller address. Customer email setup is documented
 separately in the [support email runbook](docs/support-email.md), including authenticated outbound
 mail and SPF, DKIM, and DMARC verification rather than inbound forwarding alone.
+
+Before opening billing, run the [48-hour customer validation](docs/customer-validation.md) with real
+prices and the anonymized tracker. Validation collects purchase intent, not money, and never
+overrides the legal or operational Live gates.

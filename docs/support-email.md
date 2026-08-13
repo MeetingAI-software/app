@@ -4,6 +4,10 @@ This runbook configures `support@syncmemos.com` as a working customer-support id
 both receiving and sending: Cloudflare Email Routing forwards inbound mail, but forwarding alone
 does not provide an authenticated mailbox or SMTP service for outbound replies.
 
+Current status (owner-reported, 2026-08-13): inbound routing and outbound replies have been tested
+successfully. No private destination, credential, or message data is stored here. Header-level
+SPF, DKIM, and DMARC evidence remains an operational record rather than a repository artifact.
+
 Do not store destination addresses, SMTP/API credentials, recovery codes, or raw test messages in
 this repository. Put secrets only in the selected mail provider or secret manager.
 

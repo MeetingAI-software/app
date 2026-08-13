@@ -9,6 +9,19 @@ and identity checks; business verification is not required for an individual or 
 does not determine whether selling this product in Sweden as an individual is lawful or suitable.
 The owners must obtain Swedish professional guidance before selecting the supplier.
 
+## Current owner-reported status
+
+As of 2026-08-13, the owners prefer to validate demand before registering a business and would like
+an individual to be the initial supplier if legally and operationally suitable. They have not yet
+obtained the Swedish tax/business guidance required below, so this preference is not a completed
+seller selection and must not be submitted to Paddle as an approved setup.
+
+The owners do not want a home address published in the application. No private address is stored in
+this repository. Swedish e-commerce law generally requires a service provider's name, address in
+the state of establishment, and email address to be easily, directly, and permanently available.
+The owners must obtain advice on a lawful public contact address before paid launch; the repository
+must not invent an alternative or silently omit a required address.
+
 ## Blocking decisions
 
 Record evidence in a private location with access limited to the owners. Do not commit personal
@@ -88,3 +101,5 @@ relevant provider dashboard, never into chat, issues, commits, or deployment log
 - [Paddle setup checklist](https://developer.paddle.com/build/set-up-checklist/)
 - [Skatteverket: Enkelt bolag](https://www.skatteverket.se/foretag/drivaforetag/foretagsformer/enkeltbolag.4.6d02084411db6e252fe8000928.html)
 - [Skatteverket: Hobby](https://www.skatteverket.se/privat/skatter/arbeteochinkomst/inkomster/hobby.4.58d555751259e4d661680003935.html)
+- [Swedish Electronic Commerce Act (2002:562), section 8](https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/lag-2002562-om-elektronisk-handel-och-andra_sfs-2002-562/)
+- [Skatteverket: What is business activity?](https://www.skatteverket.se/foretag/drivaforetag/startaochregistrera/vadarnaringsverksamhet.4.6efe6285127ab4f1d25800025792.html)
