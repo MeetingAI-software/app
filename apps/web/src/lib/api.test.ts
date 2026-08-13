@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
+  createCheckoutTransaction,
   createMeeting,
   getOptionalBillingContext,
   resendVerification,
@@ -133,6 +134,30 @@ describe('getOptionalBillingContext', () => {
     )));
 
     await expect(getOptionalBillingContext()).resolves.toBeNull();
+  });
+});
+
+describe('createCheckoutTransaction', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends the selected Team seat quantity to the authenticated checkout endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ transactionId: 'txn_1' }),
+      { status: 201, headers: { 'content-type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(createCheckoutTransaction('pri_team', 4)).resolves.toEqual({ transactionId: 'txn_1' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/me/checkout',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ priceId: 'pri_team', quantity: 4 }),
+      }),
+    );
   });
 });
 

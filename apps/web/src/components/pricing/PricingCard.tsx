@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { PricingPlan, getAnnualTotalEur, getEffectiveMonthlyRateEur } from '@/lib/pricing';
 import { getPaddle, getPaddlePriceId } from '@/lib/paddle';
 import { ApiError, createCheckoutTransaction } from '@/lib/api';
+import { CheckoutConfirmationDialog } from './CheckoutConfirmationDialog';
 
 interface PricingCardProps {
   plan: PricingPlan;
@@ -16,6 +17,9 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isOpeningCheckout, setIsOpeningCheckout] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [showCheckoutConfirmation, setShowCheckoutConfirmation] = useState(false);
+  const [checkoutAccepted, setCheckoutAccepted] = useState(false);
+  const [seatQuantity, setSeatQuantity] = useState(1);
   const opensCheckout = plan.id === 'solo' || plan.id === 'team';
 
   const displayedPrice = isAnnual
@@ -68,7 +72,14 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
     btn.style.transition = 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
   };
 
+  const openCheckoutConfirmation = () => {
+    setCheckoutError(null);
+    setCheckoutAccepted(false);
+    setShowCheckoutConfirmation(true);
+  };
+
   const handleCheckout = async () => {
+    if (!checkoutAccepted) return;
     const priceId = getPaddlePriceId(plan.id, isAnnual);
     if (!priceId) {
       setCheckoutError('Checkout is not configured for this plan yet.');
@@ -80,7 +91,8 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
     try {
       const paddle = await getPaddle();
       if (!paddle) throw new Error('Paddle.js could not be initialized');
-      const { transactionId } = await createCheckoutTransaction(priceId);
+      const quantity = plan.id === 'team' ? seatQuantity : 1;
+      const { transactionId } = await createCheckoutTransaction(priceId, quantity);
       paddle.Checkout.open({
         transactionId,
         settings: {
@@ -89,8 +101,10 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
           successUrl: `${window.location.origin}/checkout/success`,
         },
       });
+      setShowCheckoutConfirmation(false);
     } catch (error) {
       console.error('Unable to open Paddle Checkout', error);
+      setShowCheckoutConfirmation(false);
       if (error instanceof ApiError && error.status === 401) {
         setCheckoutError('Sign in before choosing a paid plan.');
         window.setTimeout(() => window.location.assign('/login'), 800);
@@ -107,6 +121,7 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
   };
 
   return (
+    <>
     <div
       onMouseMove={handleCardMouseMove}
       onMouseLeave={handleCardMouseLeave}
@@ -226,7 +241,7 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
         {opensCheckout ? (
           <button
             type="button"
-            onClick={handleCheckout}
+            onClick={openCheckoutConfirmation}
             disabled={isOpeningCheckout}
             onMouseMove={handleMagneticMouseMove}
             onMouseLeave={handleMagneticMouseLeave}
@@ -259,5 +274,23 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
         {checkoutError && <p className="mt-2 text-xs text-red-500" role="alert">{checkoutError}</p>}
       </div>
     </div>
+      {showCheckoutConfirmation && (
+        <CheckoutConfirmationDialog
+          plan={plan}
+          isAnnual={isAnnual}
+          seatQuantity={seatQuantity}
+          accepted={checkoutAccepted}
+          isOpeningCheckout={isOpeningCheckout}
+          onSeatQuantityChange={(quantity) => setSeatQuantity(
+            Number.isSafeInteger(quantity) ? Math.min(100, Math.max(1, quantity)) : 1,
+          )}
+          onAcceptedChange={setCheckoutAccepted}
+          onCancel={() => {
+            if (!isOpeningCheckout) setShowCheckoutConfirmation(false);
+          }}
+          onConfirm={handleCheckout}
+        />
+      )}
+    </>
   );
 }

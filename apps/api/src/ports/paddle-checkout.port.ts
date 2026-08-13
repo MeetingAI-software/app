@@ -3,6 +3,7 @@ export interface PaddleCheckoutPort {
   createTransaction(input: {
     customerId: string;
     priceId: string;
+    quantity: number;
     appUserId: string;
   }): Promise<string>;
 }

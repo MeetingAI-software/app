@@ -2,6 +2,7 @@ import type { PaddleBillingRepository, UserRepository } from '../ports/repositor
 import type { PaddleCheckoutPort } from '../ports/paddle-checkout.port';
 import {
   InvalidBillingPriceError,
+  InvalidBillingQuantityError,
   PaddleNotConfiguredError,
   SubscriptionAlreadyActiveError,
 } from '../domain/errors';
@@ -14,11 +15,18 @@ export class CheckoutService {
     private readonly userRepo: UserRepository,
     private readonly checkout: PaddleCheckoutPort,
     private readonly allowedPriceIds: ReadonlySet<string>,
+    private readonly teamPriceIds: ReadonlySet<string>,
   ) {}
 
-  async createForUser(userId: string, priceId: string): Promise<string> {
+  async createForUser(userId: string, priceId: string, quantity = 1): Promise<string> {
     if (!this.allowedPriceIds.has(priceId)) {
       throw new InvalidBillingPriceError('The selected billing price is not available');
+    }
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) {
+      throw new InvalidBillingQuantityError('Seat quantity must be a whole number between 1 and 100');
+    }
+    if (!this.teamPriceIds.has(priceId) && quantity !== 1) {
+      throw new InvalidBillingQuantityError('Only Team subscriptions can include multiple seats');
     }
 
     const user = await this.userRepo.findById(userId);
@@ -47,6 +55,11 @@ export class CheckoutService {
       throw new SubscriptionAlreadyActiveError('Manage your existing subscription instead of starting another one');
     }
 
-    return this.checkout.createTransaction({ customerId: customer.customerId, priceId, appUserId: userId });
+    return this.checkout.createTransaction({
+      customerId: customer.customerId,
+      priceId,
+      quantity,
+      appUserId: userId,
+    });
   }
 }

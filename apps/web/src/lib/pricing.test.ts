@@ -45,10 +45,10 @@ describe('Pricing single source of truth (pricing.ts)', () => {
     expect(free?.ctaLabel).toBe('Get started');
 
     expect(solo?.ctaHref).toBe('/signup');
-    expect(solo?.ctaLabel).toBe('Start free');
+    expect(solo?.ctaLabel).toBe('Choose Solo');
 
     expect(team?.ctaHref).toBe('/signup');
-    expect(team?.ctaLabel).toBe('Start free');
+    expect(team?.ctaLabel).toBe('Choose Team');
 
     expect(business?.ctaHref).toBe(
       'mailto:support@syncmemos.com?subject=Syncmemos%20Business%20inquiry',

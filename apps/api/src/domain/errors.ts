@@ -48,6 +48,13 @@ export class InvalidBillingPriceError extends Error {
   }
 }
 
+export class InvalidBillingQuantityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidBillingQuantityError';
+  }
+}
+
 export class SubscriptionAlreadyActiveError extends Error {
   constructor(message: string) {
     super(message);

@@ -58,6 +58,15 @@ export default function PricingPage() {
       {/* Plan cards with mouse hover spotlight & 3D tilt */}
       <PricingCards isAnnual={isAnnual} />
 
+      <div className="mx-auto mt-8 max-w-4xl px-4 text-center text-sm leading-6 text-slate-600">
+        <p className="font-semibold text-slate-800">Prices exclude VAT. Tax is calculated at checkout.</p>
+        <p className="mt-1">
+          Paid plans renew automatically on the selected Monthly or Annual schedule. Team pricing is per seat.
+          There is no free trial. Cancel anytime through Settings and the Paddle Customer Portal.
+          The first subscription purchase includes a 14-day money-back guarantee.
+        </p>
+      </div>
+
       {/* Comparison table */}
       <PricingTable isAnnual={isAnnual} />
 
