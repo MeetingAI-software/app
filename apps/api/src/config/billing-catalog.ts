@@ -23,6 +23,8 @@ export const paddleCheckoutPriceIds = new Set([
   ...paddlePriceCatalog.team,
 ]);
 
+export const paddleTeamPriceIds = new Set(paddlePriceCatalog.team);
+
 export const paddlePlanChangePrices: PlanChangePrice[] = [
   { priceId: config.NEXT_PUBLIC_PADDLE_SOLO_MONTHLY_PRICE_ID, plan: 'solo', interval: 'monthly' },
   { priceId: config.NEXT_PUBLIC_PADDLE_SOLO_ANNUAL_PRICE_ID, plan: 'solo', interval: 'annual' },

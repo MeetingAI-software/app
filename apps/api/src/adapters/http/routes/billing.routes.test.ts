@@ -115,12 +115,42 @@ describe('billing portal route', () => {
         cookie: 'session=valid-token',
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ priceId: 'pri_solo', userId: 'someone-else' }),
+      body: JSON.stringify({ priceId: 'pri_solo', quantity: 1, userId: 'someone-else' }),
     });
 
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ transactionId: 'txn_1' });
-    expect(createCheckoutForUser).toHaveBeenCalledWith('user-1', 'pri_solo');
+    expect(createCheckoutForUser).toHaveBeenCalledWith('user-1', 'pri_solo', 1);
+  });
+
+  it('passes a validated Team seat quantity to checkout', async () => {
+    const response = await fetch(`${baseUrl}/api/me/checkout`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN,
+        cookie: 'session=valid-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ priceId: 'pri_team', quantity: 5 }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(createCheckoutForUser).toHaveBeenCalledWith('user-1', 'pri_team', 5);
+  });
+
+  it('rejects invalid seat quantities before checkout', async () => {
+    const response = await fetch(`${baseUrl}/api/me/checkout`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN,
+        cookie: 'session=valid-token',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ priceId: 'pri_team', quantity: 0 }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(createCheckoutForUser).not.toHaveBeenCalled();
   });
 
   afterAll(async () => {

@@ -40,8 +40,11 @@ export function createBillingRoutes(
   router.post('/api/me/checkout', async (req, res, next) => {
     try {
       requireBillingMutations();
-      const { priceId } = z.object({ priceId: z.string().min(1) }).parse(req.body);
-      const transactionId = await checkout.createForUser(req.userId!, priceId);
+      const { priceId, quantity } = z.object({
+        priceId: z.string().min(1),
+        quantity: z.number().int().min(1).max(100).default(1),
+      }).parse(req.body);
+      const transactionId = await checkout.createForUser(req.userId!, priceId, quantity);
       return res.status(201).json({ transactionId });
     } catch (error) {
       return next(error);

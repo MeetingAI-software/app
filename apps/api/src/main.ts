@@ -27,7 +27,12 @@ import { CustomerPortalService } from './application/customer-portal.service';
 import { CheckoutService } from './application/checkout.service';
 import { SubscriptionUpdateService } from './application/subscription-update.service';
 import { BillingContextService } from './application/billing-context.service';
-import { paddleCheckoutPriceIds, paddlePlanChangePrices, paddlePriceCatalog } from './config/billing-catalog';
+import {
+  paddleCheckoutPriceIds,
+  paddlePlanChangePrices,
+  paddlePriceCatalog,
+  paddleTeamPriceIds,
+} from './config/billing-catalog';
 import { AuthService } from './application/auth.service';
 import { EmailVerificationTokenService } from './application/email-verification-token.service';
 import { EmailVerificationDeliveryService } from './application/email-verification-delivery.service';
@@ -170,7 +175,7 @@ async function bootstrap() {
   // 4c. Auth (Day 5): accounts + sessions + GDPR erasure
   const userRepo = new DrizzleUserRepository();
   const checkoutService = new CheckoutService(
-    paddleBillingRepo, userRepo, new PaddleCheckoutAdapter(), paddleCheckoutPriceIds,
+    paddleBillingRepo, userRepo, new PaddleCheckoutAdapter(), paddleCheckoutPriceIds, paddleTeamPriceIds,
   );
   const subscriptionUpdate = new SubscriptionUpdateService(
     paddleBillingRepo, new PaddleSubscriptionUpdateAdapter(), paddlePlanChangePrices,

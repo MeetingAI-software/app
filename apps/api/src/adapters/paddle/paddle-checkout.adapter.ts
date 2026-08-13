@@ -9,11 +9,11 @@ export class PaddleCheckoutAdapter implements PaddleCheckoutPort {
     return customer.id;
   }
 
-  async createTransaction(input: { customerId: string; priceId: string; appUserId: string }): Promise<string> {
+  async createTransaction(input: { customerId: string; priceId: string; quantity: number; appUserId: string }): Promise<string> {
     const paddle = this.client();
     const transaction = await paddle.transactions.create({
       customerId: input.customerId,
-      items: [{ priceId: input.priceId, quantity: 1 }],
+      items: [{ priceId: input.priceId, quantity: input.quantity }],
       customData: { appUserId: input.appUserId },
     });
     return transaction.id;

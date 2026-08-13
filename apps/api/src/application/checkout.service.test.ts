@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PaddleBillingRepository, UserRepository } from '../ports/repositories.port';
 import type { PaddleCheckoutPort } from '../ports/paddle-checkout.port';
-import { InvalidBillingPriceError, SubscriptionAlreadyActiveError } from '../domain/errors';
+import {
+  InvalidBillingPriceError,
+  InvalidBillingQuantityError,
+  SubscriptionAlreadyActiveError,
+} from '../domain/errors';
 import { CheckoutService } from './checkout.service';
 
 function setup(options: { customerId?: string; recoveredCustomerId?: string; status?: string } = {}) {
@@ -23,7 +27,13 @@ function setup(options: { customerId?: string; recoveredCustomerId?: string; sta
     createTransaction: vi.fn().mockResolvedValue('txn_1'),
   };
   return {
-    service: new CheckoutService(billingRepo, userRepo, checkout, new Set(['pri_solo'])),
+    service: new CheckoutService(
+      billingRepo,
+      userRepo,
+      checkout,
+      new Set(['pri_solo', 'pri_team']),
+      new Set(['pri_team']),
+    ),
     billingRepo,
     checkout,
   };
@@ -37,7 +47,7 @@ describe('CheckoutService', () => {
     expect(checkout.createCustomer).toHaveBeenCalledWith('person@example.com', 'user-1');
     expect(billingRepo.upsertCustomer).toHaveBeenCalledWith({ customerId: 'ctm_new', email: 'person@example.com' });
     expect(checkout.createTransaction).toHaveBeenCalledWith({
-      customerId: 'ctm_new', priceId: 'pri_solo', appUserId: 'user-1',
+      customerId: 'ctm_new', priceId: 'pri_solo', quantity: 1, appUserId: 'user-1',
     });
   });
 
@@ -46,7 +56,7 @@ describe('CheckoutService', () => {
     await service.createForUser('user-1', 'pri_solo');
     expect(checkout.createCustomer).not.toHaveBeenCalled();
     expect(checkout.createTransaction).toHaveBeenCalledWith({
-      customerId: 'ctm_existing', priceId: 'pri_solo', appUserId: 'user-1',
+      customerId: 'ctm_existing', priceId: 'pri_solo', quantity: 1, appUserId: 'user-1',
     });
   });
 
@@ -61,7 +71,7 @@ describe('CheckoutService', () => {
     });
     expect(checkout.createCustomer).not.toHaveBeenCalled();
     expect(checkout.createTransaction).toHaveBeenCalledWith({
-      customerId: 'ctm_recovered', priceId: 'pri_solo', appUserId: 'user-1',
+      customerId: 'ctm_recovered', priceId: 'pri_solo', quantity: 1, appUserId: 'user-1',
     });
   });
 
@@ -74,6 +84,28 @@ describe('CheckoutService', () => {
   it('rejects price ids outside the server catalog', async () => {
     const { service, checkout } = setup();
     await expect(service.createForUser('user-1', 'pri_attacker')).rejects.toThrow(InvalidBillingPriceError);
+    expect(checkout.createTransaction).not.toHaveBeenCalled();
+  });
+
+  it('passes the selected Team seat quantity to Paddle', async () => {
+    const { service, checkout } = setup({ customerId: 'ctm_existing' });
+
+    await service.createForUser('user-1', 'pri_team', 4);
+
+    expect(checkout.createTransaction).toHaveBeenCalledWith({
+      customerId: 'ctm_existing', priceId: 'pri_team', quantity: 4, appUserId: 'user-1',
+    });
+  });
+
+  it('rejects multiple seats for Solo and unsafe Team quantities', async () => {
+    const { service, checkout } = setup({ customerId: 'ctm_existing' });
+
+    await expect(service.createForUser('user-1', 'pri_solo', 2))
+      .rejects.toThrow(InvalidBillingQuantityError);
+    await expect(service.createForUser('user-1', 'pri_team', 0))
+      .rejects.toThrow(InvalidBillingQuantityError);
+    await expect(service.createForUser('user-1', 'pri_team', 101))
+      .rejects.toThrow(InvalidBillingQuantityError);
     expect(checkout.createTransaction).not.toHaveBeenCalled();
   });
 

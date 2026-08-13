@@ -21,6 +21,7 @@ import {
   PaddleNotConfiguredError,
   BillingMutationsDisabledError,
   InvalidBillingPriceError,
+  InvalidBillingQuantityError,
   SubscriptionAlreadyActiveError,
   SubscriptionPaymentDeclinedError,
 } from '../../../domain/errors';
@@ -84,6 +85,12 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   if (err instanceof InvalidBillingPriceError) {
     return res.status(400).json({
       error: { code: 'INVALID_BILLING_PRICE', message: err.message },
+    });
+  }
+
+  if (err instanceof InvalidBillingQuantityError) {
+    return res.status(400).json({
+      error: { code: 'INVALID_BILLING_QUANTITY', message: err.message },
     });
   }
 
