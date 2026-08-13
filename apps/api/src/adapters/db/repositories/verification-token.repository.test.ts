@@ -79,7 +79,9 @@ describe('DrizzleVerificationTokenRepository', () => {
           tokenHash: 'second',
           expiresAt: future(),
         } as never),
-      ).rejects.toThrow(/unique|duplicate/i);
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: expect.stringMatching(/unique|duplicate/i) }),
+      });
     });
   });
 
