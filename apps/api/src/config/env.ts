@@ -4,7 +4,7 @@ import { z } from 'zod';
 // Load .env file
 dotenv.config({ override: true });
 
-const envSchema = z.object({
+export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -45,6 +45,9 @@ const envSchema = z.object({
   ASSEMBLYAI_BASE_URL: z.string().url().default('https://api.assemblyai.com'),
   TRANSCRIPTION_PROVIDER: z.enum(['fake', 'assemblyai']).default('fake'),
   TRANSCRIPTION_WEBHOOK_SECRET: z.string().optional(),
+  // Fail closed: production in-room recording stays unavailable until an operator explicitly
+  // enables it with an EU-provisioned AssemblyAI account and the complete upload pipeline.
+  IN_ROOM_RECORDING_ENABLED: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   MAX_CHAT_QUESTIONS_PER_MEETING: z.coerce.number().default(20),
@@ -83,6 +86,42 @@ const envSchema = z.object({
   NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID: z.string().optional(),
   NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID: z.string().optional(),
 }).superRefine((cfg, ctx) => {
+  if (cfg.NODE_ENV === 'production' && cfg.IN_ROOM_RECORDING_ENABLED) {
+    const required = [
+      ['ASSEMBLYAI_API_KEY', cfg.ASSEMBLYAI_API_KEY],
+      ['TRANSCRIPTION_WEBHOOK_SECRET', cfg.TRANSCRIPTION_WEBHOOK_SECRET],
+      ['SUPABASE_URL', cfg.SUPABASE_URL],
+      ['SUPABASE_SERVICE_ROLE_KEY', cfg.SUPABASE_SERVICE_ROLE_KEY],
+    ] as const;
+
+    if (cfg.TRANSCRIPTION_PROVIDER !== 'assemblyai') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['TRANSCRIPTION_PROVIDER'],
+        message: 'TRANSCRIPTION_PROVIDER must be "assemblyai" when in-room recording is enabled in production',
+      });
+    }
+
+    const endpoint = new URL(cfg.ASSEMBLYAI_BASE_URL);
+    if (endpoint.origin !== 'https://api.eu.assemblyai.com' || !['', '/'].includes(endpoint.pathname)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ASSEMBLYAI_BASE_URL'],
+        message: 'ASSEMBLYAI_BASE_URL must be https://api.eu.assemblyai.com when in-room recording is enabled in production',
+      });
+    }
+
+    for (const [key, value] of required) {
+      if (!value || value.trim() === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when in-room recording is enabled in production`,
+        });
+      }
+    }
+  }
+
   // Same fail-fast standard as everything else: don't boot half-configured for a paid vendor.
   if (cfg.BOT_PROVIDER === 'recall') {
     const required = [

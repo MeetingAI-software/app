@@ -17,7 +17,7 @@ Every period here is our own decision, not a statutory minimum.
 | Live transcript segments | until the final transcript lands | pipeline | [process-webhook-event.service.ts:102](../apps/api/src/application/process-webhook-event.service.ts#L102) |
 | Sessions | `SESSION_TTL_DAYS` (30 days), then deleted | sweep job | [sweep.ts:137](../apps/api/src/jobs/sweep.ts#L137) |
 | Email send ledger | 30 days | sweep job | [sweep.ts:12](../apps/api/src/jobs/sweep.ts#L12) |
-| Email verification tokens | 24-hour TTL, then deleted | sweep job | [sweep.ts:161](../apps/api/src/jobs/sweep.ts#L161) |
+| Email verification tokens | 24-hour TTL, then next sweep | expiry checked on use + sweep job | [sweep.ts](../apps/api/src/jobs/sweep.ts) |
 | Transcripts, documents, chat, usage | until the account is deleted | user-triggered erasure | [auth.service.ts:236-264](../apps/api/src/application/auth.service.ts#L236-L264) |
 
 ### Why audio goes first
@@ -47,9 +47,9 @@ after transcription and is deleted at the next pass, so real-world lifetime is b
 could not evidence.
 
 Every pass logs its counts — `Sweep found old transcribed meetings`, `Cleared meeting
-audioStoragePath in DB`, `Sweep deleted expired sessions`, `Sweep pruned the email send ledger`,
-`Sweep deleted expired verification tokens` — and failures are reported to Sentry. Those logs are the
-evidence that the schedule executes.
+audioStoragePath in DB`, `Sweep deleted expired sessions`, `Sweep deleted expired email verification
+tokens`, `Sweep pruned the email send ledger` — and failures are reported to Sentry. Token values and
+hashes are never included in cleanup logs. Those logs are the evidence that the schedule executes.
 
 ## Account deletion
 
@@ -62,11 +62,12 @@ One deliberate exception: `email_send_ledger.user_id` is set to `NULL` rather th
 ([schema.ts:130](../apps/api/src/adapters/db/schema.ts#L130)). The send still happened and the
 anti-abuse budget still needs to count it; once detached from the user it is no longer personal data.
 
-## Known gaps
+## External verification still required
 
-- **AssemblyAI region.** The endpoint is a config switch — `ASSEMBLYAI_BASE_URL` — not a code change,
-  but it only achieves EU processing with an EU-provisioned account and key. Until those are confirmed
-  on our plan, in-room audio may be transcribed outside the EU. Tracked in the README.
+In-room recording is disabled by default. Production startup accepts enablement only with the exact
+AssemblyAI EU API origin and complete AssemblyAI/Supabase configuration. An endpoint check cannot
+prove account provisioning, deployed dashboard settings, provider retention, or contractual terms;
+those facts remain explicit Live checks in the [data processor map](data-processors.md).
 
 ## Development environments
 

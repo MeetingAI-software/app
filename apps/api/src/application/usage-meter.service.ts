@@ -1,5 +1,5 @@
 import type { MeetingRepository, UsageRepository } from '../ports/repositories.port';
-import { CapExceededError, PlanUpgradeRequiredError } from '../domain/errors';
+import { CapExceededError, FeatureUnavailableError, PlanUpgradeRequiredError } from '../domain/errors';
 import type { BillingAccessProvider, PlanEntitlements } from '../domain/billing';
 import { config } from '../config/env';
 
@@ -8,10 +8,14 @@ export class UsageMeterService {
     private readonly meetingRepo: MeetingRepository,
     private readonly usageRepo: UsageRepository,
     private readonly billingAccess: BillingAccessProvider,
+    private readonly inRoomRecordingEnabled = false,
   ) {}
 
   async assertCanStartMeeting(userId: string, source: 'bot' | 'upload' = 'bot'): Promise<PlanEntitlements> {
     const access = await this.billingAccess.getAccess(userId);
+    if (source === 'upload' && !this.inRoomRecordingEnabled) {
+      throw new FeatureUnavailableError('In-room recording is not available in this environment');
+    }
     if (source === 'upload' && !access.entitlements.phoneInRoomRecording) {
       throw new PlanUpgradeRequiredError('In-room recording requires a Team or Business plan');
     }

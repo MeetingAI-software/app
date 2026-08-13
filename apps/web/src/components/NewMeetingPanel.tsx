@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiError, createMeeting, type SubscriptionSummary } from '@/lib/api';
 import InRoomRecorder from './InRoomRecorder';
+import InRoomUnavailableNotice from './InRoomUnavailableNotice';
+import RecordingConsent from './RecordingConsent';
 import Link from 'next/link';
 
 type Tab = 'online' | 'inroom';
@@ -13,8 +15,11 @@ export default function NewMeetingPanel({ subscription }: { subscription: Subscr
   const [meetingUrl, setMeetingUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [onlineRecordingConfirmed, setOnlineRecordingConfirmed] = useState(false);
   const router = useRouter();
-  const canUseInRoom = subscription?.entitlements.phoneInRoomRecording ?? false;
+  const inRoomRecordingEnabled = subscription?.inRoomRecordingEnabled ?? false;
+  const canUseInRoom = inRoomRecordingEnabled
+    && (subscription?.entitlements.phoneInRoomRecording ?? false);
 
   async function handleOnlineSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -80,14 +85,23 @@ export default function NewMeetingPanel({ subscription }: { subscription: Subscr
             </div>
           )}
 
+          <RecordingConsent
+            id="online-recording-consent"
+            checked={onlineRecordingConfirmed}
+            disabled={loading}
+            onChange={setOnlineRecordingConfirmed}
+          />
+
           <button
             type="submit"
-            disabled={loading || !meetingUrl.trim()}
+            disabled={loading || !meetingUrl.trim() || !onlineRecordingConfirmed}
             className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg px-6 py-3 font-semibold text-sm transition-colors shadow-sm cursor-pointer"
           >
             {loading ? 'Adding bot to meeting…' : 'Start meeting bot'}
           </button>
         </form>
+      ) : !inRoomRecordingEnabled ? (
+        <InRoomUnavailableNotice />
       ) : canUseInRoom ? (
         <InRoomRecorder />
       ) : (

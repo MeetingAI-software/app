@@ -162,6 +162,14 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
     this.byHash.delete(tokenHash);
   }
 
+  async deleteExpired(now: Date): Promise<number> {
+    const before = this.byHash.size;
+    for (const [tokenHash, token] of this.byHash) {
+      if (token.expiresAt.getTime() <= now.getTime()) this.byHash.delete(tokenHash);
+    }
+    return before - this.byHash.size;
+  }
+
   async consumeAndVerify(input: { tokenHash: string; now: Date }) {
     const token = this.byHash.get(input.tokenHash);
     if (!token) return { status: 'invalid' as const };
@@ -177,12 +185,6 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
     const verified = await this.users.findById(user.id);
     if (!verified) throw new Error('missing user');
     return { status: 'verified' as const, user: verified };
-  }
-
-  // Port surface only — pruning belongs to the sweep, which this suite does not run. A constant is
-  // honest here; implementing it would invite a test to assert behaviour nothing in AuthService owns.
-  async deleteExpired() {
-    return 0;
   }
 
   expire(rawToken: string): void {

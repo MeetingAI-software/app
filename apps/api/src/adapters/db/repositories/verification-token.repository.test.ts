@@ -171,7 +171,7 @@ describe('DrizzleVerificationTokenRepository', () => {
     });
 
     // The exact-boundary case. `gt(expiresAt, now)` accepts only strictly-future expiry, so a token
-    // expiring at this very instant is already dead — and deleteExpired's `lt` is the complement.
+    // expiring at this very instant is already dead — and deleteExpired's `lte` is the complement.
     it('treats a token expiring exactly now as expired', async () => {
       const now = new Date();
       await repo.replaceForUser({ userId, tokenHash: 'edge', expiresAt: now });
@@ -189,17 +189,18 @@ describe('DrizzleVerificationTokenRepository', () => {
     });
   });
 
+  // The sweep passes its own clock in, so every case here pins the cutoff to one fixed instant
+  // rather than to wall time.
   describe('deleteExpired', () => {
-    // Added in PR #42, where the only available proof was reading the generated SQL because no
-    // database could be run. This is that proof, executed.
     it('deletes expired tokens, keeps live ones, and returns the count', async () => {
+      const now = new Date();
       const u2 = await makeUser('b@example.com');
       const u3 = await makeUser('c@example.com');
-      await repo.replaceForUser({ userId, tokenHash: 'dead-1', expiresAt: past() });
-      await repo.replaceForUser({ userId: u2, tokenHash: 'dead-2', expiresAt: new Date(Date.now() - 1000) });
-      await repo.replaceForUser({ userId: u3, tokenHash: 'alive', expiresAt: future() });
+      await repo.replaceForUser({ userId, tokenHash: 'dead-1', expiresAt: new Date(now.getTime() - HOUR) });
+      await repo.replaceForUser({ userId: u2, tokenHash: 'dead-2', expiresAt: new Date(now.getTime() - 1000) });
+      await repo.replaceForUser({ userId: u3, tokenHash: 'alive', expiresAt: new Date(now.getTime() + 24 * HOUR) });
 
-      expect(await repo.deleteExpired()).toBe(2);
+      expect(await repo.deleteExpired(now)).toBe(2);
 
       expect(await repo.findByTokenHash('dead-1')).toBeNull();
       expect(await repo.findByTokenHash('dead-2')).toBeNull();
@@ -207,28 +208,42 @@ describe('DrizzleVerificationTokenRepository', () => {
     });
 
     it('reports zero and changes nothing when every token is live', async () => {
-      await repo.replaceForUser({ userId, tokenHash: 'alive', expiresAt: future() });
+      const now = new Date();
+      await repo.replaceForUser({ userId, tokenHash: 'alive', expiresAt: new Date(now.getTime() + HOUR) });
 
-      expect(await repo.deleteExpired()).toBe(0);
+      expect(await repo.deleteExpired(now)).toBe(0);
       expect(await repo.findByTokenHash('alive')).not.toBeNull();
     });
 
     it('is idempotent — a second pass finds nothing left to remove', async () => {
-      await repo.replaceForUser({ userId, tokenHash: 'dead', expiresAt: past() });
+      const now = new Date();
+      await repo.replaceForUser({ userId, tokenHash: 'dead', expiresAt: new Date(now.getTime() - HOUR) });
 
-      expect(await repo.deleteExpired()).toBe(1);
-      expect(await repo.deleteExpired()).toBe(0);
+      expect(await repo.deleteExpired(now)).toBe(1);
+      expect(await repo.deleteExpired(now)).toBe(0);
     });
 
-    // The complement of consumeAndVerify's boundary above: a token that is still spendable must
-    // never be swept. An inverted predicate here would delete exactly the live ones.
+    // `lte` is the exact complement of consumeAndVerify's `gt(expiresAt, now)`: a token expiring at
+    // this very instant is already unspendable, so the sweep must be free to remove it. A strict
+    // `lt` would leave precisely this row on disk — unusable, but undeleted, which is the thing
+    // storage limitation forbids.
+    it('deletes a token expiring exactly at the cutoff', async () => {
+      const now = new Date();
+      await repo.replaceForUser({ userId, tokenHash: 'edge', expiresAt: now });
+
+      expect(await repo.deleteExpired(now)).toBe(1);
+      expect(await repo.findByTokenHash('edge')).toBeNull();
+    });
+
+    // The other side of that boundary: a token consumeAndVerify would still accept must survive.
+    // An inverted predicate here would delete exactly the live ones.
     it('never deletes a token that consumeAndVerify would still accept', async () => {
-      await repo.replaceForUser({ userId, tokenHash: 'spendable', expiresAt: new Date(Date.now() + 1000) });
+      const now = new Date();
+      await repo.replaceForUser({ userId, tokenHash: 'spendable', expiresAt: new Date(now.getTime() + 1000) });
 
-      await repo.deleteExpired();
+      await repo.deleteExpired(now);
 
-      expect((await repo.consumeAndVerify({ tokenHash: 'spendable', now: new Date() })).status)
-        .toBe('verified');
+      expect((await repo.consumeAndVerify({ tokenHash: 'spendable', now })).status).toBe('verified');
     });
   });
 

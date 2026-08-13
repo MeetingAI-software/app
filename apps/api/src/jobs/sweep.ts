@@ -1,4 +1,9 @@
-import type { EmailSendLedgerRepository, MeetingRepository, SessionRepository, VerificationTokenRepository } from '../ports/repositories.port';
+import type {
+  EmailSendLedgerRepository,
+  MeetingRepository,
+  SessionRepository,
+  VerificationTokenRepository,
+} from '../ports/repositories.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import { assertTransition } from '../domain/state-machine';
@@ -20,7 +25,7 @@ export class SweepJob {
     private readonly botAdapter: MeetingBotPort,
     private readonly sessionRepo: SessionRepository,
     private readonly emailSendLedgerRepo: EmailSendLedgerRepository,
-    private readonly verificationTokenRepo: VerificationTokenRepository
+    private readonly verificationTokenRepo: VerificationTokenRepository,
   ) {}
 
   start() {
@@ -141,7 +146,17 @@ export class SweepJob {
       captureError(err);
     }
 
-    // 4. Prune the email send ledger. Same isolation rule as above: the budget only ever reads the
+    // 4. Delete expired email verification credentials. Log only the count: token values and hashes
+    // are credentials and must never become retention telemetry.
+    try {
+      const removed = await this.verificationTokenRepo.deleteExpired(new Date());
+      logger.info({ count: removed }, 'Sweep deleted expired email verification tokens');
+    } catch (err: any) {
+      logger.error({ err }, 'Error deleting expired email verification tokens');
+      captureError(err);
+    }
+
+    // 5. Prune the email send ledger. Same isolation rule as above: the budget only ever reads the
     // last 24h, so a failure here costs disk, never enforcement.
     try {
       const cutoff = new Date(Date.now() - EMAIL_SEND_LEDGER_RETENTION_MS);
@@ -149,19 +164,6 @@ export class SweepJob {
       logger.info({ count: removed }, 'Sweep pruned the email send ledger');
     } catch (err: any) {
       logger.error({ err }, 'Error pruning the email send ledger');
-      captureError(err);
-    }
-
-    // 5. Delete expired verification tokens. The 24h TTL was only ever enforced when a token was
-    // spent, so expired rows lived forever — and storage limitation means deleted, not merely
-    // unusable. Same isolation rule as above: a failure here costs a dead secret row on disk, never
-    // meeting or audio cleanup. The repository owns the cutoff because the table has its own
-    // expires_at, so there is no retention constant to keep in sync here.
-    try {
-      const removed = await this.verificationTokenRepo.deleteExpired();
-      logger.info({ count: removed }, 'Sweep deleted expired verification tokens');
-    } catch (err: any) {
-      logger.error({ err }, 'Error deleting expired verification tokens');
       captureError(err);
     }
 

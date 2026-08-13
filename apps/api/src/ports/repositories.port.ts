@@ -113,12 +113,12 @@ export interface VerificationTokenRepository {
   /** The user's single live token (unique index on user_id) — backs the resend cooldown. */
   findForUser(userId: string): Promise<EmailVerificationToken | null>;
   deleteByTokenHash(tokenHash: string): Promise<void>;
+  /** Deletes tokens at or past their expiry and returns only the number removed. */
+  deleteExpired(now: Date): Promise<number>;
   consumeAndVerify(input: {
     tokenHash: string;
     now: Date;
   }): Promise<VerificationTokenConsumeResult>;
-  /** Retention janitor: deletes every token with expires_at < now(). Returns the count removed. */
-  deleteExpired(): Promise<number>;
 }
 
 /** What triggered a verification email — the breakdown you need when the daily budget blows. */

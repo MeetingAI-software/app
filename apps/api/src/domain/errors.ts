@@ -13,6 +13,13 @@ export class PlanUpgradeRequiredError extends Error {
   }
 }
 
+export class FeatureUnavailableError extends Error {
+  constructor(message = 'This feature is temporarily unavailable') {
+    super(message);
+    this.name = 'FeatureUnavailableError';
+  }
+}
+
 export class PaddleCustomerNotFoundError extends Error {
   constructor(message: string) {
     super(message);

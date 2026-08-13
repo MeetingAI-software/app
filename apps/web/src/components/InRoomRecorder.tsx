@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiError, uploadMeeting } from '@/lib/api';
 import { msToClock } from '@/lib/format';
+import RecordingConsent from './RecordingConsent';
 
 type Phase = 'idle' | 'recording' | 'recorded' | 'uploading';
 
@@ -36,6 +37,7 @@ export default function InRoomRecorder() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [recordingConfirmed, setRecordingConfirmed] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -204,14 +206,24 @@ export default function InRoomRecorder() {
       {/* Recorder */}
       <div className="border-t border-slate-100 pt-6 flex flex-col items-center justify-center gap-4">
         {phase === 'idle' && (
-          <button
-            type="button"
-            onClick={startRecording}
-            className="inline-flex items-center gap-2 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg px-8 py-3.5 font-bold text-sm transition-all shadow-md hover:shadow-lg cursor-pointer transform hover:-translate-y-0.5"
-          >
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />
-            Start Recording Session
-          </button>
+          <div className="w-full space-y-4">
+            <RecordingConsent
+              id="in-room-recording-consent"
+              checked={recordingConfirmed}
+              onChange={setRecordingConfirmed}
+            />
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={startRecording}
+                disabled={!recordingConfirmed}
+                className="inline-flex items-center gap-2 bg-[#0F172A] hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 text-white rounded-lg px-8 py-3.5 font-bold text-sm transition-all shadow-md hover:shadow-lg cursor-pointer transform hover:-translate-y-0.5"
+              >
+                <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />
+                Start Recording Session
+              </button>
+            </div>
+          </div>
         )}
 
         {phase === 'recording' && (

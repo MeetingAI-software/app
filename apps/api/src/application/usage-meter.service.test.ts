@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UsageMeterService } from './usage-meter.service';
-import { CapExceededError, PlanUpgradeRequiredError } from '../domain/errors';
+import { CapExceededError, FeatureUnavailableError, PlanUpgradeRequiredError } from '../domain/errors';
 import type { MeetingRepository, UsageRepository } from '../ports/repositories.port';
 import { PLAN_ENTITLEMENTS } from '../domain/billing';
 
@@ -39,7 +39,7 @@ describe('UsageMeterService', () => {
         plan: 'solo', status: 'active', hasPaidAccess: true,
         entitlements: PLAN_ENTITLEMENTS.solo, subscription: null,
       }),
-    });
+    }, true);
   });
 
   it('allows meeting if limits are not reached', async () => {
@@ -79,10 +79,24 @@ describe('UsageMeterService', () => {
         plan: 'free', status: 'none', hasPaidAccess: false,
         entitlements: PLAN_ENTITLEMENTS.free, subscription: null,
       }),
-    });
+    }, true);
 
     await expect(freeMeter.assertCanStartMeeting('user-1', 'upload')).rejects.toThrow(
       PlanUpgradeRequiredError,
+    );
+    expect(mockMeetingRepo.countActiveForUser).not.toHaveBeenCalled();
+  });
+
+  it('blocks in-room uploads before entitlement checks when the feature is disabled', async () => {
+    const disabledMeter = new UsageMeterService(mockMeetingRepo, mockUsageRepo, {
+      getAccess: vi.fn().mockResolvedValue({
+        plan: 'team', status: 'active', hasPaidAccess: true,
+        entitlements: PLAN_ENTITLEMENTS.team, subscription: null,
+      }),
+    });
+
+    await expect(disabledMeter.assertCanStartMeeting('user-1', 'upload')).rejects.toThrow(
+      FeatureUnavailableError,
     );
     expect(mockMeetingRepo.countActiveForUser).not.toHaveBeenCalled();
   });
