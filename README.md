@@ -49,3 +49,11 @@ startup require AssemblyAI, the exact `https://api.eu.assemblyai.com` endpoint, 
 key and webhook secret, and complete Supabase configuration. That technical guard does not prove
 the external account's region; operators must still verify the deployed values, account
 provisioning, provider settings, retention, and DPA before Live.
+
+## Launch governance
+
+Paddle Live remains blocked until the owners complete the
+[legal seller readiness gate](docs/legal-seller-readiness.md). The repository does not assume a
+registered business, legal supplier, or public seller address. Customer email setup is documented
+separately in the [support email runbook](docs/support-email.md), including authenticated outbound
+mail and SPF, DKIM, and DMARC verification rather than inbound forwarding alone.
