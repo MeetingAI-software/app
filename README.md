@@ -61,3 +61,7 @@ mail and SPF, DKIM, and DMARC verification rather than inbound forwarding alone.
 Before opening billing, run the [48-hour customer validation](docs/customer-validation.md) with real
 prices and the anonymized tracker. Validation collects purchase intent, not money, and never
 overrides the legal or operational Live gates.
+
+The API's [Paddle production startup guard](docs/paddle-production-hardening.md) validates a complete,
+Live-only catalog before accepting traffic. It is a technical safeguard, not permission to bypass
+customer validation, seller readiness, policies, or Paddle approval.
