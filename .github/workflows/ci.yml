@@ -12,7 +12,7 @@ on:
 
 jobs:
   api:
-    name: API (typecheck + test)
+    name: API (test + typecheck + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,9 +25,11 @@ jobs:
         run: npm run typecheck --workspace api
       - name: Test
         run: npm run test --workspace api
+      - name: Build
+        run: npm run build --workspace api
 
   web:
-    name: Web (build + typecheck + test)
+    name: Web (test + typecheck + lint + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,8 +43,12 @@ jobs:
       # from the server's limiter and no build here ever went red.
       - name: Test
         run: npm run test --workspace web
-      # `next build` generates next-env.d.ts (gitignored) and runs TypeScript, so it both
-      # typechecks and catches route/config errors.
+      - name: Typecheck
+        run: npm run typecheck --workspace web
+      - name: Lint
+        run: npm run lint --workspace web
+      # Keep the production build as a separate gate: it catches route/config and bundling errors
+      # that plain TypeScript and ESLint do not exercise.
       - name: Build
         run: npm run build --workspace web
 
@@ -87,7 +93,27 @@ jobs:
         run: railway run --service api --environment production -- npm run db:migrate -w api
 
       - name: Deploy
-        run: railway up --service api --environment production --ci
+        # Railway occasionally rejects a CLI upload while creating its repository snapshot, before
+        # the build has started. Retry that idempotent upload a few times; the commit stamp and
+        # migration have already completed, and the SHA health check below still decides success.
+        # Do not enable shell tracing here: deployment commands run with production credentials.
+        timeout-minutes: 20
+        run: |
+          for attempt in 1 2 3; do
+            echo "Railway deploy attempt $attempt/3"
+            if railway up --service api --environment production --ci; then
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 15))
+              echo "::warning::Railway deploy attempt $attempt failed; retrying in ${delay}s"
+              sleep "$delay"
+            fi
+          done
+
+          echo "::error::Railway deployment failed after 3 attempts; inspect the deployment URL printed above"
+          exit 1
 
       # Poll for the exact merged SHA, not just a 200 — the previous build answers 200 as well, so
       # status alone cannot tell "deployed" apart from "still running yesterday's code".

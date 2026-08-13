@@ -1,8 +1,9 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-// Load .env file
-dotenv.config({ override: true });
+// Load local defaults without replacing values explicitly supplied by the process. Deployment
+// platforms and test setup must take precedence over a checked-out or developer-local .env file.
+dotenv.config();
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
