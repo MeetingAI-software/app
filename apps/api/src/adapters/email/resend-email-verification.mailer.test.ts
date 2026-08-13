@@ -15,7 +15,7 @@ const message = {
 
 describe('ResendEmailVerificationMailer', () => {
   it('sends both accessible HTML and plain text without logging the secret URL', async () => {
-    const sendEmail = vi.fn<Parameters<ResendEmailSender>, ReturnType<ResendEmailSender>>().mockResolvedValue({
+    const sendEmail = vi.fn<ResendEmailSender>().mockResolvedValue({
       data: { id: 'email-1' },
       error: null,
     } as CreateEmailResponse);
@@ -47,7 +47,7 @@ describe('ResendEmailVerificationMailer', () => {
   });
 
   it('turns a Resend API error into a delivery failure', async () => {
-    const sendEmail = vi.fn<Parameters<ResendEmailSender>, ReturnType<ResendEmailSender>>().mockResolvedValue({
+    const sendEmail = vi.fn<ResendEmailSender>().mockResolvedValue({
       data: null,
       error: { message: 'Domain is not verified', name: 'validation_error' },
     } as CreateEmailResponse);

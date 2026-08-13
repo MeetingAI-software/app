@@ -108,9 +108,11 @@ describe('DrizzleSessionRepository', () => {
   // someone later adds a cascade, or reorders the erasure, this test says so.
   it('refuses to delete a user while their sessions still exist', async () => {
     await repo.create({ userId, tokenHash: 'held', expiresAt: new Date(Date.now() + HOUR) });
-    await expect(db.delete(users).where(eq(users.id, userId))).rejects.toThrow(
-      /violates foreign key constraint/i,
-    );
+    await expect(db.delete(users).where(eq(users.id, userId))).rejects.toMatchObject({
+      cause: expect.objectContaining({
+        message: expect.stringMatching(/violates foreign key constraint/i),
+      }),
+    });
 
     // Clearing sessions first — the order deleteAccount uses — is what makes erasure possible.
     await repo.deleteAllForUser(userId);

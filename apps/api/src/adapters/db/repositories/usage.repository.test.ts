@@ -182,8 +182,9 @@ describe('DrizzleUsageRepository', () => {
   it('blocks deleting a meeting that still has usage rows', async () => {
     await repo.addSeconds(aliceMeeting, 10);
 
-    await expect(db.delete(meetings).where(eq(meetings.id, aliceMeeting)))
-      .rejects.toThrow(/foreign key|violates/i);
+    await expect(db.delete(meetings).where(eq(meetings.id, aliceMeeting))).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: expect.stringMatching(/foreign key|violates/i) }),
+    });
 
     await repo.deleteByMeeting(aliceMeeting);
     await expect(db.delete(meetings).where(eq(meetings.id, aliceMeeting))).resolves.toBeDefined();

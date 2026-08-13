@@ -99,7 +99,9 @@ describe('DrizzleMeetingRepository', () => {
     it('refuses an owner that is not a real user', async () => {
       await expect(
         insertMeeting({ ownerUserId: '00000000-0000-0000-0000-000000000000' }),
-      ).rejects.toThrow(/foreign key/i);
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: expect.stringMatching(/foreign key/i) }),
+      });
     });
   });
 
@@ -371,7 +373,9 @@ describe('DrizzleMeetingRepository', () => {
         .insert(transcripts)
         .values({ meetingId: m.id, segments: [], rawPayload: {} } as never);
 
-      await expect(repo.deleteById(m.id)).rejects.toThrow(/foreign key/i);
+      await expect(repo.deleteById(m.id)).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: expect.stringMatching(/foreign key/i) }),
+      });
 
       // Children first — the order deleteAccount uses — and the delete goes through.
       await db.delete(transcripts).where(eq(transcripts.meetingId, m.id));

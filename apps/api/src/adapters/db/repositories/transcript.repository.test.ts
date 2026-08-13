@@ -113,8 +113,11 @@ describe('DrizzleTranscriptRepository', () => {
   it('blocks deleting a meeting that still has a transcript', async () => {
     await repo.save(meetingA, segments, {});
 
-    await expect(db.delete(meetings).where(eq(meetings.id, meetingA)))
-      .rejects.toThrow(/foreign key|violates/i);
+    await expect(db.delete(meetings).where(eq(meetings.id, meetingA))).rejects.toMatchObject({
+      cause: expect.objectContaining({
+        message: expect.stringMatching(/foreign key|violates/i),
+      }),
+    });
 
     await repo.deleteByMeeting(meetingA);
     await expect(db.delete(meetings).where(eq(meetings.id, meetingA))).resolves.toBeDefined();

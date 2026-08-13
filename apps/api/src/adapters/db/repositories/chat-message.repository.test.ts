@@ -181,8 +181,9 @@ describe('DrizzleChatMessageRepository', () => {
   it('blocks deleting a meeting that still has messages', async () => {
     await repo.add(meetingA, 'user', 'q1');
 
-    await expect(db.delete(meetings).where(eq(meetings.id, meetingA)))
-      .rejects.toThrow(/foreign key|violates/i);
+    await expect(db.delete(meetings).where(eq(meetings.id, meetingA))).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: expect.stringMatching(/foreign key|violates/i) }),
+    });
 
     await repo.deleteByMeeting(meetingA);
     await expect(db.delete(meetings).where(eq(meetings.id, meetingA))).resolves.toBeDefined();

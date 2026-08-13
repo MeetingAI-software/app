@@ -8,6 +8,20 @@ import { EmailTakenError } from '../../../domain/errors';
 // Postgres unique-constraint violation — Day 5: the users.email UNIQUE index trips this.
 const PG_UNIQUE_VIOLATION = '23505';
 
+function hasPostgresErrorCode(error: unknown, code: string): boolean {
+  let current = error;
+  const visited = new Set<object>();
+
+  while (current && typeof current === 'object' && !visited.has(current)) {
+    visited.add(current);
+    const candidate = current as { code?: unknown; cause?: unknown };
+    if (candidate.code === code) return true;
+    current = candidate.cause;
+  }
+
+  return false;
+}
+
 /** Emails are stored and looked up lowercased so "A@x.com" and "a@x.com" are one account. */
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -32,7 +46,7 @@ export class DrizzleUserRepository implements UserRepository {
         .returning();
       return toUser(row);
     } catch (err) {
-      if (err && typeof err === 'object' && (err as { code?: string }).code === PG_UNIQUE_VIOLATION) {
+      if (hasPostgresErrorCode(err, PG_UNIQUE_VIOLATION)) {
         throw new EmailTakenError(`Email already registered: ${email}`);
       }
       throw err;
@@ -78,7 +92,7 @@ export class DrizzleUserRepository implements UserRepository {
         .returning();
       return toUser(row);
     } catch (err) {
-      if (err && typeof err === 'object' && (err as { code?: string }).code === PG_UNIQUE_VIOLATION) {
+      if (hasPostgresErrorCode(err, PG_UNIQUE_VIOLATION)) {
         throw new EmailTakenError(`Email already registered: ${normalized}`);
       }
       throw err;
