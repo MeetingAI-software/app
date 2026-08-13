@@ -98,7 +98,7 @@ export const PLANS: PricingPlan[] = [
     headline: 'For professionals & freelancers',
     monthlyEur: 19,
     perSeat: false,
-    ctaLabel: 'Start free',
+    ctaLabel: 'Choose Solo',
     ctaHref: '/signup',
     shortFeatures: [
       '10 hours of meeting recording / mo',
@@ -132,7 +132,7 @@ export const PLANS: PricingPlan[] = [
     monthlyEur: 39,
     perSeat: true,
     badge: 'Best value',
-    ctaLabel: 'Start free',
+    ctaLabel: 'Choose Team',
     ctaHref: '/signup',
     shortFeatures: [
       '20 hours / mo per seat',
