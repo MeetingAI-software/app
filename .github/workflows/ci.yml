@@ -12,7 +12,7 @@ on:
 
 jobs:
   api:
-    name: API (typecheck + test)
+    name: API (test + typecheck + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,9 +25,11 @@ jobs:
         run: npm run typecheck --workspace api
       - name: Test
         run: npm run test --workspace api
+      - name: Build
+        run: npm run build --workspace api
 
   web:
-    name: Web (build + typecheck + test)
+    name: Web (test + typecheck + lint + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,8 +43,12 @@ jobs:
       # from the server's limiter and no build here ever went red.
       - name: Test
         run: npm run test --workspace web
-      # `next build` generates next-env.d.ts (gitignored) and runs TypeScript, so it both
-      # typechecks and catches route/config errors.
+      - name: Typecheck
+        run: npm run typecheck --workspace web
+      - name: Lint
+        run: npm run lint --workspace web
+      # Keep the production build as a separate gate: it catches route/config and bundling errors
+      # that plain TypeScript and ESLint do not exercise.
       - name: Build
         run: npm run build --workspace web
 
