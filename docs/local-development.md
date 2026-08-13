@@ -1,5 +1,16 @@
 # Local development
 
+## Node.js version
+
+Use Node.js 20 for the entire npm workspace. The root `package.json` declares `20.x`, matching the
+API runtime and GitHub Actions. Hosting providers that install from the repository root, including
+the Vercel web build, must honor the same version so workspace dependency hoisting and production
+builds are tested under one runtime contract.
+
+Run `node --version` before installing dependencies after switching environments. A version
+manager may use the repository's root engine declaration; otherwise select the latest available
+Node 20 release explicitly.
+
 Everything below runs against a **local** database with **fake** providers. No real user data, no
 vendor spend, no emails to real people.
 
