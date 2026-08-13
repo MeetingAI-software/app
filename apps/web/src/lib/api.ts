@@ -315,11 +315,11 @@ export async function createBillingPortalSession(): Promise<{ url: string }> {
   return handleResponse<{ url: string }>(await api('/api/me/billing-portal', { method: 'POST' }));
 }
 
-export async function createCheckoutTransaction(priceId: string): Promise<{ transactionId: string }> {
+export async function createCheckoutTransaction(priceId: string, quantity = 1): Promise<{ transactionId: string }> {
   return handleResponse<{ transactionId: string }>(await api('/api/me/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ priceId }),
+    body: JSON.stringify({ priceId, quantity }),
   }));
 }
 
