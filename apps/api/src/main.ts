@@ -66,6 +66,7 @@ import type { MeetingBotPort } from './ports/meeting-bot.port';
 import type { DocumentGeneratorPort } from './ports/document-generator.port';
 import type { MeetingChatPort } from './ports/chat.port';
 import type { TranscriptionPort } from './ports/transcription.port';
+import { assertProductionPaddleCatalog } from './adapters/paddle/production-catalog-guard';
 
 async function bootstrap() {
   // Before anything connects. This process runs the sweep job on boot and exposes account deletion,
@@ -90,6 +91,10 @@ async function bootstrap() {
 
   // Day 6 §5: start error monitoring before anything else so boot-time failures are captured too.
   initObservability();
+
+  // Live price IDs are authorization inputs for checkout and plan changes. Verify their actual
+  // Paddle objects before repositories, workers, or the HTTP listener start accepting traffic.
+  await assertProductionPaddleCatalog(config);
 
   console.log(`🚀 Bootstrapping Syncmemos (Env: ${config.NODE_ENV}, Port: ${config.PORT})`);
 
