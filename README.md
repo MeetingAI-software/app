@@ -58,10 +58,13 @@ registered business, legal supplier, or public seller address. Customer email se
 separately in the [support email runbook](docs/support-email.md), including authenticated outbound
 mail and SPF, DKIM, and DMARC verification rather than inbound forwarding alone.
 
-Before opening billing, run the [48-hour customer validation](docs/customer-validation.md) with real
-prices and the anonymized tracker. Validation collects purchase intent, not money, and never
-overrides the legal or operational Live gates.
+The owners have chosen a legal-first launch order. Complete the seller gate, reviewed policies,
+Paddle Live approval, production preflight, and one controlled internal purchase before running the
+[48-hour paid customer validation](docs/customer-validation.md). That validation targets three
+full-price Paddle subscriptions and never accepts manual or off-platform payments.
 
 The API's [Paddle production startup guard](docs/paddle-production-hardening.md) validates a complete,
 Live-only catalog before accepting traffic. It is a technical safeguard, not permission to bypass
 customer validation, seller readiness, policies, or Paddle approval.
+External approval, exact Live catalog setup, the separately approved billing-mirror cleanup, and
+the controlled first purchase are sequenced in [Paddle Live operations](docs/paddle-live-operations.md).

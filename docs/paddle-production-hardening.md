@@ -42,13 +42,18 @@ price IDs, and the public API URL. It must not receive the API key or webhook se
 
 ## Verification order
 
-1. Complete customer validation and every legal seller gate.
+1. Complete every legal seller gate and publish the professionally reviewed policies.
 2. Obtain Paddle Live approval and create the exact catalog and notification destination.
 3. Enter secrets directly in Railway and Vercel with billing mutations still disabled.
 4. Run `npm.cmd run billing:check` in a secure environment; it verifies both apps, the webhook,
    and the remote catalog without printing secrets.
 5. Deploy the API. Confirm it becomes healthy and logs no catalog mismatch.
-6. Keep billing mutations disabled until the separately approved first-Live-purchase window.
+6. Keep billing mutations disabled until the separately approved internal Live-purchase window.
+7. Complete and reverse the controlled internal purchase before opening the paid customer
+   validation window.
 
 To roll back a bad configuration, leave `BILLING_MUTATIONS_ENABLED=false`, correct the Live values
 or catalog, and redeploy. Never make a production deployment boot by adding Sandbox credentials.
+
+Use [Paddle Live operations](paddle-live-operations.md) for the approval, catalog, destructive
+cleanup, internal purchase, and paid-validation sequence.
