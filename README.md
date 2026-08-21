@@ -63,6 +63,10 @@ Paddle Live approval, production preflight, and one controlled internal purchase
 [48-hour paid customer validation](docs/customer-validation.md). That validation targets three
 full-price Paddle subscriptions and never accepts manual or off-platform payments.
 
+The bilingual legal routes and their fail-closed server configuration are documented in
+[legal pages publication](docs/legal-pages.md). They remain unpublished until the verified seller,
+professional policy review, and consumer withdrawal flow are all approved.
+
 The API's [Paddle production startup guard](docs/paddle-production-hardening.md) validates a complete,
 Live-only catalog before accepting traffic. It is a technical safeguard, not permission to bypass
 customer validation, seller readiness, policies, or Paddle approval.
