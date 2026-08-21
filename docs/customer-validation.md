@@ -1,201 +1,173 @@
-# 48-hour customer validation
+# 48-hour paid customer validation
 
-This runbook tests whether real customers are willing to buy Syncmemos at the published prices.
-It is not a launch and it must not collect money. Keep `BILLING_MUTATIONS_ENABLED=false` throughout
-the exercise and do not promise a launch date before the legal seller gate is complete.
+This runbook tests whether real customers buy Syncmemos at the published prices. It is a controlled
+post-readiness sales window, not permission to bypass the legal, policy, Paddle, provider, security,
+or deployment gates.
+
+## Entry gate
+
+Do not contact prospects with an active sales offer or accept payment until all of these are true:
+
+- the owners retained Swedish tax/business guidance and selected exactly one legal supplier;
+- the owners' agreement, lawful public contact details, and payout account are complete;
+- professionally reviewed English and Swedish Terms, Privacy, Refund, and applicable withdrawal
+  flows are publicly available without placeholders;
+- Paddle approved the supplier and domain, and the exact Live catalog and webhook are configured;
+- production passed `billing:check`, the complete test/build suite, and a webhook replay test;
+- one controlled internal Live purchase, refund, cancellation, entitlement rollback, and portal
+  check completed successfully; and
+- `BILLING_MUTATIONS_ENABLED` is `false` immediately before the scheduled window opens.
+
+If any entry condition becomes false, do not start or pause the window without taking another
+payment.
 
 ## Success criteria
 
-Complete the following within one focused 48-hour window:
+Complete the following in one focused 48-hour window:
 
-- contact at least 30 relevant prospects;
+- contact exactly 30 relevant Swedish prospects individually;
 - hold at least 5 live conversations or product demos;
-- present the real Solo and Team prices without an invented discount;
-- obtain at least 2 written, unambiguous statements that the prospect is prepared to buy a named
-  plan at its stated price when sales open;
-- record objections, alternatives, required features, and the decision-maker for each qualified
-  conversation.
+- present the published Solo and Team prices without a validation discount;
+- obtain 3 completed, full-price Paddle subscriptions from genuine target customers; and
+- record objections, alternatives, required features, and buyer role using anonymous prospect IDs.
 
-A request for more information, a wait-list signup, general praise, or willingness to use the
-product for free is not purchase intent.
+A verbal promise, wait-list signup, free user, internal owner purchase, refunded test transaction,
+manual payment, or subscription bought as a favor does not count.
 
 ## Offer under test
 
-Use the product and pricing page as the source of truth. At the time this runbook was written:
-
 | Plan | Price presented | Core allowance |
-|---|---|---|
+|---|---:|---|
 | Solo Monthly | EUR 19/month, excluding VAT | 10 recording hours/month |
 | Solo Annual | EUR 182.40/year, excluding VAT | Same Solo allowance, billed annually |
 | Team Monthly | EUR 39/seat/month, excluding VAT | 20 recording hours/month per seat |
 | Team Annual | EUR 374.40/seat/year, excluding VAT | Same Team allowance, billed annually |
 
-Explain that tax is calculated at checkout, subscriptions renew automatically, there is no free
-trial, and the intended first-purchase guarantee is 14 days. Do not take an order or describe these
-terms as active until the legal policies and Paddle Live account are ready.
+Paddle Checkout calculates tax and captures the card. Explain automatic renewal, the regular
+renewal price, no free trial, cancellation through Settings/Customer Portal, and the reviewed
+14-day first-purchase guarantee before checkout. A customer who cancels renewal keeps the already
+paid period according to the reviewed Terms and Paddle subscription state.
 
-Show only functionality that exists. Online meeting bots, transcripts, summaries, structured
-documents, timestamp-grounded chat, share links, and export can be demonstrated when operational.
-In-room recording is currently disabled pending verified regional provider configuration; describe
-it as unavailable, not as an active Team feature.
+Never accept Swish, cash, bank transfer, card details, or an invoice outside Paddle for this test.
+Do not create a separate one-month product or ask a customer to connect a card later.
 
-## Prospect mix
+Demonstrate only functionality that exists. In-room recording remains unavailable unless the
+production availability flag and provider verification are both complete.
 
-Choose people who regularly attend meetings and can influence a purchase. A useful 30-prospect mix
-is:
+## Prospect allocation
 
-- 10 freelancers, consultants, recruiters, or agency owners who could buy Solo;
-- 10 managers or operations/customer-success leads in teams of 3-20 people;
-- 10 founders, sales leaders, or product leads already paying for meeting or documentation tools.
+Prepare exactly this mix:
 
-Avoid filling the list with friends who do not have the problem, students without buying authority,
-or people receiving a favor in return. Warm introductions are acceptable, but record the
-relationship so the signal can be interpreted honestly.
+- `P01-P15`: founders, agency owners, or independent consultants with frequent client meetings;
+- `P16-P25`: sales or customer-success leaders who influence tool purchasing; and
+- `P26-P30`: recruitment leaders or independent recruiters with frequent interviews.
+
+Prefer prospects who already pay for meeting, CRM, transcription, documentation, or productivity
+software. Exclude students without buying authority and friends who do not experience the problem.
+Warm introductions are allowed when the relationship is recorded anonymously.
 
 ## Data minimization
 
-Use [the validation tracker template](customer-validation-tracker.md). Assign prospect IDs such as
-`P01`; do not commit names, personal email addresses, phone numbers, call recordings, raw notes, or
-customer confidential information. Keep identifiable contact details in the owners' private system
-and delete them when no longer needed.
+Copy [the validation tracker](customer-validation-tracker.md) to a private working document. Keep
+names, email addresses, phone numbers, customer statements, transaction IDs, webhook IDs, and call
+notes outside the repository. The committed report may contain aggregate anonymous counts only.
 
-Ask before recording any research call. The default is written notes without recording.
+Do not record a research call by default. If recording is useful, obtain consent and follow the
+same participant-notification flow used by the product.
 
-## Outreach messages
+## Outreach
 
-Personalize the first sentence. Do not claim the recipient was selected by an automated system and
-do not send bulk unsolicited email through the support mailbox.
+Personalize the first sentence and send each message manually from an appropriate individual
+account. Do not bulk-send through the support inbox.
 
-### Swedish
+### Swedish initial message
 
-> Hej! Jag bygger Syncmemos, som gör mötesinspelningar till transkript, tydliga sammanfattningar och
-> delbara dokument med tidsstämplar. Jag försöker förstå hur personer som har många möten löser det
-> idag. Har du 15 minuter för att visa ditt nuvarande arbetssätt och ge ärlig feedback på en kort
-> demo? Det är en produktintervju, inte ett säljutskick, och vi tar inte emot betalningar ännu.
+> Hej! Jag bygger Syncmemos, som gör mötesinspelningar till sökbara transkript, sammanfattningar och
+> delbara dokument med tidsstämplar. Jag vill förstå hur [relevant roll/verksamhet] hanterar
+> uppföljning efter många kundmöten idag. Har du 15 minuter för att visa ditt nuvarande arbetssätt
+> och ge rak feedback på en kort demo? Om det löser ett verkligt problem finns tjänsten att köpa
+> till ordinarie pris, men ett nej är lika värdefullt för oss som ett ja.
 
-Follow-up after a qualified demo:
+### Qualified follow-up
 
-> Tack för din raka feedback. Priset vi testar är EUR 19/månad exklusive moms för Solo, eller EUR
-> 39/seat/månad exklusive moms för Team. Om produkten vid lansering fungerar som demon idag, skulle
-> du vara beredd att köpa [plan] till det priset? Ett nej eller "inte ännu" är lika värdefullt som
-> ett ja. Vi ber inte om betalning eller kortuppgifter.
+> Tack för din raka feedback. Planen som passar ditt arbetssätt är [Solo/Team och intervall] för
+> [pris] exklusive moms [och antal platser]. Skatt räknas i Paddle Checkout, abonnemanget förnyas
+> automatiskt till samma ordinarie pris och kan sägas upp via Settings. Det finns ingen gratis
+> provperiod och den första prenumerationen omfattas av vår granskade 14-dagarsgaranti. Vill du köpa
+> den planen nu via Syncmemos?
 
-### English
+Do not claim scarcity, guaranteed savings, customer counts, certifications, or regional processing
+that cannot be proved.
 
-> Hi! I am building Syncmemos, which turns meeting recordings into transcripts, clear summaries,
-> and shareable timestamped documents. I am trying to understand how people with frequent meetings
-> solve this today. Would you spend 15 minutes showing me your current workflow and giving candid
-> feedback on a short demo? This is a product interview, not a sales message, and we are not taking
-> payments yet.
+## Interview and demo
 
-Follow-up after a qualified demo:
+1. Ask about the last meeting whose outcome the prospect needed to remember or share.
+2. Establish the existing process, time cost, missed actions, current tools, and current spend.
+3. Confirm who uses the result and who approves a purchase.
+4. Ask about recording consent, security, language, integrations, and procurement blockers.
+5. Demonstrate the smallest real workflow matching the stated problem with fabricated data.
+6. Show transcript, structured document, timestamp navigation, grounded chat, share, and export.
+7. Present exactly one recommended plan and the complete purchase terms.
+8. Let the prospect decide without operating checkout or entering card details for them.
 
-> Thanks for the candid feedback. The price we are testing is EUR 19/month excluding VAT for Solo,
-> or EUR 39/seat/month excluding VAT for Team. If the launch product works as demonstrated today,
-> would you be prepared to buy [plan] at that price? A no or "not yet" is as useful as a yes. We are
-> not asking for payment or card details.
+## Paid-subscription standard
 
-## Interview guide
+A purchase counts only when all of these are privately verified:
 
-Spend most of the call on the prospect's existing behavior before showing the product.
+- the buyer belongs to one of the target segments and is not an owner or internal tester;
+- Paddle reports a completed full-price Live transaction;
+- the subscription has the intended plan, interval, seat count, currency, and active status;
+- the local Paddle customer/subscription mirror contains the matching state;
+- Settings shows the correct plan and allowance after a new login; and
+- Customer Portal opens for the correct authenticated account.
 
-1. Tell me about the last meeting whose outcome you needed to remember or share.
-2. What did you produce after it, who did the work, and how long did that take?
-3. What gets lost or delayed in the current process?
-4. What tools have you tried or paid for? What made you keep or cancel them?
-5. Who feels this problem most, and who approves the purchase?
-6. What security, consent, integration, language, or procurement requirement could block use?
-7. Demonstrate the smallest real workflow that addresses the described problem.
-8. Ask what is confusing or missing before explaining it away.
-9. Present the appropriate real plan and price.
-10. Ask the written purchase-intent question after the call, without pressuring for a yes.
+Record only `yes`/`no` verification results in the anonymous tracker. Keep provider identifiers and
+customer evidence in the private launch record.
 
-Do not ask "Would you use this?" in isolation. Ask about past behavior, current spend, urgency, and
-the actual purchase process. Capture exact objections in paraphrased form without identifiable or
-confidential details.
-
-## Demo checklist
-
-- Use fabricated meeting content or data the prospect has explicitly authorized for the demo.
-- Explain recording consent and participant notification before showing a recording flow.
-- Show a real transcript, structured document, timestamp navigation, grounded chat, and share flow.
-- Do not demonstrate in-room recording while it is operationally disabled.
-- State the relevant monthly and annual price, VAT treatment, allowance, and Team per-seat model.
-- State that billing is not open and never collect card or bank details.
-- End with the next decision, not a vague promise to follow up.
-
-## Written purchase-intent standard
-
-Count a response only when all of these are present:
-
-- a clear affirmative statement from a plausible buyer or purchase influencer;
-- a named plan and billing interval;
-- the correct price and, for Team, seat count or a realistic initial range;
-- acknowledgement that VAT may be added;
-- a condition no broader than the demonstrated product being available when sales open.
-
-Example that counts:
-
-> If Syncmemos launches with the workflow you demonstrated, I am prepared to buy Solo Monthly at
-> EUR 19/month excluding VAT.
-
-Example that does not count:
-
-> Looks useful. Let me know when it is ready.
-
-Purchase intent is evidence, not a contract, reservation, invoice, or guarantee. Do not take a
-deposit.
-
-## 48-hour schedule
+## Schedule and billing controls
 
 ### Hours 0-4
 
-- define one primary segment and one backup segment;
-- create 30 anonymized tracker rows and map each ID privately to a contact;
-- prepare fabricated demo data and test the demo path;
+- re-run the entry gate and record approval privately;
+- prepare the 30 prospects and fabricated demo data;
+- set `BILLING_MUTATIONS_ENABLED=true`, deploy, and verify production health;
 - send the first 15 personalized messages.
 
 ### Hours 4-24
 
-- send the remaining messages;
-- run and record outcomes from the first calls;
-- refine only unclear wording, not the price or success criteria;
-- send the written price question to qualified participants.
+- send the remaining 15 messages;
+- run the first calls and demos;
+- verify each completed purchase before counting it;
+- change only unclear wording, not the offer, price, or success threshold.
 
 ### Hours 24-48
 
-- follow up once with non-responders where appropriate;
-- complete at least 5 calls or demos;
-- classify written responses against the strict standard above;
-- summarize repeated pains, objections, alternatives, and blockers;
-- make the go/no-go decision.
+- follow up once where appropriate;
+- complete at least 5 calls/demos;
+- reconcile Paddle, application state, and the anonymous tracker;
+- set `BILLING_MUTATIONS_ENABLED=false` and verify that new checkout is blocked while Customer
+  Portal and cancellation remain available;
+- write the aggregate decision report.
+
+If checkout, webhook processing, entitlements, policy access, or customer support fails, disable
+billing mutations immediately and stop outreach until the incident is resolved.
 
 ## Decision rule
 
-**Proceed toward Paddle Live readiness** only if all minimum activity targets are met and at least 2
-written purchase-intent statements qualify. This does not override the legal seller, legal policy,
-privacy, support, provider, or Paddle verification gates.
+**Proceed toward public launch** only when 30 prospects were contacted, at least 5 qualified demos
+were completed, and 3 genuine customers hold verified full-price subscriptions.
 
-**Iterate and validate again** when calls reveal a specific repeated problem but fewer than 2 people
-will buy at the price. Change one major variable at a time: segment, message, workflow, or price.
+**Iterate and validate again** when calls reveal a repeated problem but fewer than 3 prospects buy.
+Change one major variable at a time: segment, message, workflow, or price. Any changed price must be
+updated consistently in the product, legal copy, and Paddle catalog before another paid window.
 
-**Do not open Live billing** when fewer than 5 qualified calls were completed, the positive signal
-comes mainly from friends without the problem, required functionality does not exist, or nobody will
-commit to the real price.
+**Stop paid acquisition** when fewer than 5 qualified calls occur, purchases mainly come from
+friends doing a favor, a required feature does not exist, or production/payment support is unsafe.
+Existing customers must retain access and cancellation/support rights; disabling billing mutations
+must never break webhook receipt or Customer Portal.
 
-## Validation report
+## Aggregate report
 
-At the end, add a dated private report containing:
-
-- tracker totals and conversion funnel;
-- segment breakdown;
-- number of qualifying purchase-intent statements by plan;
-- top three repeated pains;
-- top three objections and blockers;
-- competing tools and current spend ranges;
-- product or messaging changes supported by repeated evidence;
-- explicit proceed, iterate, or stop decision;
-- owners and due dates for the next gates.
-
-Do not commit identifiable source material or written customer statements without permission. A
-sanitized aggregate report may later be committed if it cannot identify a person or organization.
+Record the funnel, segment breakdown, three purchases by plan, repeated pains, objections,
+competitors, current-spend ranges, supported product changes, incidents/refunds, and an explicit
+`proceed`, `iterate`, or `stop` decision. Do not commit identifiable evidence.

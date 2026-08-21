@@ -1,56 +1,46 @@
-# Customer validation tracker
+# Paid customer validation tracker
 
-Copy this file to a private working document before adding research results. The repository version
-contains anonymous prospect IDs only. Never commit names, contact details, raw customer statements,
-call recordings, or confidential business information.
+Copy this template to a private working document before adding results. Never commit names, contact
+details, raw statements, recordings, transaction/webhook IDs, or confidential customer data.
 
-Allowed status values:
+Use `P01-P30`, ISO 8601 timestamps, EUR prices excluding VAT, and `Solo` or `Team`. Payment and
+application checks are `yes`, `no`, or `not_applicable`. A purchase qualifies only when every check
+in [the paid-subscription standard](customer-validation.md#paid-subscription-standard) passes.
 
-- response: `pending`, `replied`, `declined`, `no_response`;
-- purchase intent: `not_asked`, `yes`, `no`, `conditional`;
-- qualifies: `yes` only when the standard in
-  [the validation runbook](customer-validation.md#written-purchase-intent-standard) is met; otherwise
-  `no`.
-
-Use ISO 8601 timestamps, record prices excluding VAT in EUR, and use `Solo` or `Team` for the plan.
-For Team, include the initial seat count or realistic range.
-
-| ID | Segment | Relationship | Channel | Contacted at | Response | Call | Demo | Current solution / spend | Pain 1-5 | Buyer role | Plan / interval / seats | Price EUR ex VAT | Intent | Qualifies | Primary objection / required feature | Next step |
-|---|---|---|---|---|---|---|---|---|---:|---|---|---:|---|---|---|---|
-| P01 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P02 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P03 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P04 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P05 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P06 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P07 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P08 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P09 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P10 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P11 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P12 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P13 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P14 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P15 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P16 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P17 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P18 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P19 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P20 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P21 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P22 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P23 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P24 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P25 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P26 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P27 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P28 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P29 | | | | | pending | no | no | | | | | | not_asked | no | | |
-| P30 | | | | | pending | no | no | | | | | | not_asked | no | | |
+| ID | Segment | Relationship | Channel | Contacted at | Response | Call | Demo | Current tool / spend | Pain 1-5 | Buyer role | Plan / interval / seats | Price EUR ex VAT | Paddle completed | Subscription active | App access verified | Portal verified | Qualifies | Objection / required feature | Next step |
+|---|---|---|---|---|---|---|---|---|---:|---|---|---:|---|---|---|---|---|---|---|
+| P01 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P02 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P03 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P04 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P05 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P06 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P07 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P08 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P09 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P10 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P11 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P12 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P13 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P14 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P15 | founder/agency/consultant | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P16 | sales/customer-success | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P17 | sales/customer-success | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P18 | sales/customer-success | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P19 | sales/customer-success | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P20 | sales/customer-success | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P21 | sales/customer-success | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P22 | sales/customer-success | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P23 | sales/customer-success | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P24 | sales/customer-success | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P25 | sales/customer-success | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P26 | recruiting | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P27 | recruiting | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P28 | recruiting | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P29 | recruiting | | | | pending | no | no | | | | | | no | no | no | no | no | | |
+| P30 | recruiting | | | | pending | no | no | | | | | | no | no | no | no | no | | |
 
 ## Aggregate result
-
-Complete this section after the 48-hour window using counts only.
 
 | Metric | Result |
 |---|---:|
@@ -58,7 +48,8 @@ Complete this section after the 48-hour window using counts only.
 | Replies | 0 |
 | Qualified calls | 0 |
 | Demos | 0 |
-| Solo qualifying purchase intent | 0 |
-| Team qualifying purchase intent | 0 |
-| Total qualifying purchase intent | 0 |
+| Verified Solo subscriptions | 0 |
+| Verified Team subscriptions | 0 |
+| Total verified subscriptions | 0 |
+| Refunds or payment incidents | 0 |
 | Decision (`proceed`, `iterate`, or `stop`) | Not decided |

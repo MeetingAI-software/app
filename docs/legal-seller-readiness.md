@@ -11,10 +11,10 @@ The owners must obtain Swedish professional guidance before selecting the suppli
 
 ## Current owner-reported status
 
-As of 2026-08-13, the owners prefer to validate demand before registering a business and would like
-an individual to be the initial supplier if legally and operationally suitable. They have not yet
-obtained the Swedish tax/business guidance required below, so this preference is not a completed
-seller selection and must not be submitted to Paddle as an approved setup.
+As of 2026-08-21, the owners have decided to obtain Swedish tax/business guidance before running a
+paid validation. They would prefer an individual to be the initial supplier if legally and
+operationally suitable, but that preference is not a completed seller selection and must not be
+submitted to Paddle as an approved setup.
 
 The owners do not want a home address published in the application. No private address is stored in
 this repository. Swedish e-commerce law generally requires a service provider's name, address in
@@ -36,6 +36,9 @@ verification exports to this repository.
   - whether the planned sales can be made without registered business activity;
   - whether a simple partnership, sole trader, trading partnership, or limited company is
     appropriate for the intended ownership and risk.
+- [ ] Have the seller's legal adviser confirm the consumer-law requirements for online
+  subscriptions, including the withdrawal function effective in Sweden from 19 June 2026,
+  immediate service access, automatic renewal, and the separate commercial 14-day guarantee.
 - [ ] Select exactly one legal supplier identity for the Paddle account, based on that advice.
 - [ ] Confirm that the selected identity can accept Paddle's supplier agreement and receive
   payouts.
@@ -74,6 +77,7 @@ Keep the completed record outside the public repository.
 | Gate | Evidence to retain privately | Owner | Complete |
 |---|---|---|---|
 | Swedish tax/business guidance | Written response or adviser memo and date | Unassigned | No |
+| Consumer subscription review | Written adviser memo covering withdrawal and renewal | Unassigned | No |
 | Legal supplier selected | Signed owner decision referencing the advice | Unassigned | No |
 | Owners' agreement | Signed agreement and version date | Unassigned | No |
 | Seller contact details | Verified name/address/contact record | Unassigned | No |
@@ -94,12 +98,16 @@ After completion, provide only the non-secret seller facts needed for the legal 
 documents, bank details, credentials, and verification secrets must be entered directly into the
 relevant provider dashboard, never into chat, issues, commits, or deployment logs.
 
+Use the [Skatteverket call brief](skatteverket-call-brief.md) for the first conversation. A phone
+call prepares the decision; unresolved questions must still receive written professional advice.
+
 ## Official references
 
 - [Paddle account verification](https://www.paddle.com/help/start/account-verification/what-is-account-verification)
 - [Paddle business identification](https://www.paddle.com/help/start/account-verification/what-is-business-verification)
 - [Paddle setup checklist](https://developer.paddle.com/build/set-up-checklist/)
 - [Skatteverket: Enkelt bolag](https://www.skatteverket.se/foretag/drivaforetag/foretagsformer/enkeltbolag.4.6d02084411db6e252fe8000928.html)
-- [Skatteverket: Hobby](https://www.skatteverket.se/privat/skatter/arbeteochinkomst/inkomster/hobby.4.58d555751259e4d661680003935.html)
+- [Skatteverket: Selling services](https://www.skatteverket.se/privat/skatter/arbeteochinkomst/inkomster/tjansteruppdragochgigs/saljatjanster.4.6bef7d451695d90def448f6.html)
+- [Konsumentverket: Online withdrawal-function change](https://www.konsumentverket.se/nyhet/lagandring-gor-det-enklare-att-angra-kop-pa-natet/)
 - [Swedish Electronic Commerce Act (2002:562), section 8](https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/lag-2002562-om-elektronisk-handel-och-andra_sfs-2002-562/)
 - [Skatteverket: What is business activity?](https://www.skatteverket.se/foretag/drivaforetag/startaochregistrera/vadarnaringsverksamhet.4.6efe6285127ab4f1d25800025792.html)
