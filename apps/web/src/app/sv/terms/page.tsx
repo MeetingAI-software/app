@@ -4,4 +4,3 @@ import { BRAND_NAME } from '@/lib/brand';
 
 export const metadata: Metadata = { title: `Användarvillkor — ${BRAND_NAME}` };
 export default function TermsPage() { return <PublishedLegalPage kind="terms" locale="sv" />; }
-

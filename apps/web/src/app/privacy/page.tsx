@@ -4,4 +4,3 @@ import { BRAND_NAME } from '@/lib/brand';
 
 export const metadata: Metadata = { title: `Privacy Policy — ${BRAND_NAME}` };
 export default function PrivacyPage() { return <PublishedLegalPage kind="privacy" locale="en" />; }
-

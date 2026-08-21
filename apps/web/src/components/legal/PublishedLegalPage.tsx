@@ -34,4 +34,3 @@ export async function PublishedLegalPage({ kind, locale }: {
     </LegalPage>
   );
 }
-

@@ -47,7 +47,6 @@ function EnglishPrivacy({ seller }: { seller: LegalSeller }) {
     <section><h2>9. Contact</h2><p>Send privacy requests to <a href={`mailto:${seller.email}`}>{seller.email}</a>. Do not send passwords, identity documents, recordings, or other sensitive material unless we provide a secure method.</p></section>
   </>;
 }
-
 function SwedishPrivacy({ seller }: { seller: LegalSeller }) {
   return <>
     <section><h2>1. Vem är ansvarig</h2><p>{seller.name} är personuppgiftsansvarig för de personuppgifter som Syncmemos behandlar för att tillhandahålla applikationen. Paddle är självständigt personuppgiftsansvarig för behandling som rör kassa, betalning, skatt, kvitto och köparsupport enligt sin egen integritetspolicy.</p></section>
@@ -111,4 +110,3 @@ function SwedishRefund({ seller }: { seller: LegalSeller }) {
     <section><h2>5. Effekter av återbetalning</h2><p>När en full återbetalning har slutförts kan betalåtkomsten för transaktionen upphöra och kontot återgå till Free. Handläggningstiden efter godkännande beror på Paddle, betalningssättet och finansinstitutet. Kortreklamation bör inte användas i stället för att kontakta support om ett verkligt problem.</p></section>
   </>;
 }
-
