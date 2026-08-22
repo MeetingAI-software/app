@@ -10,6 +10,8 @@ describe('PublicFooter', () => {
     expect(html).not.toContain('href="/privacy"');
     expect(html).not.toContain('href="/terms"');
     expect(html).not.toContain('href="/refund-policy"');
+    expect(html).not.toContain('Exercise withdrawal right');
+    expect(html).not.toContain('href="https://paddle.net"');
     expect(html).not.toContain('href="#"');
   });
 
@@ -19,6 +21,8 @@ describe('PublicFooter', () => {
     expect(html).toContain('href="/privacy"');
     expect(html).toContain('href="/terms"');
     expect(html).toContain('href="/refund-policy"');
+    expect(html).toContain('Exercise withdrawal right');
+    expect(html).toContain('href="https://paddle.net"');
     expect(html).not.toContain('Policies pending publication');
   });
 
