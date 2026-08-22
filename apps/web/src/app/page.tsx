@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import * as THREE from 'three';
 import { BackgroundPaths } from '@/components/ui/background-paths';
-import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
+import { PublicFooter } from '@/components/PublicFooter';
+import { BRAND_NAME } from '@/lib/brand';
 
 export default function Home() {
   // View switcher state
@@ -416,39 +417,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Footer */}
-        <footer className="bg-surface-container-low/90 backdrop-blur-md font-body-md text-body-md w-full py-section-gap content-layer relative z-10" id="pricing">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter px-margin-page max-w-container-max mx-auto">
-            <div className="col-span-1 md:col-span-2 lg:col-span-1 flex flex-col gap-4">
-              <Link href="/" className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2 hover:text-secondary transition-colors duration-200">
-                <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
-                {BRAND_NAME}
-              </Link>
-              <p className="text-on-surface text-sm mt-2">
-                © {new Date().getFullYear()} {BRAND_NAME}. All rights reserved. Precise summaries for high-performing teams.
-              </p>
-            </div>
-            <div className="flex flex-col gap-3">
-              <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">Legal</h4>
-              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Privacy Policy</a>
-              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Terms of Service</a>
-              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Security</a>
-            </div>
-            <div className="flex flex-col gap-3">
-              <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">Company</h4>
-              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href={`mailto:${SUPPORT_EMAIL}`}>Contact Us</a>
-              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">Twitter</a>
-              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="#">LinkedIn</a>
-            </div>
-            <div className="flex flex-col gap-3">
-              <h4 className="font-label-mono text-[13px] font-bold text-slate-900 uppercase tracking-wider mb-2">System</h4>
-              <div className="flex items-center gap-2 text-sm text-on-tertiary-container font-medium">
-                <div className="w-2 h-2 rounded-full bg-success"></div>
-                All systems operational
-              </div>
-            </div>
-          </div>
-        </footer>
+        <PublicFooter />
       </div>
     </>
   );
