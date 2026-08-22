@@ -13,8 +13,9 @@ unreviewed policy from being published during an ordinary deployment.
 | `/terms` | `/sv/terms` |
 | `/refund-policy` | `/sv/refund-policy` |
 
-Do not link these routes from the public footer or enable Paddle Live while the publication gate is
-closed.
+The landing, login, and signup footers reveal these routes only while the same server-side
+publication gate is open. No separate public environment flag exists, so navigation cannot drift
+from route availability. Do not enable Paddle Live while the gate is closed.
 
 ## Required private review
 
@@ -38,8 +39,10 @@ Git commit being deployed.
 
 ## Publication configuration
 
-Enter public seller facts directly in the Vercel production environment. They are server-only values
-and must not be added to source control, chat, issues, or CI logs.
+Enter public seller facts directly in **Vercel > Project Settings > Environment Variables** for the
+Production environment. They are server-only values and must not be added to source control, chat,
+issues, or CI logs. Do not prefix them with `NEXT_PUBLIC_`; the browser receives only the resulting
+published/not-published boolean.
 
 ```text
 LEGAL_POLICIES_PUBLISHED=true
@@ -55,20 +58,40 @@ LEGAL_SELLER_VAT_NUMBER=<only when applicable>
 ```
 
 The two boolean values must remain `false` until their gates are actually complete. Missing or
-malformed required values also keep all routes closed. `BILLING_MUTATIONS_ENABLED` remains `false`
-through legal publication and Paddle preflight.
+malformed required values also keep all routes and footer navigation closed. Optional registration
+and VAT values should be omitted rather than filled with placeholders when they do not apply.
+`BILLING_MUTATIONS_ENABLED` remains `false` through legal publication and Paddle preflight.
 
 ## Release verification
 
-1. Preview the exact reviewed commit with temporary non-sensitive test values and confirm all six
-   pages on desktop and mobile.
-2. Confirm English/Swedish navigation, effective date, mail and phone links, wrapping of a multiline
-   address, and optional registration/VAT rows.
-3. Confirm the published text is saveable and printable from the browser.
-4. Enter approved production values and deploy while billing mutations remain disabled.
-5. Verify all routes anonymously, then replace the footer placeholders with the published routes in
-   a separate reviewed commit.
-6. Reconcile the public text after any provider, retention, plan, refund, or seller change.
+1. In Vercel Preview only, use non-sensitive test values with both booleans enabled and verify the
+   exact reviewed commit on desktop and mobile. Never copy test values into Production.
+2. Confirm all six routes, English/Swedish cross-navigation, effective date, email and phone links,
+   multiline address wrapping, and optional registration/VAT rows.
+3. Confirm the landing, login, and signup footers show Privacy, Terms, and Refund links, contain no
+   placeholder links, and that the published text is saveable and printable.
+4. In Vercel Production, enter the approved seller fields first while both booleans remain `false`,
+   redeploy, and anonymously confirm the routes return 404 and the footers hide legal navigation.
+5. After the seller and policy evidence is complete, set the reviewed version date and change both
+   booleans to `true`. Redeploy the same reviewed commit while billing mutations remain disabled.
+6. Verify all six routes and the three public footers anonymously. Confirm the page source and
+   client JavaScript do not contain seller values on non-legal pages.
+7. Record the deployed commit, policy version, anonymous checks, and approver in the private evidence
+   record. Reconcile the text after any provider, retention, plan, refund, or seller change.
+
+## Rollback
+
+If any seller fact, policy, or withdrawal behavior is wrong, set `LEGAL_POLICIES_PUBLISHED=false`
+first and redeploy. All six routes then return 404 and all three footers hide their legal links.
+Keep billing mutations disabled, correct and re-review the configuration, then repeat the release
+verification. Do not restore Sandbox Paddle credentials as part of a legal-page rollback.
+
+## Paddle handoff
+
+Start Paddle Live domain review only after the anonymous Production checks pass. Submit every domain
+or subdomain that will launch checkout, and keep `BILLING_MUTATIONS_ENABLED=false` until the later
+controlled internal Live-purchase window. Continue with [Paddle Live operations](paddle-live-operations.md)
+for catalog, credentials, webhook, preflight, and purchase verification.
 
 ## Primary references for review
 
