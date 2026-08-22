@@ -43,7 +43,7 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
     const centerY = rect.height / 2;
     const rotateX = ((y - centerY) / centerY) * -10;
     const rotateY = ((x - centerX) / centerX) * 10;
-    
+
     card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
     card.style.boxShadow = '0 15px 30px -10px rgba(0,0,0,0.1)';
   };
@@ -58,7 +58,7 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
   const initThreeScene = () => {
     const container = threeContainerRef.current;
     if (!container || typeof window === 'undefined') return;
-    
+
     // Avoid double initialization
     if (threeInstanceRef.current) return;
 
@@ -129,16 +129,16 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
 
         const speechActivity = Math.abs(voiceFormant1 + voiceFormant2 + voiceFormant3) * (0.8 + mouseForce);
         const amplitude = 0.15 + speechActivity * envelope * 2.0;
-        
+
         bar.scale.y = THREE.MathUtils.lerp(bar.scale.y, amplitude * 3.5, 0.12); // Responsive but smooth
-        
+
         const colorMix = Math.min(1, amplitude / 1.5);
         bar.material.color.setHSL(0.61 - colorMix * 0.08, 0.9, 0.42 + colorMix * 0.18);
         bar.material.opacity = 0.5 + (amplitude * 0.25);
       });
 
       group.rotation.y = THREE.MathUtils.lerp(group.rotation.y, mouseX * 0.25, 0.04);
-      
+
       renderer.render(scene, camera);
     }
 
@@ -190,7 +190,7 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
   return (
     <>
       <div className="font-body-md text-body-md bg-transparent min-h-screen relative overflow-x-hidden selection:bg-slate-200">
-        
+
         {/* TopNavBar */}
         <header className="bg-surface-container-lowest/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 content-layer">
           <div className="flex justify-between items-center px-margin-page py-4 max-w-container-max mx-auto">
