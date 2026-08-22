@@ -37,6 +37,32 @@ Swedish adviser must review both language versions and confirm:
 The repository includes policy drafts for review, not legal advice. Approval must apply to the exact
 Git commit being deployed.
 
+## Hosted withdrawal verification
+
+Syncmemos links to Paddle Buyer Support at `https://paddle.net`; it does not collect withdrawal
+requests, promise eligibility, issue refunds, or store a parallel case record. Paddle is the
+Merchant of Record and its hosted flow is the operational handoff. The public footer, both Refund
+Policy languages, and authenticated Settings expose a clearly labelled route only after legal
+publication.
+
+Before setting `LEGAL_WITHDRAWAL_FLOW_APPROVED=true`, obtain written confirmation from Paddle and
+have the qualified reviewer approve the exact deployed behavior. Ask Paddle to confirm that, for a
+Swedish consumer purchase made through Paddle Checkout after 19 June 2026, its `Request refund`
+flow:
+
+- satisfies Chapter 2, Section 10 a of the Swedish Distance Contracts Act;
+- lets the buyer state or confirm their name, the contract being withdrawn, and the electronic
+  durable form for the receipt;
+- requires an explicit final confirmation of withdrawal;
+- sends the buyer an immediate readable, durable receipt containing the time received; and
+- is stably and correctly reached through `https://paddle.net` from the supplier's footer, Refund
+  Policy, and authenticated billing page.
+
+Save Paddle's answer, reviewer approval, date, and the reviewed Git commit in the private launch
+record. Do not paste the correspondence or buyer data into the repository, chat, issues, or CI logs.
+If Paddle requires a different URL or behavior, keep the flag `false` and update and re-review the
+implementation before publication.
+
 ## Publication configuration
 
 Enter public seller facts directly in **Vercel > Project Settings > Environment Variables** for the
@@ -68,14 +94,16 @@ and VAT values should be omitted rather than filled with placeholders when they 
    exact reviewed commit on desktop and mobile. Never copy test values into Production.
 2. Confirm all six routes, English/Swedish cross-navigation, effective date, email and phone links,
    multiline address wrapping, and optional registration/VAT rows.
-3. Confirm the landing, login, and signup footers show Privacy, Terms, and Refund links, contain no
-   placeholder links, and that the published text is saveable and printable.
+3. Confirm the landing, login, and signup footers show Privacy, Terms, Refund, and the clearly
+   labelled Paddle withdrawal link, contain no placeholder links, and that the published text is
+   saveable and printable.
 4. In Vercel Production, enter the approved seller fields first while both booleans remain `false`,
    redeploy, and anonymously confirm the routes return 404 and the footers hide legal navigation.
 5. After the seller and policy evidence is complete, set the reviewed version date and change both
    booleans to `true`. Redeploy the same reviewed commit while billing mutations remain disabled.
-6. Verify all six routes and the three public footers anonymously. Confirm the page source and
-   client JavaScript do not contain seller values on non-legal pages.
+6. Verify all six routes and the three public footers anonymously, then verify the Paddle withdrawal
+   handoff in an authenticated Settings page. Confirm the page source and client JavaScript do not
+   contain seller values on non-legal pages.
 7. Record the deployed commit, policy version, anonymous checks, and approver in the private evidence
    record. Reconcile the text after any provider, retention, plan, refund, or seller change.
 
