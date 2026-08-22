@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { Logo } from '@/components/Logo';
 import { BRAND_NAME } from '@/lib/brand';
 
 export function Header() {
@@ -27,12 +28,7 @@ export function Header() {
           href="/"
           className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2 text-xl"
         >
-          <span
-            className="material-symbols-outlined text-blue-600"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            summarize
-          </span>
+          <Logo className="h-7 w-7 text-blue-600" />
           {BRAND_NAME}
         </Link>
         <nav className="hidden md:flex items-center gap-8">

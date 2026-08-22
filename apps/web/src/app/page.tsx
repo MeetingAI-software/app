@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import * as THREE from 'three';
 import { BackgroundPaths } from '@/components/ui/background-paths';
+import { Logo } from '@/components/Logo';
 import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 
 export default function Home() {
@@ -196,8 +197,7 @@ export default function Home() {
           <div className="flex justify-between items-center px-margin-page py-4 max-w-container-max mx-auto">
             <div className="flex items-center gap-8 lg:gap-10">
               <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/nota-mark-black.svg" alt="Syncmemos logo" width={28} height={28} className="h-7 w-7" />
+                <Logo />
                 Syncmemos
               </Link>
               <nav className="hidden md:flex items-center gap-gutter">
@@ -421,7 +421,7 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter px-margin-page max-w-container-max mx-auto">
             <div className="col-span-1 md:col-span-2 lg:col-span-1 flex flex-col gap-4">
               <Link href="/" className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2 hover:text-secondary transition-colors duration-200">
-                <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
+                <Logo />
                 {BRAND_NAME}
               </Link>
               <p className="text-on-surface text-sm mt-2">

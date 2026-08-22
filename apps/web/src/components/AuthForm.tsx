@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { googleOAuthUrl } from '@/lib/api';
+import { Logo } from '@/components/Logo';
 import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 
 interface Props {
@@ -48,9 +49,7 @@ export default function AuthForm(props: Props) {
         <header className="bg-surface-container-lowest/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 border-b border-slate-200 shadow-sm content-layer">
           <div className="flex justify-between items-center px-margin-page py-4 max-w-container-max mx-auto">
             <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2">
-              <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                summarize
-              </span>
+              <Logo className="h-6 w-6" />
               {BRAND_NAME}
             </Link>
             <nav className="hidden md:flex items-center gap-gutter">
@@ -237,7 +236,7 @@ export default function AuthForm(props: Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter px-margin-page max-w-container-max mx-auto text-left">
             <div className="col-span-1 md:col-span-2 lg:col-span-1 flex flex-col gap-4">
               <Link href="/" className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2 hover:text-secondary transition-colors duration-200">
-                <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
+                <Logo className="h-6 w-6" />
                 {BRAND_NAME}
               </Link>
               <p className="text-on-surface text-sm mt-2">

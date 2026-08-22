@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { ShareResponse } from '@/lib/api';
 import { msToClock } from '@/lib/format';
 import DocumentView from '@/components/DocumentView';
+import { Logo } from '@/components/Logo';
 import { BRAND_NAME } from '@/lib/brand';
 
 export default function SharePageClient({
@@ -27,6 +28,7 @@ export default function SharePageClient({
         {/* Header Actions */}
         <div className="flex justify-between items-center mb-8 print:hidden">
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <Logo className="h-6 w-6 text-indigo-400" />
             <span className="text-indigo-400 font-bold tracking-tight">{BRAND_NAME} Share</span>
           </Link>
 

@@ -10,6 +10,7 @@ import {
   EMAIL_VERIFICATION_STORAGE_KEY,
 } from '@/lib/verify-email';
 import VerificationRequired from '@/components/VerificationRequired';
+import { Logo } from '@/components/Logo';
 
 /**
  * Session shell for the protected app (/meetings*, /settings). Probes /api/auth/me on mount and
@@ -97,8 +98,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             href="/meetings"
             className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/nota-mark-black.svg" alt="Syncmemos logo" width={28} height={28} className="h-7 w-7" />
+            <Logo />
             Syncmemos
           </Link>
 

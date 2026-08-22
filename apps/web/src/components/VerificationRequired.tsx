@@ -7,6 +7,7 @@ import {
   verificationBannerButtonLabel,
   type VerificationBannerStatus,
 } from '../lib/email-verification';
+import { Logo } from './Logo';
 
 /**
  * The holding screen an unverified account sees instead of the app. The API gates every route
@@ -53,8 +54,7 @@ export default function VerificationRequired({
     <div className="min-h-screen bg-[#f9f9f9] flex flex-col items-center p-4">
       <header className="w-full max-w-container-max py-4">
         <span className="font-headline-md text-xl font-bold text-slate-900 flex items-center gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/nota-mark-black.svg" alt="Syncmemos logo" width={28} height={28} className="h-7 w-7" />
+          <Logo />
           Syncmemos
         </span>
       </header>

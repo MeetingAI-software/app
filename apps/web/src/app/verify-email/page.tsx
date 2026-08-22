@@ -10,6 +10,7 @@ import {
   verifyEmailOnce,
   type VerifyEmailState,
 } from '../../lib/verify-email';
+import { Logo } from '../../components/Logo';
 
 function VerifyEmailContent() {
   const token = useSearchParams().get('token');
@@ -42,7 +43,7 @@ export default function VerifyEmailPage() {
     <div className="min-h-screen bg-[#f9f9f9] flex flex-col items-center p-4">
       <header className="w-full max-w-container-max py-4">
         <Link href="/" className="font-headline-md text-xl font-bold text-slate-900 flex items-center gap-2">
-          <span className="material-symbols-outlined text-[24px]" aria-hidden="true">summarize</span>
+          <Logo className="h-6 w-6" />
           Syncmemos
         </Link>
       </header>
