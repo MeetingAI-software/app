@@ -9,7 +9,7 @@ import { PublicFooter } from '@/components/PublicFooter';
 export function LandingPageClient({ legalPublished }: { legalPublished: boolean }) {
   // View switcher state
   const [activeView, setActiveView] = useState<'summary' | 'transcript'>('summary');
-  
+
   // Search query state for full transcript
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -68,7 +68,7 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
     camera.position.z = 5;
-    camera.position.x = -1.5; 
+    camera.position.x = -1.5;
 
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setSize(width, height);
@@ -81,11 +81,11 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
     const geometry = new THREE.BoxGeometry(0.04, 0.3, 0.04);
 
     for (let i = 0; i < barCount; i++) {
-      const material = new THREE.MeshPhongMaterial({ 
-        color: 0x0051d5, 
-        transparent: true, 
+      const material = new THREE.MeshPhongMaterial({
+        color: 0x0051d5,
+        transparent: true,
         opacity: 0.7,
-        shininess: 80 
+        shininess: 80
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.x = (i - barCount / 2) * 0.08;
@@ -110,23 +110,23 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
     let animationFrameId: number;
     function animate() {
       animationFrameId = requestAnimationFrame(animate);
-      
+
       const time = Date.now() * 0.003; // Moderately active speed
       bars.forEach((bar, i) => {
         // Multi-frequency formants simulating speech vocal cords
         const voiceFormant1 = Math.sin(time * 2.5 + i * 0.4) * 0.35;
         const voiceFormant2 = Math.cos(time * 1.2 - i * 0.7) * 0.25;
         const voiceFormant3 = Math.sin(time * 4.0 + i * 0.9) * 0.15;
-        
+
         // Bell-curve envelope to focus the wave energy in the center
         const centerDist = Math.abs(i - barCount / 2) / (barCount / 2);
         const envelope = Math.max(0.15, 1 - centerDist * centerDist);
-        
+
         const barX = bar.position.x;
         const targetX = mouseX * 1.5;
         const dist = Math.abs(barX - targetX);
         const mouseForce = Math.max(0, 1 - dist / 1.0) * 0.8;
-        
+
         const speechActivity = Math.abs(voiceFormant1 + voiceFormant2 + voiceFormant3) * (0.8 + mouseForce);
         const amplitude = 0.15 + speechActivity * envelope * 2.0;
         
@@ -182,8 +182,8 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
     { name: "Sarah Jenkins", time: "03:50", text: "Okay, that's a hard constraint. Let's officially delay the beta launch to Nov 15th to accommodate the audit. David, can we shift 3 backend devs to the mobile infra team today to start accelerating that?", color: "border-slate-400" }
   ];
 
-  const filteredSpeakers = speakers.filter(speaker => 
-    speaker.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+  const filteredSpeakers = speakers.filter(speaker =>
+    speaker.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     speaker.text.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -210,8 +210,8 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
               <Link href="/meetings" className="hidden sm:inline-block text-slate-900 font-medium hover:text-secondary transition-colors duration-200">
                 Sign In
               </Link>
-              <Link 
-                href="/meetings" 
+              <Link
+                href="/meetings"
                 className="magnetic-btn btn-shimmer bg-slate-900 text-white px-6 py-2 rounded font-medium hover:bg-slate-800 transition-colors shadow-sm text-sm"
                 onMouseMove={handleMagneticMouseMove}
                 onMouseLeave={handleMagneticMouseLeave}
@@ -230,16 +230,16 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
           <div className="max-w-4xl mx-auto px-margin-page">
             <div className="flex justify-center mb-stack-lg blur-in" style={{ animationDelay: '0.2s' }}>
               <div className="inline-flex bg-white rounded border border-slate-200 p-1 shadow-sm">
-                <button 
+                <button
                   className={`toggle-btn px-6 py-2 rounded text-sm font-medium transition-colors ${activeView === 'summary' ? 'active' : 'border-transparent'}`}
-                  id="btn-summary" 
+                  id="btn-summary"
                   onClick={() => setActiveView('summary')}
                 >
                   Summary View
                 </button>
-                <button 
+                <button
                   className={`toggle-btn px-6 py-2 rounded text-sm font-medium transition-colors ${activeView === 'transcript' ? 'active' : 'border-transparent'}`}
-                  id="btn-transcript" 
+                  id="btn-transcript"
                   onClick={() => setActiveView('transcript')}
                 >
                   Transcript View
@@ -326,9 +326,9 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
                     <div className="font-label-mono text-[13px] font-bold text-slate-900">Full Transcript</div>
                     <div className="relative">
                       <span className="material-symbols-outlined absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-                      <input 
-                        className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 w-64 bg-white text-slate-900" 
-                        placeholder="Search transcript..." 
+                      <input
+                        className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 w-64 bg-white text-slate-900"
+                        placeholder="Search transcript..."
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -372,7 +372,7 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {/* Prop 1 */}
-            <div 
+            <div
               className="parallax-card p-8 border border-slate-200 rounded bg-white shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] transition-all duration-200 ease-out cursor-default"
               onMouseMove={handleCardMouseMove}
               onMouseLeave={handleCardMouseLeave}
@@ -386,7 +386,7 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
               </p>
             </div>
             {/* Prop 2 */}
-            <div 
+            <div
               className="parallax-card p-8 border border-slate-200 rounded bg-white shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] transition-all duration-200 ease-out cursor-default"
               onMouseMove={handleCardMouseMove}
               onMouseLeave={handleCardMouseLeave}
@@ -400,7 +400,7 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
               </p>
             </div>
             {/* Prop 3 */}
-            <div 
+            <div
               className="parallax-card p-8 border border-slate-200 rounded bg-white shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] transition-all duration-200 ease-out cursor-default"
               onMouseMove={handleCardMouseMove}
               onMouseLeave={handleCardMouseLeave}
@@ -421,4 +421,3 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
     </>
   );
 }
-
