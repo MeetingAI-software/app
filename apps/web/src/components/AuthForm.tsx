@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { googleOAuthUrl } from '@/lib/api';
-import { BRAND_NAME } from '@/lib/brand';
+import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 import { PublicFooter } from '@/components/PublicFooter';
 
 interface Props {
@@ -151,7 +151,10 @@ export default function AuthForm(props: Props) {
                         Password
                       </label>
                       {props.mode === 'login' && (
-                        <a href="#" className="font-label-mono text-xs text-secondary hover:text-slate-900 transition-colors font-medium">
+                        <a
+                          href={`mailto:${SUPPORT_EMAIL}?subject=Syncmemos%20password%20reset`}
+                          className="font-label-mono text-xs text-secondary hover:text-slate-900 transition-colors font-medium"
+                        >
                           Forgot password?
                         </a>
                       )}
