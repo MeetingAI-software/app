@@ -20,6 +20,7 @@ interface Props {
   onSubmit: (e: React.FormEvent) => void;
   passwordAutoComplete?: string;
   passwordHint?: string;
+  legalPublished: boolean;
   footer: React.ReactNode;
 }
 
@@ -233,7 +234,7 @@ export default function AuthForm(props: Props) {
           </div>
         </main>
 
-        <PublicFooter compact />
+        <PublicFooter compact legalPublished={props.legalPublished} />
       </div>
     </>
   );

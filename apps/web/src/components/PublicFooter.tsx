@@ -18,7 +18,7 @@ export function PublicFooter({ legalPublished = false, compact = false }: Public
             {BRAND_NAME}
           </Link>
           <p className="text-on-surface text-sm mt-2">
-            © {new Date().getFullYear()} {BRAND_NAME}. All rights reserved. Precise summaries for high-performing teams.
+            &copy; {new Date().getFullYear()} {BRAND_NAME}. All rights reserved. Precise summaries for high-performing teams.
           </p>
         </div>
         <div className="flex flex-col gap-3">
