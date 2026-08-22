@@ -94,6 +94,11 @@ function SwedishTerms({ seller }: { seller: LegalSeller }) {
 
 function EnglishRefund({ seller }: { seller: LegalSeller }) {
   return <>
+    <section className="rounded-2xl border border-blue-200 bg-blue-50 p-6" aria-labelledby="exercise-withdrawal-right">
+      <h2 id="exercise-withdrawal-right">Exercise a statutory withdrawal right</h2>
+      <p>Open Paddle Buyer Support, select <strong>Request refund</strong>, and use the purchase details from your Paddle receipt. Paddle receives and handles the request as Merchant of Record. Submitting a request does not by itself mean that Paddle has approved it.</p>
+      <p><a href={PADDLE_BUYER_SUPPORT_URL}>Exercise withdrawal right through Paddle</a></p>
+    </section>
     <section><h2>1. Commercial 14-day guarantee</h2><p>We offer a full money-back guarantee for the first paid Syncmemos subscription purchased for an account. Send the request within 14 calendar days after that first subscription transaction. Renewals, later subscriptions, plan changes, and additional seats are not covered by this voluntary guarantee unless we expressly say otherwise.</p></section>
     <section><h2>2. How to request it</h2><p>Email <a href={`mailto:${seller.email}`}>{seller.email}</a> from the account email and include the Paddle transaction or receipt identifier. Do not send card details. You may also use the support or refund link in the Paddle receipt or visit <a href={PADDLE_BUYER_SUPPORT_URL}>paddle.net</a>. We will approve an eligible Syncmemos guarantee request to Paddle; Paddle executes the refund to the original payment method where possible.</p></section>
     <section><h2>3. Statutory rights</h2><p>The guarantee is additional to, and does not limit, mandatory rights concerning withdrawal, faulty or misdescribed services, or other remedies. Where law or Paddle&apos;s applicable Buyer Terms provides a stronger right, that right applies. An acknowledgement that a withdrawal request was received is not itself a decision that the request is eligible.</p></section>
@@ -104,6 +109,11 @@ function EnglishRefund({ seller }: { seller: LegalSeller }) {
 
 function SwedishRefund({ seller }: { seller: LegalSeller }) {
   return <>
+    <section className="rounded-2xl border border-blue-200 bg-blue-50 p-6" aria-labelledby="utova-angerratten">
+      <h2 id="utova-angerratten">Utöva lagstadgad ångerrätt</h2>
+      <p>Öppna Paddles köparsupport, välj <strong>Request refund</strong> och använd köpuppgifterna från ditt Paddle-kvitto. Paddle tar emot och handlägger begäran som Merchant of Record. Att skicka en begäran innebär inte i sig att Paddle har godkänt den.</p>
+      <p><a href={PADDLE_BUYER_SUPPORT_URL}>Utöva ångerrätten genom Paddle</a></p>
+    </section>
     <section><h2>1. Kommersiell 14-dagarsgaranti</h2><p>Vi erbjuder full återbetalning för det första betalda Syncmemos-abonnemanget som köps för ett konto. Begäran ska skickas inom 14 kalenderdagar efter den första abonnemangstransaktionen. Förnyelser, senare abonnemang, planbyten och extra platser omfattas inte av denna frivilliga garanti om vi inte uttryckligen anger annat.</p></section>
     <section><h2>2. Så begär du återbetalning</h2><p>Mejla <a href={`mailto:${seller.email}`}>{seller.email}</a> från kontots e-postadress och ange Paddles transaktions- eller kvitto-id. Skicka inga kortuppgifter. Du kan också använda support- eller återbetalningslänken i Paddles kvitto eller besöka <a href={PADDLE_BUYER_SUPPORT_URL}>paddle.net</a>. Vi godkänner en berättigad begäran enligt Syncmemos garanti till Paddle; Paddle genomför återbetalningen till det ursprungliga betalningssättet när det är möjligt.</p></section>
     <section><h2>3. Lagstadgade rättigheter</h2><p>Garantin gäller utöver och begränsar inte tvingande rättigheter om ånger, felaktiga eller felbeskrivna tjänster eller andra rättsmedel. Om lag eller Paddles tillämpliga köparvillkor ger en starkare rättighet gäller den. Ett mottagningsbevis för en ångerbegäran är inte i sig ett beslut om att begäran är berättigad.</p></section>
