@@ -30,4 +30,24 @@ describe('legal policy content', () => {
     const html = renderToStaticMarkup(<PolicyContent kind="refund" locale="en" seller={seller} />);
     expect(html).toContain('additional to, and does not limit, mandatory rights');
   });
+
+  it.each([
+    ['en', 'Exercise withdrawal right through Paddle'],
+    ['sv', 'Utöva ångerrätten genom Paddle'],
+  ] as const)('links the %s refund policy to the hosted Paddle flow', (locale, label) => {
+    const html = renderToStaticMarkup(<PolicyContent kind="refund" locale={locale} seller={seller} />);
+
+    expect(html).toContain(`href="https://paddle.net"`);
+    expect(html).toContain(label);
+    expect(html).toContain('Request refund');
+  });
+
+  it.each(['en', 'sv'] as const)('does not present submission as approval in %s', (locale) => {
+    const html = renderToStaticMarkup(<PolicyContent kind="terms" locale={locale} seller={seller} />);
+
+    expect(html).toContain('Merchant of Record');
+    expect(html).toMatch(locale === 'en'
+      ? /Submitting a request is not itself approval/
+      : /Att skicka en begäran innebär inte i sig att den har godkänts/);
+  });
 });
