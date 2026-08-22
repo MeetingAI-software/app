@@ -28,7 +28,13 @@ export function PublicFooter({ legalPublished = false, compact = false }: Public
               <Link className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="/privacy">Privacy Policy</Link>
               <Link className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="/terms">Terms of Service</Link>
               <Link className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href="/refund-policy">Refund Policy</Link>
-              <a className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium" href={PADDLE_BUYER_SUPPORT_URL}>Exercise withdrawal right</a>
+              <a
+                className="text-on-tertiary-container hover:text-secondary transition-colors duration-200 text-sm font-medium"
+                href={PADDLE_BUYER_SUPPORT_URL}
+                aria-label="Exercise withdrawal right through Paddle Buyer Support"
+              >
+                Exercise withdrawal right
+              </a>
             </>
           ) : (
             <p className="text-on-tertiary-container text-sm font-medium">Policies pending publication</p>

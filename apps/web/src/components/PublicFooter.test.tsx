@@ -23,6 +23,7 @@ describe('PublicFooter', () => {
     expect(html).toContain('href="/refund-policy"');
     expect(html).toContain('Exercise withdrawal right');
     expect(html).toContain('href="https://paddle.net"');
+    expect(html).toContain('aria-label="Exercise withdrawal right through Paddle Buyer Support"');
     expect(html).not.toContain('Policies pending publication');
   });
 
