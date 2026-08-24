@@ -7,6 +7,7 @@ import {
   DocumentGenerationError,
   MeetingNotReadyError,
   InvalidCredentialsError,
+  AccountDeletionBlockedError,
   EmailTakenError,
   WeakPasswordError,
   EmailAlreadyVerifiedError,
@@ -110,6 +111,16 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(401).json({
       error: {
         code: 'INVALID_CREDENTIALS',
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof AccountDeletionBlockedError) {
+    report5xx();
+    return res.status(503).json({
+      error: {
+        code: 'ACCOUNT_DELETION_BLOCKED',
         message: err.message,
       },
     });

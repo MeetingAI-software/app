@@ -4,5 +4,7 @@ import { getLegalPublication } from '@/lib/legal';
 
 export default async function SignupPage() {
   await connection();
-  return <SignupPageClient legalPublished={getLegalPublication() !== null} />;
+  const legal = getLegalPublication();
+  const registrationEnabled = process.env.PUBLIC_REGISTRATION_ENABLED === 'true';
+  return <SignupPageClient legalVersion={registrationEnabled ? legal?.version ?? null : null} />;
 }

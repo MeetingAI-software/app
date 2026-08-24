@@ -105,6 +105,14 @@ export class InvalidCredentialsError extends Error {   // → HTTP 401
   }
 }
 
+/** Account erasure stopped before local records were removed because a required delete failed. */
+export class AccountDeletionBlockedError extends Error {
+  constructor(message = 'Account deletion could not be completed safely; please try again later') {
+    super(message);
+    this.name = 'AccountDeletionBlockedError';
+  }
+}
+
 export class EmailTakenError extends Error {            // → HTTP 409
   constructor(message: string) {
     super(message);

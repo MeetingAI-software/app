@@ -7,12 +7,30 @@ import { signup, ApiError, throttleMessage } from '@/lib/api';
 import { destinationAfterAuthentication } from '@/lib/auth-flow';
 import AuthForm from '@/components/AuthForm';
 
-export function SignupPageClient({ legalPublished }: { legalPublished: boolean }) {
+export function SignupPageClient({ legalVersion }: { legalVersion: string | null }) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [organizationName, setOrganizationName] = useState('');
+  const [businessUseConfirmed, setBusinessUseConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  if (!legalVersion) {
+    return (
+      <main className="min-h-screen bg-slate-50 px-6 flex items-center justify-center">
+        <section className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <h1 className="text-2xl font-bold text-slate-900">Registration is temporarily closed</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            New accounts stay disabled until the current privacy notice, terms, and seller information are published.
+          </p>
+          <Link href="/login" className="mt-6 inline-flex rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white">
+            Log in to an existing account
+          </Link>
+        </section>
+      </main>
+    );
+  }
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +38,11 @@ export function SignupPageClient({ legalPublished }: { legalPublished: boolean }
     setLoading(true);
     setError(null);
     try {
-      const response = await signup(email.trim(), password);
+      const response = await signup(email.trim(), password, {
+        organizationName: organizationName.trim(),
+        businessUseConfirmed: true,
+        termsVersion: legalVersion,
+      });
       router.replace(destinationAfterAuthentication(response)); // signup auto-logs-in
     } catch (err) {
       // 429 is reachable here now that signup is capped per IP, and it is not a credentials
@@ -46,8 +68,12 @@ export function SignupPageClient({ legalPublished }: { legalPublished: boolean }
       password={password}
       onEmail={setEmail}
       onPassword={setPassword}
+      organizationName={organizationName}
+      onOrganizationName={setOrganizationName}
+      businessUseConfirmed={businessUseConfirmed}
+      onBusinessUseConfirmed={setBusinessUseConfirmed}
       onSubmit={onSubmit}
-      legalPublished={legalPublished}
+      legalPublished
       passwordAutoComplete="new-password"
       passwordHint="At least 10 characters."
       footer={

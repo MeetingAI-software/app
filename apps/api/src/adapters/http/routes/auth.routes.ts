@@ -1,7 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type { AuthService, AuthServiceApi } from '../../../application/auth.service';
-import { setSessionCookie, clearSessionCookie, readSessionCookie } from '../cookies';
+import {
+  setSessionCookie,
+  clearSessionCookie,
+  readSessionCookie,
+  setOAuthStateCookie,
+  clearOAuthStateCookie,
+  matchesOAuthState,
+} from '../cookies';
 import { fixedWindowLimiter } from '../middleware/rate-limit';
 import { OAuth2Client } from 'google-auth-library';
 import { config } from '../../../config/env';
@@ -25,6 +32,9 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
   const signupSchema = z.object({
     email: z.string().email(),
     password: z.string().min(10), // §2 policy: length ≥ 10
+    organizationName: z.string().trim().min(2).max(120),
+    businessUseConfirmed: z.literal(true),
+    termsVersion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   });
   // Login stays lenient on password shape so every mismatch is a uniform 401 (no length leak).
   const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
@@ -94,8 +104,21 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
 
   router.post('/api/auth/signup', signupIpLimiter, authLimiter, async (req, res, next) => {
     try {
-      const { email, password } = signupSchema.parse(req.body);
-      const { user, sessionToken, expiresAt } = await auth.signup(email, password);
+      if (!config.PUBLIC_REGISTRATION_ENABLED) {
+        return res.status(503).json({
+          error: { code: 'REGISTRATION_DISABLED', message: 'New account registration is not available' },
+        });
+      }
+      const { email, password, organizationName, termsVersion } = signupSchema.parse(req.body);
+      if (termsVersion !== config.LEGAL_POLICIES_VERSION) {
+        return res.status(409).json({
+          error: { code: 'POLICY_VERSION_MISMATCH', message: 'The legal terms changed; reload and confirm the current version' },
+        });
+      }
+      const { user, sessionToken, expiresAt } = await auth.signup(email, password, {
+        organizationName,
+        termsVersion,
+      });
       setSessionCookie(res, sessionToken, expiresAt);
       return res.status(201).json(authUserResponse(user));
     } catch (err) {
@@ -178,15 +201,23 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
       return res.status(500).json({ error: { code: 'OAUTH_NOT_CONFIGURED', message: 'Google OAuth is not configured on backend.' } });
     }
     const client = new OAuth2Client(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, config.GOOGLE_REDIRECT_URI);
+    const state = setOAuthStateCookie(res);
     const url = client.generateAuthUrl({
       access_type: 'offline',
       scope: ['https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+      state,
     });
     return res.redirect(url);
   });
 
   router.get('/api/auth/google/callback', async (req, res, next) => {
     try {
+      const validState = matchesOAuthState(req, req.query.state);
+      clearOAuthStateCookie(res);
+      if (!validState) {
+        return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_state_invalid`);
+      }
+
       const code = req.query.code as string;
       if (!code) {
         return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_failed`);
@@ -205,11 +236,18 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
         return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_payload_invalid`);
       }
 
-      const { sessionToken, expiresAt } = await auth.loginOrCreateGoogleUser(payload.email, payload.sub);
+      const { sessionToken, expiresAt } = await auth.loginOrCreateGoogleUser(
+        payload.email,
+        payload.sub,
+        // Google is login/link-only until OAuth onboarding captures the same B2B/legal evidence
+        // as the password signup flow. Existing Google users remain unaffected.
+        false,
+      );
       setSessionCookie(res, sessionToken, expiresAt);
       return res.redirect(`${config.WEB_ORIGIN}/meetings`);
-    } catch (err) {
-      console.error('❌ Google OAuth Callback Error:', err);
+    } catch {
+      // OAuth library errors may embed authorization codes or provider response details.
+      console.error('Google OAuth callback failed');
       return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_error`);
     }
   });

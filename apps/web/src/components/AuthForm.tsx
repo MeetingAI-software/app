@@ -17,6 +17,10 @@ interface Props {
   password: string;
   onEmail: (v: string) => void;
   onPassword: (v: string) => void;
+  organizationName?: string;
+  onOrganizationName?: (v: string) => void;
+  businessUseConfirmed?: boolean;
+  onBusinessUseConfirmed?: (v: boolean) => void;
   onSubmit: (e: React.FormEvent) => void;
   passwordAutoComplete?: string;
   passwordHint?: string;
@@ -144,6 +148,27 @@ export default function AuthForm(props: Props) {
                     />
                   </div>
 
+                  {props.mode === 'signup' && (
+                    <div className="space-y-1.5">
+                      <label className="block font-label-mono text-xs uppercase tracking-wider font-semibold text-on-surface" htmlFor="organizationName">
+                        Organisation
+                      </label>
+                      <input
+                        id="organizationName"
+                        type="text"
+                        required
+                        minLength={2}
+                        maxLength={120}
+                        autoComplete="organization"
+                        value={props.organizationName ?? ''}
+                        onChange={(event) => props.onOrganizationName?.(event.target.value)}
+                        disabled={props.loading}
+                        placeholder="Company or organisation"
+                        className="w-full bg-surface-bright border border-slate-200 rounded px-4 py-3 font-body-md text-on-surface placeholder:text-outline-variant shadow-xs transition-colors focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/30 disabled:opacity-50"
+                      />
+                    </div>
+                  )}
+
                   {/* Password Field */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
@@ -190,10 +215,28 @@ export default function AuthForm(props: Props) {
                     </div>
                   )}
 
+                  {props.mode === 'signup' && (
+                    <label className="flex items-start gap-3 rounded border border-slate-200 bg-white p-3 text-sm leading-5 text-slate-700">
+                      <input
+                        type="checkbox"
+                        required
+                        checked={props.businessUseConfirmed ?? false}
+                        onChange={(event) => props.onBusinessUseConfirmed?.(event.target.checked)}
+                        disabled={props.loading}
+                        className="mt-0.5 h-4 w-4"
+                      />
+                      <span>
+                        I register for a company or organisation, and accept the{' '}
+                        <Link href="/terms" className="font-semibold underline">Terms</Link> and{' '}
+                        <Link href="/privacy" className="font-semibold underline">Privacy Notice</Link>.
+                      </span>
+                    </label>
+                  )}
+
                   {/* Submit Button */}
                   <button
                     type="submit"
-                    disabled={props.loading}
+                    disabled={props.loading || (props.mode === 'signup' && !props.businessUseConfirmed)}
                     className="w-full bg-slate-900 text-white font-label-mono text-xs uppercase tracking-wider font-bold py-3.5 px-6 rounded transition-all hover:bg-slate-800 hover:-translate-y-0.5 active:translate-y-0 mt-2 flex justify-center items-center gap-2 shadow-md disabled:opacity-50 cursor-pointer"
                   >
                     {props.loading ? (
@@ -207,7 +250,9 @@ export default function AuthForm(props: Props) {
                   </button>
                 </form>
 
-                {/* Divider */}
+                {/* Google remains available for existing-account login. New OAuth accounts stay
+                    closed until onboarding can capture B2B and legal acceptance server-side. */}
+                {props.mode === 'login' && <>
                 <div className="relative flex py-2 items-center">
                   <div className="flex-grow border-t border-slate-200" />
                   <span className="flex-shrink-0 mx-4 font-label-mono text-xs text-outline-variant uppercase">OR</span>
@@ -227,6 +272,7 @@ export default function AuthForm(props: Props) {
                   </svg>
                   Continue with Google
                 </a>
+                </>}
 
                 {/* Footer Text */}
                 <p className="text-center font-body-md text-sm text-on-surface-variant pt-2">
