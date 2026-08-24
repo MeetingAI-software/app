@@ -21,6 +21,7 @@ function openFetch(overrides = {}) {
   };
   return async (url) => {
     if (overrides[url.pathname]) return overrides[url.pathname];
+    if (url.pathname === '/settings') return response(200, '<html>protected session shell</html>');
     const links = url.pathname in alternate
       ? `<a href="${alternate[url.pathname]}">language</a>${url.pathname.includes('refund') ? '<a href="https://paddle.net">withdraw</a>' : ''}`
       : '<a href="/privacy">privacy</a><a href="/terms">terms</a><a href="/refund-policy">refund</a><a href="https://paddle.net">withdraw</a>';
@@ -55,7 +56,7 @@ describe('legal publication smoke', () => {
     expect(calls.every((call) => !('cookie' in call.options.headers) && !('authorization' in call.options.headers))).toBe(true);
   });
 
-  it('verifies all public and withdrawal navigation on an open Preview', async () => {
+  it('verifies public withdrawal navigation without requiring protected Settings HTML', async () => {
     const result = await runLegalPublicationSmoke({
       baseUrl: 'https://preview.example.com', mode: 'open', fetchImpl: openFetch(),
     });
