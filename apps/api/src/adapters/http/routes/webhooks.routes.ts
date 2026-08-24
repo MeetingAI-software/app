@@ -5,21 +5,12 @@ import type { WebhookEventRepository } from '../../../ports/repositories.port';
 import type { PaddleBillingRepository } from '../../../ports/repositories.port';
 import { getPaddleClient } from '../../paddle/paddle-client';
 import { processPaddleEvent } from '../../paddle/process-paddle-event';
-import { verifyWebhookSignature } from '../../recall/recall-webhook.verifier';
+import { verifyRecallSignature, verifyWebhookSignature } from '../../recall/recall-webhook.verifier';
 import type { IngestLiveTranscriptService } from '../../../application/ingest-live-transcript.service';
 import {
   verifyTranscriptionSecret,
   TRANSCRIPTION_WEBHOOK_HEADER,
 } from '../../assemblyai/transcription-webhook.verifier';
-
-/** Constant-time compare that tolerates length mismatches without throwing. */
-function tokenMatches(provided: unknown, expected: string | undefined): boolean {
-  if (!expected || typeof provided !== 'string') return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
-}
 
 export function createWebhookRoutes(
   webhookRepo: WebhookEventRepository,
@@ -37,13 +28,13 @@ export function createWebhookRoutes(
    * and are worthless a moment later. These are processed inline and acknowledged immediately;
    * the authoritative transcript still arrives post-call via `transcript.done` on /webhooks/recall.
    *
-   * Auth is a shared token in the query string, because Recall's per-bot realtime endpoints are
-   * not Svix-signed the way workspace webhooks are.
+   * Recall signs this endpoint with a workspace verification secret. URL tokens are deliberately
+   * unsupported because request targets are copied into provider, proxy and application logs.
    */
   router.post('/webhooks/recall/live', (req, res) => {
-    if (!tokenMatches(req.query.token, config.RECALL_LIVE_WEBHOOK_TOKEN)) {
-      console.warn('⚠️ Invalid token on /webhooks/recall/live');
-      return res.status(401).json({ error: 'Invalid token' });
+    if (!verifyRecallSignature(req, config.RECALL_REALTIME_WEBHOOK_SECRET)) {
+      console.warn('Invalid signature on /webhooks/recall/live');
+      return res.status(401).json({ error: 'Invalid signature' });
     }
 
     // Acknowledge first. Recall must never retry a partial: by the time a retry landed the text
@@ -137,9 +128,9 @@ export function createWebhookRoutes(
       const event = await paddle.webhooks.unmarshal(rawBody.toString('utf8'), secret, signature);
       await processPaddleEvent(event, paddleBillingRepo);
       return res.status(200).json({ received: true });
-    } catch (error) {
+    } catch {
       // Paddle retries non-2xx responses. Never acknowledge a signature or persistence failure.
-      console.error('Paddle webhook processing failed', error);
+      console.error('Paddle webhook processing failed');
       return res.status(500).json({ error: 'Paddle webhook processing failed' });
     }
   });

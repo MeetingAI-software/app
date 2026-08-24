@@ -1,13 +1,14 @@
 import crypto from 'crypto';
 import { config } from '../../config/env';
 
-export function verifyWebhookSignature(req: any): boolean {
-  if (config.BOT_PROVIDER === 'fake') {
-    // Verification is bypassed when using fake provider to allow simulated local webhooks.
-    return true;
-  }
+/** Recall/Svix recommends a five-minute tolerance for signed delivery timestamps. */
+export const RECALL_WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
 
-  const secret = config.RECALL_WEBHOOK_SECRET;
+export function verifyRecallSignature(
+  req: any,
+  secret: string | undefined,
+  nowMs = Date.now(),
+): boolean {
   if (!secret) {
     console.warn('⚠️ RECALL_WEBHOOK_SECRET is not configured. Webhook verification failed.');
     return false;
@@ -22,7 +23,20 @@ export function verifyWebhookSignature(req: any): boolean {
     return false;
   }
 
-  const rawBody = req.rawBody ? req.rawBody.toString('utf8') : '';
+  if (!req.rawBody) {
+    console.warn('Webhook request is missing its raw body');
+    return false;
+  }
+
+  const timestampSeconds = Number(svixTimestamp);
+  const nowSeconds = Math.floor(nowMs / 1000);
+  if (!Number.isSafeInteger(timestampSeconds)
+      || Math.abs(nowSeconds - timestampSeconds) > RECALL_WEBHOOK_TOLERANCE_SECONDS) {
+    console.warn('Webhook request timestamp is outside the accepted replay window');
+    return false;
+  }
+
+  const rawBody = req.rawBody.toString('utf8');
 
   try {
     // Extract part after 'whsec_' prefix and decode from base64
@@ -57,4 +71,12 @@ export function verifyWebhookSignature(req: any): boolean {
     console.error('❌ Error during webhook signature verification:', err);
     return false;
   }
+}
+
+export function verifyWebhookSignature(req: any): boolean {
+  if (config.BOT_PROVIDER === 'fake') {
+    // Verification is bypassed when using fake provider to allow simulated local webhooks.
+    return true;
+  }
+  return verifyRecallSignature(req, config.RECALL_WEBHOOK_SECRET);
 }

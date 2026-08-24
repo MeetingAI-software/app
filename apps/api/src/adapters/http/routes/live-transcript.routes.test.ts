@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,7 +21,7 @@ import { createMeetingRoutes } from './meetings.routes';
 import { createWebhookRoutes } from './webhooks.routes';
 
 const OWNER: User = { id: 'u1', email: 'a@b.com', emailVerified: true, createdAt: new Date() };
-const LIVE_TOKEN = 'live-token-under-test';
+const LIVE_SECRET = `whsec_${Buffer.from('live-webhook-key-material').toString('base64')}`;
 
 function meeting(overrides: Partial<Meeting> = {}): Meeting {
   return {
@@ -47,7 +48,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
 describe('live transcript routes', () => {
   let server: Server;
   let baseUrl: string;
-  let previousToken: string | undefined;
+  let previousSecret: string | undefined;
   let current: Meeting;
   let stored: Array<{ seq: number; startMs: number; endMs: number; speaker: string; text: string }>;
   let bus: LiveTranscriptBus;
@@ -71,8 +72,8 @@ describe('live transcript routes', () => {
   };
 
   beforeAll(() => {
-    previousToken = config.RECALL_LIVE_WEBHOOK_TOKEN;
-    config.RECALL_LIVE_WEBHOOK_TOKEN = LIVE_TOKEN;
+    previousSecret = config.RECALL_REALTIME_WEBHOOK_SECRET;
+    config.RECALL_REALTIME_WEBHOOK_SECRET = LIVE_SECRET;
 
     bus = new LiveTranscriptBus();
     const ingest = new IngestLiveTranscriptService(meetingRepo, liveRepo, bus);
@@ -103,7 +104,7 @@ describe('live transcript routes', () => {
   });
 
   afterAll(async () => {
-    config.RECALL_LIVE_WEBHOOK_TOKEN = previousToken;
+    config.RECALL_REALTIME_WEBHOOK_SECRET = previousSecret;
     await new Promise<void>((resolve, reject) => {
       server.close(err => (err ? reject(err) : resolve()));
     });
@@ -124,23 +125,37 @@ describe('live transcript routes', () => {
       },
     };
 
-    const post = (token: string | null) =>
-      fetch(`${baseUrl}/webhooks/recall/live${token === null ? '' : `?token=${token}`}`, {
+    const post = (secret: string | null) => {
+      const body = JSON.stringify(payload);
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const id = `live-${crypto.randomUUID()}`;
+      const signature = secret
+        ? crypto.createHmac('sha256', Buffer.from(secret.replace(/^whsec_/, ''), 'base64'))
+          .update(`${id}.${timestamp}.${body}`).digest('base64')
+        : null;
+      return fetch(`${baseUrl}/webhooks/recall/live`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers: {
+          'content-type': 'application/json',
+          ...(signature ? {
+            'webhook-id': id,
+            'webhook-timestamp': timestamp,
+            'webhook-signature': `v1,${signature}`,
+          } : {}),
+        },
+        body,
       });
+    };
 
     it('rejects a missing or wrong token', async () => {
       expect((await post(null)).status).toBe(401);
-      expect((await post('wrong')).status).toBe(401);
-      // A token of a different length must not throw out of timingSafeEqual.
-      expect((await post('x')).status).toBe(401);
+      const wrongSecret = `whsec_${Buffer.from('wrong-key-material').toString('base64')}`;
+      expect((await post(wrongSecret)).status).toBe(401);
       expect(stored).toHaveLength(0);
     });
 
     it('accepts a valid token and ingests the utterance', async () => {
-      const res = await post(LIVE_TOKEN);
+      const res = await post(LIVE_SECRET);
       expect(res.status).toBe(200);
 
       // The route acknowledges before processing, so give the ingest a tick to land.

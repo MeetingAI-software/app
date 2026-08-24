@@ -7,31 +7,31 @@ dotenv.config();
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().default(3000),
+  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   DATABASE_URL: z.string().url(),
   BOT_PROVIDER: z.enum(['fake', 'recall']).default('fake'),
   RECALL_API_KEY: z.string().optional(),
-  RECALL_BASE_URL: z.string().optional(),
+  RECALL_BASE_URL: z.string().url().optional(),
   RECALL_WEBHOOK_SECRET: z.string().optional(),
-  PUBLIC_WEBHOOK_URL: z.string().optional(),
-  // Live transcription. Recall's realtime endpoints are configured per bot and are NOT Svix-signed
-  // like the workspace webhook, so they authenticate with a shared token in the query string.
-  RECALL_LIVE_WEBHOOK_TOKEN: z.string().optional(),
+  PUBLIC_WEBHOOK_URL: z.string().url().optional(),
+  // Live transcription is signed with Recall's workspace verification secret. Keep this separate
+  // from the dashboard webhook secret for legacy accounts where those values can differ.
+  RECALL_REALTIME_WEBHOOK_SECRET: z.string().optional(),
   // Kill switch: turns off `realtime_endpoints` on newly created bots without a code change.
   // Bots already in a call keep streaming; only new meetings are affected.
   // Not `z.coerce.boolean()` — that maps the string "false" to true, which is the opposite of
   // what anyone setting LIVE_TRANSCRIPT_ENABLED=false intends.
   LIVE_TRANSCRIPT_ENABLED: z.enum(['true', 'false']).default('true').transform(v => v === 'true'),
-  MONTHLY_CAP_SECONDS: z.coerce.number().default(14400),
-  MAX_MEETING_SECONDS: z.coerce.number().default(3600),
-  MAX_CONCURRENT_BOTS: z.coerce.number().default(1),
+  MONTHLY_CAP_SECONDS: z.coerce.number().int().positive().max(31_536_000).default(14400),
+  MAX_MEETING_SECONDS: z.coerce.number().int().min(60).max(28_800).default(3600),
+  MAX_CONCURRENT_BOTS: z.coerce.number().int().min(1).max(20).default(1),
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_MODEL: z.string().default('claude-sonnet-4-6'),
-  CLAUDE_TIMEOUT_MS: z.coerce.number().default(60000),
-  MAX_TRANSCRIPT_CHARS: z.coerce.number().default(180000),
+  CLAUDE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300_000).default(60000),
+  MAX_TRANSCRIPT_CHARS: z.coerce.number().int().min(1000).max(1_000_000).default(180000),
   DOC_PROVIDER: z.enum(['fake', 'claude', 'gemini']).default('fake'),
-  WEB_ORIGIN: z.string().default('http://localhost:3001'),
+  WEB_ORIGIN: z.string().url().default('http://localhost:3001'),
   EMAIL_PROVIDER: z.enum(['log', 'resend']).default('log'),
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM: z.string().min(1).optional(),
@@ -40,7 +40,12 @@ export const envSchema = z.object({
   // free-plan hard block of 100/day so a burst can never reach the provider's own wall, and env
   // rather than code (like MONTHLY_CAP_SECONDS) because it is the one number worth raising from
   // the dashboard at 2am without a deploy.
-  EMAIL_DAILY_SEND_BUDGET: z.coerce.number().int().positive().default(30),
+  EMAIL_DAILY_SEND_BUDGET: z.coerce.number().int().positive().max(1000).default(30),
+  // Fail closed: existing users can log in, but production cannot accidentally reopen account
+  // creation while the required legal publication is unavailable.
+  PUBLIC_REGISTRATION_ENABLED: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
+  LEGAL_POLICIES_PUBLISHED: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
+  LEGAL_POLICIES_VERSION: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   // --- Day 3: in-room recording + chat ---
   ASSEMBLYAI_API_KEY: z.string().optional(),
   ASSEMBLYAI_BASE_URL: z.string().url().default('https://api.assemblyai.com'),
@@ -51,11 +56,12 @@ export const envSchema = z.object({
   IN_ROOM_RECORDING_ENABLED: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
-  MAX_CHAT_QUESTIONS_PER_MEETING: z.coerce.number().default(20),
-  MAX_UPLOAD_MB: z.coerce.number().default(200),
+  MAX_CHAT_QUESTIONS_PER_MEETING: z.coerce.number().int().min(1).max(100).default(20),
+  MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(100).default(50),
+  MAX_CONCURRENT_UPLOADS: z.coerce.number().int().min(1).max(4).default(1),
   CHAT_PROVIDER: z.enum(['fake', 'claude', 'gemini']).default('fake'),
   // --- Day 5: accounts + sessions ---
-  SESSION_TTL_DAYS: z.coerce.number().int().default(30),
+  SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
   // --- Day 6: observability ---
   SENTRY_DSN: z.string().optional(),   // optional everywhere; observability is a no-op when unset
   // Set by the deploy pipeline to the merged commit SHA and echoed by /healthz. `railway up`
@@ -87,6 +93,22 @@ export const envSchema = z.object({
   NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID: z.string().optional(),
   NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID: z.string().optional(),
 }).superRefine((cfg, ctx) => {
+  if (cfg.NODE_ENV === 'production' && cfg.PUBLIC_REGISTRATION_ENABLED) {
+    if (!cfg.LEGAL_POLICIES_PUBLISHED) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['LEGAL_POLICIES_PUBLISHED'],
+        message: 'Public registration requires published legal policies in production',
+      });
+    }
+    if (!cfg.LEGAL_POLICIES_VERSION) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['LEGAL_POLICIES_VERSION'],
+        message: 'Public registration requires a versioned legal policy set in production',
+      });
+    }
+  }
   if (cfg.NODE_ENV === 'production' && cfg.IN_ROOM_RECORDING_ENABLED) {
     const required = [
       ['ASSEMBLYAI_API_KEY', cfg.ASSEMBLYAI_API_KEY],
@@ -130,10 +152,10 @@ export const envSchema = z.object({
       ['RECALL_BASE_URL', cfg.RECALL_BASE_URL],
       ['RECALL_WEBHOOK_SECRET', cfg.RECALL_WEBHOOK_SECRET],
       ['PUBLIC_WEBHOOK_URL', cfg.PUBLIC_WEBHOOK_URL],
-      // Without it the live webhook URL we hand Recall would carry an empty token and every
+      // Without a workspace verification secret the endpoint remains fail-closed and every
       // live utterance would be rejected — a silently dead live transcript, not a loud failure.
       ...(cfg.LIVE_TRANSCRIPT_ENABLED
-        ? ([['RECALL_LIVE_WEBHOOK_TOKEN', cfg.RECALL_LIVE_WEBHOOK_TOKEN]] as const)
+        ? ([['RECALL_REALTIME_WEBHOOK_SECRET', cfg.RECALL_REALTIME_WEBHOOK_SECRET]] as const)
         : []),
     ] as const;
     for (const [key, value] of required) {

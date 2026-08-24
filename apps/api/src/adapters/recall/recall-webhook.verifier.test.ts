@@ -25,7 +25,7 @@ const SECRET = `whsec_${Buffer.from('recall-webhook-key-material').toString('bas
 const ATTACKER_SECRET = `whsec_${Buffer.from('a-completely-different-key').toString('base64')}`;
 
 const ID = 'msg_2abcdef';
-const TIMESTAMP = '1786600000';
+const TIMESTAMP = String(Math.floor(Date.now() / 1000));
 const BODY = JSON.stringify({ event: 'transcript.done', data: { bot_id: 'bot-1' } });
 
 function sign(
@@ -225,13 +225,7 @@ describe('verifyWebhookSignature', () => {
       expect(verifyWebhookSignature(req)).toBe(false);
     });
 
-    // KNOWN GAP, pinned rather than fixed. The timestamp is read into the signed content but its
-    // age is never checked, so there is no replay window: a delivery captured today still verifies
-    // in a year. What actually absorbs a replay today is webhook_events.external_event_id being
-    // unique (webhook-event.repository.test.ts) — the second copy is discarded before processing.
-    // Closing this properly means a freshness check in the verifier, which is a runtime change and
-    // deliberately out of scope here.
-    it('does not check how old a delivery is — replay is absorbed downstream, not here', () => {
+    it('rejects a correctly signed delivery outside the five-minute replay window', () => {
       const ancient = '1500000000';                       // July 2017
       const req = delivery({
         'webhook-id': ID,
@@ -239,7 +233,7 @@ describe('verifyWebhookSignature', () => {
         'webhook-signature': `v1,${sign(BODY, { timestamp: ancient })}`,
       });
 
-      expect(verifyWebhookSignature(req)).toBe(true);
+      expect(verifyWebhookSignature(req)).toBe(false);
     });
   });
 });

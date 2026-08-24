@@ -206,7 +206,7 @@ async function bootstrap() {
   const authService = new AuthService(
     userRepo, sessionRepo, passwordHasher, config.SESSION_TTL_DAYS,
     meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter,
-    emailVerificationTokens, emailVerificationDelivery, emailSendBudget,
+    emailVerificationTokens, emailVerificationDelivery, emailSendBudget, paddleBillingRepo,
   );
 
   // 4. Web Worker
