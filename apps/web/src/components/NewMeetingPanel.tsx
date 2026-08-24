@@ -7,6 +7,7 @@ import InRoomRecorder from './InRoomRecorder';
 import InRoomUnavailableNotice from './InRoomUnavailableNotice';
 import RecordingConsent from './RecordingConsent';
 import Link from 'next/link';
+import { RECORDING_NOTICE_VERSION } from '@/lib/recording-notice';
 
 type Tab = 'online' | 'inroom';
 
@@ -29,7 +30,10 @@ export default function NewMeetingPanel({ subscription }: { subscription: Subscr
     setLoading(true);
     setError(null);
     try {
-      const meeting = await createMeeting(url);
+      const meeting = await createMeeting(url, {
+        confirmed: true,
+        version: RECORDING_NOTICE_VERSION,
+      });
       router.push(`/meetings/${meeting.id}`);
     } catch (err) {
       // Only reachable if the session went stale mid-page — AppShell holds unverified accounts on

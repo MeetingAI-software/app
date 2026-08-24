@@ -21,7 +21,11 @@ export interface Meeting {
   errorMessage: string | null;
   summary: string | null;
   shareToken: string;
+  shareEnabled?: boolean;
+  shareExpiresAt?: string | null;
   participantNames: string[] | null;   // Day 3: names for an in-room recording
+  recordingNoticeConfirmedAt?: string | null;
+  recordingNoticeVersion?: string | null;
   audioStoragePath: string | null;     // Day 3
   transcriptionJobId: string | null;   // Day 3
   createdAt: string;
@@ -102,6 +106,11 @@ export interface User {
   id: string;
   email: string;
   emailVerified: boolean;
+  hasPassword?: boolean;
+  hasGoogleLogin?: boolean;
+  organizationName?: string | null;
+  businessUseConfirmedAt?: string | null;
+  termsVersionAccepted?: string | null;
   createdAt: string;
 }
 
@@ -221,11 +230,15 @@ async function handleResponseQuiet<T>(response: Response): Promise<T> {
 }
 
 // --- Auth (Day 5) ---
-export async function signup(email: string, password: string): Promise<AuthUserResponse> {
+export async function signup(
+  email: string,
+  password: string,
+  registration: { organizationName: string; businessUseConfirmed: true; termsVersion: string },
+): Promise<AuthUserResponse> {
   const res = await api('/api/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, ...registration }),
   });
   return handleResponse<AuthUserResponse>(res);
 }
@@ -354,17 +367,36 @@ export async function getMeetings(): Promise<Meeting[]> {
   return handleResponse<Meeting[]>(await api('/api/meetings'));
 }
 
-export async function createMeeting(meetingUrl: string): Promise<Meeting> {
+export async function createMeeting(
+  meetingUrl: string,
+  recordingNotice: { confirmed: true; version: string },
+): Promise<Meeting> {
   const res = await api('/api/meetings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ meetingUrl }),
+    body: JSON.stringify({
+      meetingUrl,
+      recordingNoticeConfirmed: recordingNotice.confirmed,
+      recordingNoticeVersion: recordingNotice.version,
+    }),
   });
   return handleResponse<Meeting>(res);
 }
 
 export async function getMeeting(id: string): Promise<Meeting> {
   return handleResponse<Meeting>(await api(`/api/meetings/${id}`));
+}
+
+export async function enableMeetingShare(id: string, expiresInHours = 24): Promise<Meeting> {
+  return handleResponse<Meeting>(await api(`/api/meetings/${id}/share`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expiresInHours }),
+  }));
+}
+
+export async function revokeMeetingShare(id: string): Promise<void> {
+  return handleVoid(await api(`/api/meetings/${id}/share`, { method: 'DELETE' }));
 }
 
 export async function getTranscript(id: string): Promise<TranscriptSegment[]> {
@@ -415,6 +447,7 @@ export async function getShare(token: string): Promise<ShareResponse> {
 export function uploadMeeting(
   audio: Blob,
   participantNames: string[],
+  recordingNotice: { confirmed: true; version: string },
   onProgress?: (fraction: number) => void
 ): Promise<Meeting> {
   return new Promise((resolve, reject) => {
@@ -425,6 +458,8 @@ export function uploadMeeting(
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API_BASE}/api/meetings/upload`);
     xhr.withCredentials = true; // send the session cookie
+    xhr.setRequestHeader('X-Recording-Notice-Confirmed', String(recordingNotice.confirmed));
+    xhr.setRequestHeader('X-Recording-Notice-Version', recordingNotice.version);
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);

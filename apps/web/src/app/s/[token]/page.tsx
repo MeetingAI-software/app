@@ -7,31 +7,14 @@ interface Props {
   params: Promise<{ token: string }>;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { token } = await params;
-  try {
-    const data = await getShare(token);
-    const title = data.document?.content.title || 'Meeting Notes';
-    const firstMissed = data.document?.content.missed5?.[0] || '';
-    const description = firstMissed
-      ? `1. ${firstMissed}`
-      : data.meeting.summary || 'Catch-up document for this meeting.';
-
-    return {
-      title: `${title} | ${BRAND_NAME}`,
-      description,
-      openGraph: {
-        title,
-        description,
-        type: 'website',
-      },
-    };
-  } catch {
-    return {
-      title: `Meeting Notes | ${BRAND_NAME}`,
-      description: 'View shared meeting notes',
-    };
-  }
+export async function generateMetadata(): Promise<Metadata> {
+  // Never place meeting content in crawler/social-preview metadata: unfurling a copied URL must
+  // not copy transcript-derived text into chat providers, search engines or their caches.
+  return {
+    title: `Shared meeting | ${BRAND_NAME}`,
+    description: 'Private meeting notes shared through a time-limited link.',
+    robots: { index: false, follow: false, noarchive: true, nosnippet: true },
+  };
 }
 
 type SharePageResult =

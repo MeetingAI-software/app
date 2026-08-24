@@ -69,7 +69,17 @@ async function main() {
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
   const signup = async (email: string) => {
-    const r = await fetch(`${base}/api/auth/signup`, { method: 'POST', headers: J, body: JSON.stringify({ email, password: 'a-good-password' }) });
+    const r = await fetch(`${base}/api/auth/signup`, {
+      method: 'POST',
+      headers: J,
+      body: JSON.stringify({
+        email,
+        password: 'a-good-password',
+        organizationName: 'Syncmemos Ownership Smoke',
+        businessUseConfirmed: true,
+        termsVersion: config.LEGAL_POLICIES_VERSION,
+      }),
+    });
     return { cookie: `session=${/session=([^;]+)/.exec(r.headers.get('set-cookie') ?? '')?.[1]}`, user: (await r.json()).user };
   };
 

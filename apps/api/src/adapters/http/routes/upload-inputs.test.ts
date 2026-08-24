@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ZodError } from 'zod';
-import { parseParticipantNames, isAudioMime } from './upload-inputs';
+import { parseParticipantNames, isAudioMime, hasMatchingAudioSignature } from './upload-inputs';
 
 describe('parseParticipantNames', () => {
   it('parses a JSON array of names', () => {
@@ -48,5 +48,25 @@ describe('isAudioMime', () => {
     expect(isAudioMime('application/json')).toBe(false);
     expect(isAudioMime('')).toBe(false);
     expect(isAudioMime(undefined)).toBe(false);
+  });
+
+  it('rejects unapproved audio subtypes', () => {
+    expect(isAudioMime('audio/vnd.attacker')).toBe(false);
+  });
+});
+
+describe('hasMatchingAudioSignature', () => {
+  it('accepts matching WebM, WAV, MP4, Ogg, FLAC and MP3 signatures', () => {
+    expect(hasMatchingAudioSignature(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), 'audio/webm')).toBe(true);
+    expect(hasMatchingAudioSignature(Buffer.from('RIFF0000WAVE'), 'audio/wav')).toBe(true);
+    expect(hasMatchingAudioSignature(Buffer.from('0000ftypM4A '), 'audio/mp4')).toBe(true);
+    expect(hasMatchingAudioSignature(Buffer.from('OggS'), 'audio/ogg')).toBe(true);
+    expect(hasMatchingAudioSignature(Buffer.from('fLaC'), 'audio/flac')).toBe(true);
+    expect(hasMatchingAudioSignature(Buffer.from('ID3payload'), 'audio/mpeg')).toBe(true);
+  });
+
+  it('rejects a renamed document and a MIME/container mismatch', () => {
+    expect(hasMatchingAudioSignature(Buffer.from('%PDF-not-audio'), 'audio/webm')).toBe(false);
+    expect(hasMatchingAudioSignature(Buffer.from('OggS'), 'audio/wav')).toBe(false);
   });
 });

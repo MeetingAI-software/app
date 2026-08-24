@@ -61,7 +61,7 @@ export class SweepJob {
         try {
           // Clean up Supabase storage
           if (meeting.audioStoragePath) {
-            logger.info({ meetingId: meeting.id, path: meeting.audioStoragePath }, 'Deleting audio from storage');
+            logger.info({ meetingId: meeting.id }, 'Deleting audio from storage');
             await this.storage.delete(meeting.audioStoragePath);
             await this.meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: null });
             logger.info({ meetingId: meeting.id }, 'Cleared meeting audioStoragePath in DB');
@@ -80,6 +80,29 @@ export class SweepJob {
       }
     } catch (err: any) {
       logger.error({ err }, 'Error cleaning up old transcribed meetings');
+      captureError(err);
+    }
+
+    // Failed upload processing must not turn a temporary media object into indefinite retention.
+    // Keep it for one hour so an immediate retry/support investigation remains possible, then
+    // delete it and clear the reference. Each meeting is isolated so one provider error cannot
+    // prevent cleanup of the rest.
+    try {
+      const failedWithAudio = await this.meetingRepo.findFailedWithAudioOlderThan?.(1) ?? [];
+      logger.info({ count: failedWithAudio.length }, 'Sweep found failed meetings with retained audio');
+      for (const meeting of failedWithAudio) {
+        if (!meeting.audioStoragePath) continue;
+        try {
+          await this.storage.delete(meeting.audioStoragePath);
+          await this.meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: null });
+          logger.info({ meetingId: meeting.id }, 'Sweep deleted failed meeting audio');
+        } catch (mErr: any) {
+          logger.error({ meetingId: meeting.id }, 'Failed to delete retained audio for failed meeting');
+          captureError(mErr, { meetingId: meeting.id });
+        }
+      }
+    } catch (err: any) {
+      logger.error('Error cleaning up retained audio for failed meetings');
       captureError(err);
     }
 

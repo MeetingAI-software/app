@@ -27,6 +27,7 @@ describe('SweepJob', () => {
       countActive: vi.fn(),
       list: vi.fn(),
       findTranscribedOlderThan: vi.fn().mockResolvedValue([]),
+      findFailedWithAudioOlderThan: vi.fn().mockResolvedValue([]),
       findStuckActiveOlderThan: vi.fn().mockResolvedValue([]),
     } as any;
 
@@ -121,6 +122,21 @@ describe('SweepJob', () => {
       expect(meetingRepo.updateStatus).toHaveBeenCalledWith('meeting-2', 'failed', {
         errorMessage: 'Sweep: Bot stuck in joining state for over 15 minutes',
       });
+    });
+
+    it('deletes retained audio for failed meetings after one hour', async () => {
+      meetingRepo.findFailedWithAudioOlderThan.mockResolvedValue([{
+        id: 'meeting-failed',
+        source: 'upload',
+        status: 'failed',
+        audioStoragePath: 'audio/failed.webm',
+      }]);
+
+      await sweepJob.runSweep();
+
+      expect(meetingRepo.findFailedWithAudioOlderThan).toHaveBeenCalledWith(1);
+      expect(storage.delete).toHaveBeenCalledWith('audio/failed.webm');
+      expect(meetingRepo.setUploadInfo).toHaveBeenCalledWith('meeting-failed', { audioStoragePath: null });
     });
 
     it('should transition to recording if bot is in call', async () => {
