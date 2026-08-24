@@ -90,8 +90,11 @@ export async function runLegalPublicationSmoke({ baseUrl, mode, fetchImpl = fetc
 
   const settings = await read(baseUrl, SETTINGS_ROUTE, fetchImpl);
   assertStatus(SETTINGS_ROUTE, settings.response, 200);
-  if (mode === 'open') assertContains(SETTINGS_ROUTE, settings.html, `href="${WITHDRAWAL_URL}"`, 'Paddle withdrawal link');
-  else assertAbsent(SETTINGS_ROUTE, settings.html, WITHDRAWAL_URL, 'Paddle withdrawal link');
+  // Settings is intentionally protected by a client-side session shell. Anonymous HTML therefore
+  // contains no protected children before hydration, even when publication is open. Closed mode can
+  // still prove that no link leaks into the shell; open mode is covered by the page wiring test and
+  // must be verified in an authenticated browser session.
+  if (mode === 'closed') assertAbsent(SETTINGS_ROUTE, settings.html, WITHDRAWAL_URL, 'Paddle withdrawal link');
   checked.push(SETTINGS_ROUTE);
 
   return { mode, baseUrl, checked };
