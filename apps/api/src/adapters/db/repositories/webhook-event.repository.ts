@@ -53,6 +53,10 @@ export class DrizzleWebhookEventRepository implements WebhookEventRepository {
       .update(webhookEvents)
       .set({
         processedAt: new Date(),
+        nextAttemptAt: null,
+        // The worker no longer needs the provider payload after success. Keep only a marker so
+        // event IDs still provide idempotency/audit evidence without retaining transcript data.
+        payload: { redacted: true },
       })
       .where(eq(webhookEvents.id, id));
   }

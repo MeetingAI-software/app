@@ -27,12 +27,32 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function toUser(row: { id: string; email: string; emailVerified: boolean; createdAt: Date }): User {
-  return { id: row.id, email: row.email, emailVerified: row.emailVerified, createdAt: row.createdAt };
+function toUser(row: {
+  id: string;
+  email: string;
+  emailVerified: boolean;
+  passwordHash?: string | null;
+  googleId?: string | null;
+  organizationName?: string | null;
+  businessUseConfirmedAt?: Date | null;
+  termsVersionAccepted?: string | null;
+  createdAt: Date;
+}): User {
+  return {
+    id: row.id,
+    email: row.email,
+    emailVerified: row.emailVerified,
+    hasPassword: Boolean(row.passwordHash),
+    hasGoogleLogin: Boolean(row.googleId),
+    organizationName: row.organizationName ?? null,
+    businessUseConfirmedAt: row.businessUseConfirmedAt ?? null,
+    termsVersionAccepted: row.termsVersionAccepted ?? null,
+    createdAt: row.createdAt,
+  };
 }
 
 export class DrizzleUserRepository implements UserRepository {
-  async create(input: { email: string; passwordHash?: string | null; googleId?: string | null; emailVerified?: boolean }): Promise<User> {
+  async create(input: Parameters<UserRepository['create']>[0]): Promise<User> {
     const email = normalizeEmail(input.email);
     try {
       const [row] = await db
@@ -42,6 +62,9 @@ export class DrizzleUserRepository implements UserRepository {
           passwordHash: input.passwordHash ?? null,
           googleId: input.googleId ?? null,
           emailVerified: input.emailVerified ?? false,
+          organizationName: input.organizationName ?? null,
+          businessUseConfirmedAt: input.businessUseConfirmedAt ?? null,
+          termsVersionAccepted: input.termsVersionAccepted ?? null,
         })
         .returning();
       return toUser(row);

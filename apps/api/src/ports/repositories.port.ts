@@ -13,10 +13,13 @@ import type { ChatMessage } from './chat.port';
 
 export interface MeetingRepository {
   create(input: { ownerUserId: string; source: MeetingSource; meetingUrl?: string;
-    platform?: MeetingPlatform; participantNames?: string[] }): Promise<Meeting>;
+    platform?: MeetingPlatform; participantNames?: string[];
+    recordingNoticeConfirmedAt?: Date; recordingNoticeVersion?: string }): Promise<Meeting>;
   findById(id: string): Promise<Meeting | null>;
   findByBotId(botId: string): Promise<Meeting | null>;
   findByShareToken(token: string): Promise<Meeting | null>;
+  enableShare(id: string, userId: string, expiresAt: Date): Promise<Meeting | null>;
+  revokeShare(id: string, userId: string): Promise<boolean>;
   findByTranscriptionJobId(jobId: string): Promise<Meeting | null>;   // Day 3: map a transcription webhook back to its meeting
   updateStatus(id: string, to: MeetingStatus,
     patch?: Partial<Pick<Meeting, 'botId' | 'durationSeconds' | 'errorMessage'>>): Promise<Meeting>;
@@ -30,6 +33,7 @@ export interface MeetingRepository {
   countActiveForUser(userId: string): Promise<number>;   // Day 5: per-user concurrency cap
   deleteById(id: string): Promise<void>;             // Day 5: account erasure
   findTranscribedOlderThan?(hours: number): Promise<Meeting[]>;
+  findFailedWithAudioOlderThan?(hours: number): Promise<Meeting[]>;
   findStuckActiveOlderThan?(minutes: number): Promise<Meeting[]>;
 }
 
@@ -87,7 +91,15 @@ export interface ChatMessageRepository {
 
 // Day 5: accounts + sessions
 export interface UserRepository {
-  create(input: { email: string; passwordHash?: string | null; googleId?: string | null; emailVerified?: boolean }): Promise<User>;
+  create(input: {
+    email: string;
+    passwordHash?: string | null;
+    googleId?: string | null;
+    emailVerified?: boolean;
+    organizationName?: string | null;
+    businessUseConfirmedAt?: Date | null;
+    termsVersionAccepted?: string | null;
+  }): Promise<User>;
   /** Includes passwordHash — for AuthService only. */
   findByEmailWithHash(email: string): Promise<(User & { passwordHash: string | null; googleId?: string | null }) | null>;
   findByGoogleId(googleId: string): Promise<User | null>;
@@ -178,6 +190,8 @@ export interface PaddleBillingRepository {
     occurredAt: Date;
   }): Promise<void>;
   listSubscriptionsForUser(userId: string): Promise<PaddleSubscriptionRecord[]>;
+  /** Removes the local email/user link while retaining provider IDs needed for billing records. */
+  anonymizeCustomerForUser?(userId: string): Promise<void>;
 }
 
 export interface PaddleSubscriptionRecord {
