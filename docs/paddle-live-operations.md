@@ -4,6 +4,10 @@ This runbook begins only after the [legal seller gate](legal-seller-readiness.md
 policies are complete. It coordinates external Live changes; it does not contain credentials and
 must never be used against Sandbox identifiers.
 
+While Paddle's hosted withdrawal flow is still under review, stop here and use
+[the waiting-period Live preflight](live-preflight-waiting.md). That runbook permits Sandbox and
+fail-closed verification only; it does not authorize any step below.
+
 ## 1. Approval and account boundary
 
 - Sign in to the Live vendor dashboard, not the Sandbox dashboard.
