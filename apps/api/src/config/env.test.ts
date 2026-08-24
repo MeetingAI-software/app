@@ -54,6 +54,43 @@ describe('in-room recording environment validation', () => {
   });
 });
 
+describe('resource limit validation', () => {
+  it.each([
+    ['PORT', '0'],
+    ['MAX_UPLOAD_MB', '101'],
+    ['MAX_CONCURRENT_UPLOADS', '0'],
+    ['MAX_CONCURRENT_BOTS', '-1'],
+    ['SESSION_TTL_DAYS', '365'],
+    ['CLAUDE_TIMEOUT_MS', '999999'],
+  ])('rejects an unsafe %s value', (key, value) => {
+    expect(envSchema.safeParse({ ...productionBase, [key]: value }).success).toBe(false);
+  });
+
+  it('applies bounded upload defaults', () => {
+    const result = envSchema.parse(productionBase);
+    expect(result.MAX_UPLOAD_MB).toBe(50);
+    expect(result.MAX_CONCURRENT_UPLOADS).toBe(1);
+  });
+});
+
+describe('public registration safety gate', () => {
+  it('rejects production registration without published, versioned policies', () => {
+    expect(envSchema.safeParse({
+      ...productionBase,
+      PUBLIC_REGISTRATION_ENABLED: 'true',
+    }).success).toBe(false);
+  });
+
+  it('accepts registration only with explicit legal publication evidence', () => {
+    expect(envSchema.safeParse({
+      ...productionBase,
+      PUBLIC_REGISTRATION_ENABLED: 'true',
+      LEGAL_POLICIES_PUBLISHED: 'true',
+      LEGAL_POLICIES_VERSION: '2026-08-24',
+    }).success).toBe(true);
+  });
+});
+
 describe('Paddle Live environment validation', () => {
   const liveBase = {
     ...productionBase,

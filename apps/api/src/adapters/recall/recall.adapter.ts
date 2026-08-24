@@ -160,7 +160,7 @@ export class RecallAdapter implements MeetingBotPort {
     const liveEndpoint = config.LIVE_TRANSCRIPT_ENABLED
       ? [{
           type: 'webhook',
-          url: `${config.PUBLIC_WEBHOOK_URL}/webhooks/recall/live?token=${encodeURIComponent(config.RECALL_LIVE_WEBHOOK_TOKEN ?? '')}`,
+          url: `${config.PUBLIC_WEBHOOK_URL}/webhooks/recall/live`,
           // `transcript.data` is the finalized utterance we persist; `transcript.partial_data`
           // is the in-flight guess ('fur' → 'further' → 'furthermore') that we only broadcast.
           events: ['transcript.data', 'transcript.partial_data'],
