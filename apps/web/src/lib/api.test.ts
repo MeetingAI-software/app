@@ -9,6 +9,7 @@ import {
   throttleMessage,
   verifyEmail,
 } from './api';
+import { RECORDING_NOTICE_VERSION } from './recording-notice';
 
 describe('throttleMessage', () => {
   it('gives the rate limit its own sentence instead of the raw server string', () => {
@@ -94,7 +95,10 @@ describe('error codes on ordinary data calls', () => {
       { status: 403, headers: { 'content-type': 'application/json' } },
     )));
 
-    await expect(createMeeting('https://zoom.us/j/123')).rejects.toMatchObject({
+    await expect(createMeeting('https://zoom.us/j/123', {
+      confirmed: true,
+      version: RECORDING_NOTICE_VERSION,
+    })).rejects.toMatchObject({
       name: 'ApiError',
       status: 403,
       code: 'EMAIL_NOT_VERIFIED',
@@ -106,7 +110,10 @@ describe('error codes on ordinary data calls', () => {
       new Response('<html>Bad Gateway</html>', { status: 502 }),
     ));
 
-    await expect(createMeeting('https://zoom.us/j/123')).rejects.toMatchObject({
+    await expect(createMeeting('https://zoom.us/j/123', {
+      confirmed: true,
+      version: RECORDING_NOTICE_VERSION,
+    })).rejects.toMatchObject({
       status: 502,
       code: undefined,
       message: 'HTTP error! Status: 502',

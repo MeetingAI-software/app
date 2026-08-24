@@ -14,6 +14,7 @@ import { MeetingNotReadyError, DocumentGenerationError } from '../../../domain/e
 import { detectPlatform, SUPPORTED_PLATFORMS_MESSAGE } from '../../../domain/meeting-platform';
 import { toShareResponse } from './share-response';
 import { perUserRouteLimiter, SPEND_LIMITS } from '../middleware/rate-limit';
+import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
 
 export function createMeetingRoutes(
   meetingRepo: MeetingRepository,
@@ -34,6 +35,11 @@ export function createMeetingRoutes(
     meetingUrl: z.string().url().refine(val => detectPlatform(val) !== null, {
       message: SUPPORTED_PLATFORMS_MESSAGE,
     }),
+    recordingNoticeConfirmed: z.literal(true),
+    recordingNoticeVersion: z.literal(RECORDING_NOTICE_VERSION),
+  });
+  const enableShareSchema = z.object({
+    expiresInHours: z.number().int().min(1).max(7 * 24).default(24),
   });
 
   // POST /api/meetings. The email-verification gate lives in server.ts and runs ahead of every
@@ -41,7 +47,10 @@ export function createMeetingRoutes(
   router.post('/api/meetings', createLimiter, async (req, res, next) => {
     try {
       const parsed = createMeetingSchema.parse(req.body);
-      const meeting = await startMeetingService.start(req.userId!, parsed.meetingUrl);
+      const meeting = await startMeetingService.start(req.userId!, parsed.meetingUrl, {
+        confirmedAt: new Date(),
+        version: RECORDING_NOTICE_VERSION,
+      });
       return res.status(201).json(meeting);
     } catch (err) {
       return next(err);
@@ -66,6 +75,40 @@ export function createMeetingRoutes(
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
       }
       return res.status(200).json(meeting);
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  // Sharing is explicit, owner-scoped, short-lived and revocable. Enabling always rotates the
+  // capability token, so an old copied URL cannot spring back to life after a later re-share.
+  router.post('/api/meetings/:id/share', async (req, res, next) => {
+    try {
+      const { expiresInHours } = enableShareSchema.parse(req.body ?? {});
+      const owned = await meetingRepo.findByIdForUser(req.params.id, req.userId!);
+      if (!owned) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
+      }
+      if (owned.status !== 'transcribed') {
+        throw new MeetingNotReadyError('Only a completed meeting can be shared');
+      }
+      const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
+      const meeting = await meetingRepo.enableShare(owned.id, req.userId!, expiresAt);
+      if (!meeting) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
+      }
+      return res.status(200).json(meeting);
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  router.delete('/api/meetings/:id/share', async (req, res, next) => {
+    try {
+      if (!(await meetingRepo.revokeShare(req.params.id, req.userId!))) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
+      }
+      return res.status(204).end();
     } catch (err) {
       return next(err);
     }
@@ -288,6 +331,8 @@ export function createMeetingRoutes(
       const transcript = await transcriptRepo.getByMeetingId(meeting.id);
       const document = await documentRepo.getByMeetingId(meeting.id);
 
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
       return res.status(200).json(toShareResponse(meeting, document, transcript || []));
     } catch (err) {
       return next(err);

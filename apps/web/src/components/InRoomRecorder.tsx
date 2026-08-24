@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ApiError, uploadMeeting } from '@/lib/api';
 import { msToClock } from '@/lib/format';
 import RecordingConsent from './RecordingConsent';
+import { RECORDING_NOTICE_VERSION } from '@/lib/recording-notice';
 
 type Phase = 'idle' | 'recording' | 'recorded' | 'uploading';
 
@@ -132,7 +133,12 @@ export default function InRoomRecorder() {
     setProgress(0);
     setPhase('uploading');
     try {
-      const meeting = await uploadMeeting(audioBlob, names, setProgress);
+      const meeting = await uploadMeeting(
+        audioBlob,
+        names,
+        { confirmed: true, version: RECORDING_NOTICE_VERSION },
+        setProgress,
+      );
       router.push(`/meetings/${meeting.id}`);
     } catch (err) {
       // Keep the recording in state on failure so a verification block doesn't lose their audio.

@@ -52,6 +52,8 @@ describe('ProcessUploadEventService', () => {
       findById: vi.fn(),
       findByBotId: vi.fn(),
       findByShareToken: vi.fn(),
+      enableShare: vi.fn(),
+      revokeShare: vi.fn(),
       findByTranscriptionJobId: vi.fn(),
       updateStatus: vi.fn(),
       setSummary: vi.fn(),
