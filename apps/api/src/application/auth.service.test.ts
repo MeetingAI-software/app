@@ -9,6 +9,7 @@ import { EmailVerificationDeliveryService } from './email-verification-delivery.
 import { EmailSendBudgetService } from './email-send-budget.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
 import {
+  AccountDeletionBlockedError,
   EmailAlreadyVerifiedError,
   EmailSendBudgetExhaustedError,
   EmailTakenError,
@@ -18,6 +19,7 @@ import {
   UsedVerificationTokenError,
   VerificationNotPersistedError,
   WeakPasswordError,
+  FeatureUnavailableError,
 } from '../domain/errors';
 import type { EmailVerificationToken, User, Session, Meeting } from '../domain/types';
 import type {
@@ -31,6 +33,7 @@ import type {
   VerificationTokenRepository,
   EmailSendLedgerRepository,
   EmailSendTrigger,
+  PaddleBillingRepository,
 } from '../ports/repositories.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
@@ -48,24 +51,47 @@ class FakeUserRepo implements UserRepository {
   private byId = new Map<string, User & { passwordHash: string | null; googleId?: string | null }>();
   private byEmail = new Map<string, string>();
   private byGoogleId = new Map<string, string>();
-  async create(input: { email: string; passwordHash?: string | null; googleId?: string | null; emailVerified?: boolean }): Promise<User> {
+  async create(input: Parameters<UserRepository['create']>[0]): Promise<User> {
     const email = input.email.trim().toLowerCase();
     if (this.byEmail.has(email)) throw new EmailTakenError('taken');
-    const rec = { id: `u${++this.seq}`, email, emailVerified: input.emailVerified ?? false, passwordHash: input.passwordHash ?? null, googleId: input.googleId ?? null, createdAt: new Date() };
+    const rec = {
+      id: `u${++this.seq}`,
+      email,
+      emailVerified: input.emailVerified ?? false,
+      passwordHash: input.passwordHash ?? null,
+      googleId: input.googleId ?? null,
+      organizationName: input.organizationName ?? null,
+      businessUseConfirmedAt: input.businessUseConfirmedAt ?? null,
+      termsVersionAccepted: input.termsVersionAccepted ?? null,
+      createdAt: new Date(),
+    };
     this.byId.set(rec.id, rec);
     this.byEmail.set(email, rec.id);
     if (input.googleId) this.byGoogleId.set(input.googleId, rec.id);
-    return { id: rec.id, email: rec.email, emailVerified: rec.emailVerified, createdAt: rec.createdAt };
+    return {
+      id: rec.id, email: rec.email, emailVerified: rec.emailVerified,
+      hasPassword: Boolean(rec.passwordHash), hasGoogleLogin: Boolean(rec.googleId), createdAt: rec.createdAt,
+      organizationName: rec.organizationName,
+      businessUseConfirmedAt: rec.businessUseConfirmedAt,
+      termsVersionAccepted: rec.termsVersionAccepted,
+    };
   }
   async findByEmailWithHash(email: string) {
     const id = this.byEmail.get(email.trim().toLowerCase());
     const r = id ? this.byId.get(id) : undefined;
-    return r ? { id: r.id, email: r.email, emailVerified: r.emailVerified, createdAt: r.createdAt, passwordHash: r.passwordHash, googleId: r.googleId } : null;
+    return r ? {
+      id: r.id, email: r.email, emailVerified: r.emailVerified,
+      hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId),
+      createdAt: r.createdAt, passwordHash: r.passwordHash, googleId: r.googleId,
+    } : null;
   }
   async findByGoogleId(googleId: string) {
     const id = this.byGoogleId.get(googleId);
     const r = id ? this.byId.get(id) : undefined;
-    return r ? { id: r.id, email: r.email, emailVerified: r.emailVerified, createdAt: r.createdAt } : null;
+    return r ? {
+      id: r.id, email: r.email, emailVerified: r.emailVerified,
+      hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId), createdAt: r.createdAt,
+    } : null;
   }
   async linkGoogleId(id: string, googleId: string) {
     const r = this.byId.get(id);
@@ -81,7 +107,10 @@ class FakeUserRepo implements UserRepository {
   }
   async findById(id: string) {
     const r = this.byId.get(id);
-    return r ? { id: r.id, email: r.email, emailVerified: r.emailVerified, createdAt: r.createdAt } : null;
+    return r ? {
+      id: r.id, email: r.email, emailVerified: r.emailVerified,
+      hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId), createdAt: r.createdAt,
+    } : null;
   }
   async updatePassword(id: string, passwordHash: string) {
     const r = this.byId.get(id);
@@ -97,7 +126,10 @@ class FakeUserRepo implements UserRepository {
     r.email = normalized;
     r.emailVerified = false;
     this.byEmail.set(normalized, id);
-    return { id: r.id, email: r.email, emailVerified: r.emailVerified, createdAt: r.createdAt };
+    return {
+      id: r.id, email: r.email, emailVerified: r.emailVerified,
+      hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId), createdAt: r.createdAt,
+    };
   }
   async deleteById(id: string) {
     const r = this.byId.get(id);
@@ -233,7 +265,7 @@ const TEST_SEND_BUDGET = 50;
 function meetingRepoOver(store: Meeting[]): MeetingRepository {
   return {
     create: vi.fn(), findById: vi.fn(), findByBotId: vi.fn(),
-    findByShareToken: vi.fn(), findByTranscriptionJobId: vi.fn(),
+    findByShareToken: vi.fn(), enableShare: vi.fn(), revokeShare: vi.fn(), findByTranscriptionJobId: vi.fn(),
     updateStatus: vi.fn(), setSummary: vi.fn(), setUploadInfo: vi.fn(),
     countActive: vi.fn(), countActiveForUser: vi.fn(), list: vi.fn(), findByIdForUser: vi.fn(),
     listForUser: vi.fn(async (uid: string) => store.filter((m) => m.ownerUserId === uid)),
@@ -264,6 +296,7 @@ function build(meetingStore: Meeting[] = []) {
   const usage: UsageRepository = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
   const storage: AudioStoragePort = { upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
   const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn(), fetchTranscript: vi.fn(), deleteRecording: vi.fn() };
+  const billing = { anonymizeCustomerForUser: vi.fn() } as unknown as PaddleBillingRepository;
   // Mutable clock: lets a test step past the resend cooldown without actually waiting a minute.
   const clock = { now: new Date() };
   const nowFn = () => clock.now;
@@ -280,7 +313,7 @@ function build(meetingStore: Meeting[] = []) {
   );
   const service = new AuthService(
     users, sessions, hasher, TTL_DAYS, meetings, transcripts, documents, chat, usage, storage, bot,
-    verificationTokens, verificationDelivery, sendBudget,
+    verificationTokens, verificationDelivery, sendBudget, billing,
   );
   /** Burn the whole budget so the next send is refused, without sending anything real. */
   const exhaustSendBudget = async () => {
@@ -289,7 +322,7 @@ function build(meetingStore: Meeting[] = []) {
     }
   };
   return {
-    service, users, sessions, meetings, transcripts, documents, chat, usage, storage, bot,
+    service, users, sessions, meetings, transcripts, documents, chat, usage, storage, bot, billing,
     verificationTokenRepo, verificationMailer, clock, sendLedger, exhaustSendBudget,
   };
 }
@@ -299,6 +332,20 @@ describe('AuthService', () => {
   beforeEach(() => { ctx = build(); });
 
   describe('signup', () => {
+    it('records server-received B2B and terms evidence for an onboarded account', async () => {
+      const before = Date.now();
+      const result = await ctx.service.signup('business@example.com', 'a-good-password', {
+        organizationName: 'Example AB',
+        termsVersion: '2026-08-24',
+      });
+
+      expect(result.user).toMatchObject({
+        organizationName: 'Example AB',
+        termsVersionAccepted: '2026-08-24',
+      });
+      expect(result.user.businessUseConfirmedAt?.getTime()).toBeGreaterThanOrEqual(before);
+    });
+
     it('creates a user (email lowercased), issues a session, and auto-logs-in', async () => {
       const res = await ctx.service.signup('Alice@Example.com', 'a-good-password');
       expect(res.user.email).toBe('alice@example.com');
@@ -468,7 +515,12 @@ describe('AuthService', () => {
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
       vi.spyOn(ctx.verificationTokenRepo, 'consumeAndVerify').mockResolvedValue({
         status: 'verified',
-        user: { ...user, emailVerified: true },
+        user: {
+          ...user,
+          emailVerified: true,
+          hasPassword: user.hasPassword ?? true,
+          hasGoogleLogin: user.hasGoogleLogin ?? false,
+        },
       });
 
       await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(VerificationNotPersistedError);
@@ -493,6 +545,16 @@ describe('AuthService', () => {
   });
 
   describe('Google OAuth', () => {
+    it('blocks creation while still allowing an existing account to link', async () => {
+      await expect(ctx.service.loginOrCreateGoogleUser('new-google@example.com', 'google-new', false))
+        .rejects.toBeInstanceOf(FeatureUnavailableError);
+      expect(ctx.users.size()).toBe(0);
+
+      const { user } = await ctx.service.signup('existing-google@example.com', 'a-good-password');
+      const linked = await ctx.service.loginOrCreateGoogleUser(user.email, 'google-existing', false);
+      expect(linked.user.id).toBe(user.id);
+    });
+
     it('creates new Google users with a verified email', async () => {
       const result = await ctx.service.loginOrCreateGoogleUser('google@example.com', 'google-1');
 
@@ -641,9 +703,41 @@ describe('AuthService', () => {
       expect(c.documents.deleteByMeeting).toHaveBeenCalledWith('m-owned');
       expect(c.transcripts.deleteByMeeting).toHaveBeenCalledWith('m-owned');
       expect(c.usage.deleteByMeeting).toHaveBeenCalledWith('m-owned');
+      expect(c.billing.anonymizeCustomerForUser).toHaveBeenCalledWith(user.id);
       expect(store).toHaveLength(0);
       expect(c.users.size()).toBe(0);
       expect(await c.service.getUserForToken(sessionToken)).toBeNull();
+    });
+
+    it('lets a Google-only account confirm deletion without an impossible password', async () => {
+      const { user } = await ctx.service.loginOrCreateGoogleUser('oauth@example.com', 'google-1');
+
+      await expect(ctx.service.deleteAccount(user.id, 'wrong')).rejects.toBeInstanceOf(InvalidCredentialsError);
+      expect(ctx.users.size()).toBe(1);
+
+      await ctx.service.deleteAccount(user.id, 'DELETE');
+      expect(ctx.users.size()).toBe(0);
+    });
+
+    it('keeps local account data when an external media delete fails', async () => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user, sessionToken } = await c.service.signup('retry@example.com', 'a-good-password');
+      store.push(makeMeeting({
+        id: 'm-retry', ownerUserId: user.id, source: 'bot', botId: 'bot-retry',
+        audioStoragePath: 'audio/retry.webm',
+      }));
+      vi.mocked(c.storage.delete).mockRejectedValueOnce(new Error('provider unavailable'));
+
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+
+      expect(c.bot.deleteRecording).toHaveBeenCalledWith('bot-retry');
+      expect(c.chat.deleteByMeeting).not.toHaveBeenCalled();
+      expect(c.billing.anonymizeCustomerForUser).not.toHaveBeenCalled();
+      expect(store).toHaveLength(1);
+      expect(c.users.size()).toBe(1);
+      expect(await c.service.getUserForToken(sessionToken)).toMatchObject({ id: user.id });
     });
   });
 });
