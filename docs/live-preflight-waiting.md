@@ -32,10 +32,13 @@ for Preview. Then run:
 npm.cmd run legal:smoke -- --base-url https://PREVIEW_HOST --mode open
 ```
 
-The Preview command verifies all six policies, language switches, three public footers, Settings,
-and the `https://paddle.net` handoff. The URL must be a bare HTTP(S) origin. If Vercel Deployment
-Protection requires authentication, perform the equivalent browser checks manually; never pass a
-bypass token, cookie, seller record, or password to this script or a committed command.
+The Preview command verifies all six policies, language switches, three public footers, the public
+`https://paddle.net` handoff, and that the protected Settings route is reachable. Settings hides its
+children from anonymous server-rendered HTML until the client verifies a session, so the open-state
+link there is covered by the page wiring test and must also be checked in an authenticated browser
+session. If Vercel Deployment Protection requires authentication, perform all Preview checks
+manually; never pass a bypass token, cookie, seller record, or password to this script or a
+committed command.
 
 Run the local quality gates after either check:
 
