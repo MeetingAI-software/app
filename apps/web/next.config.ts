@@ -24,8 +24,9 @@ const csp = [
 
   // 'unsafe-inline': the App Router inlines its RSC payload as <script>self.__next_f.push(…)</script>.
   // Dropping it needs a per-request nonce from middleware, which would force the landing, pricing
-  // and legal pages out of static rendering. cdn.paddle.com: Paddle.js injects its own script tag.
-  `script-src 'self' 'unsafe-inline' https://cdn.paddle.com${isDev ? " 'unsafe-eval'" : ""}`,
+  // and legal pages out of static rendering. cdn.paddle.com: Paddle.js injects its own script tag,
+  // and the overlay then pulls further scripts from other *.paddle.com hosts.
+  `script-src 'self' 'unsafe-inline' https://cdn.paddle.com https://*.paddle.com${isDev ? " 'unsafe-eval'" : ""}`,
 
   // 'unsafe-inline': React renders style={{…}} props as style="…" attributes in the SSR HTML.
   // fonts.googleapis.com: the Material Symbols stylesheet in app/layout.tsx.
@@ -45,6 +46,9 @@ const csp = [
       "'self'",
       apiOrigin,
       "https://*.paddle.com",
+      // Sentry's browser SDK posts events to the ingest host; without this the client reports
+      // nothing and the only signal we have about front-end errors goes silent.
+      "https://*.sentry.io",
       ...(isDev ? ["http://localhost:3000", "ws://localhost:3001"] : []),
     ]),
   ].join(" ")}`,
@@ -55,7 +59,8 @@ const csp = [
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self'",
+  // Paddle posts the checkout form from the overlay it injects.
+  "form-action 'self' https://*.paddle.com",
   "frame-ancestors 'none'",
 
   // Enforcement-only; browsers log that they ignore it while the policy is Report-Only.
@@ -69,6 +74,9 @@ const securityHeaders = [
   // Kept alongside frame-ancestors, which browsers predating CSP Level 2 ignore.
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "no-referrer" },
+  { key: "Permissions-Policy", value: "camera=(), geolocation=(), microphone=(self), payment=(self), usb=()" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
   {
     key: CSP_REPORT_ONLY ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy",
@@ -80,11 +88,19 @@ const securityHeaders = [
 // session cookie is set on the API host it belongs to. Proxying through here would also have
 // shadowed the whole /api namespace on the web origin.
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   async headers() {
     return [
       {
         source: "/:path*",
         headers: securityHeaders,
+      },
+      {
+        source: "/s/:path*",
+        headers: [
+          { key: "Cache-Control", value: "private, no-store" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive, nosnippet" },
+        ],
       },
     ];
   },
