@@ -48,7 +48,7 @@ export default function PricingPage() {
           Simple pricing for real meeting intelligence
         </h1>
         <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-          No hidden fees, no fake urgency, no asterisk discounts. Clear limits and automatic audio deletion after processing.
+          No hidden fees, no fake urgency, no asterisk discounts. Clear usage limits and straightforward monthly billing.
         </p>
 
         {/* Toggle */}
