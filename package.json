@@ -15,6 +15,7 @@
     "build:api": "npm run build -w api",
     "build:web": "npm run build -w web",
     "billing:check": "npm run billing:check -w api",
-    "legal:smoke": "npm run legal:smoke -w web --"
+    "legal:smoke": "npm run legal:smoke -w web --",
+    "security:secrets": "node scripts/secret-scan.mjs"
   }
 }

@@ -10,13 +10,31 @@ on:
   # merge produced no run at all, and there was nothing to re-run because nothing was ever created.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  security:
+    name: Supply chain and secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - name: Scan versioned files for high-confidence secrets
+        run: npm run security:secrets
+      - name: Block high or critical dependency advisories
+        run: npm audit --audit-level=high
+
   api:
     name: API (test + typecheck + build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
           cache: "npm"
@@ -32,8 +50,8 @@ jobs:
     name: Web (test + typecheck + lint + build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
           cache: "npm"
@@ -57,33 +75,32 @@ jobs:
   # cannot run migrations before the new code serves traffic and cannot wait for the tests.
   deploy:
     name: Deploy API to Railway
-    needs: [api, web]                      # never deploy code the tests have not passed
+    needs: [api, web, security]            # never deploy code the tests/security gates have not passed
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    environment: production
     # Job-level so pull request runs are not serialised behind each other. Queue deploys rather
     # than cancelling: a cancelled deploy would silently skip a merge that is already on main.
     concurrency:
       group: deploy-production
       cancel-in-progress: false
-    env:
-      # The project token. Scoped to this project + environment, so it needs no org-level GitHub
-      # App install — which is what made the native Railway integration unavailable here.
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
           cache: "npm"
       # Installs devDependencies too, which is where tsx lives — db:migrate needs it.
       - run: npm ci
       - name: Install Railway CLI
-        run: npm i -g @railway/cli
+        run: npm i -g @railway/cli@5.30.1
 
       # --skip-deploys matters: setting a variable normally triggers its own redeploy, which would
       # race the real one below and could leave the older image serving the newer commit label.
       - name: Stamp the commit
         run: railway variables set --service api --environment production --skip-deploys "GIT_COMMIT=${{ github.sha }}"
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
       # Migrations run BEFORE the deploy, so new code never meets an old schema. This runs on the
       # runner with production variables injected. Keep it as `npm -w api`: that sets the working
@@ -91,6 +108,8 @@ jobs:
       # 'drizzle'` resolve. A failure here stops the job with the previous version still serving.
       - name: Migrate
         run: railway run --service api --environment production -- npm run db:migrate -w api
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
       - name: Deploy
         # Railway occasionally rejects a CLI upload while creating its repository snapshot, before
@@ -98,6 +117,8 @@ jobs:
         # migration have already completed, and the SHA health check below still decides success.
         # Do not enable shell tracing here: deployment commands run with production credentials.
         timeout-minutes: 20
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           for attempt in 1 2 3; do
             echo "Railway deploy attempt $attempt/3"
