@@ -4,6 +4,12 @@ import { paddleCustomers, paddleSubscriptions, users } from '../schema';
 import type { PaddleBillingRepository } from '../../../ports/repositories.port';
 
 export class DrizzlePaddleBillingRepository implements PaddleBillingRepository {
+  async anonymizeCustomerForUser(userId: string): Promise<void> {
+    await db.update(paddleCustomers)
+      .set({ email: null, userId: null, updatedAt: new Date() })
+      .where(eq(paddleCustomers.userId, userId));
+  }
+
   async findCustomerForUser(userId: string) {
     const [customer] = await db.select({ customerId: paddleCustomers.customerId })
       .from(paddleCustomers)

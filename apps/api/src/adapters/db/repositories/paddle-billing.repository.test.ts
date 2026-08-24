@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventEntity } from '@paddle/paddle-node-sdk';
 import { eq } from 'drizzle-orm';
 import { db, migrateOnce, truncateAll } from '../pglite-harness';
-import { paddleCustomers, paddleSubscriptions } from '../schema';
+import { paddleCustomers, paddleSubscriptions, users } from '../schema';
 import { processPaddleEvent } from '../../paddle/process-paddle-event';
 import { DrizzlePaddleBillingRepository } from './paddle-billing.repository';
 
@@ -70,5 +70,20 @@ describe('DrizzlePaddleBillingRepository delivery convergence', () => {
 
     expect(stored.status).toBe('past_due');
     expect(stored.lastEventAt).toEqual(new Date('2026-08-24T13:00:00Z'));
+  });
+
+  it('removes local customer identity when an account is erased', async () => {
+    const [user] = await db.insert(users).values({
+      email: 'erase@example.com',
+      passwordHash: 'not-a-real-hash',
+      emailVerified: true,
+    }).returning();
+    await repository.upsertCustomer({ customerId: 'ctm_erase', email: user.email });
+
+    await repository.anonymizeCustomerForUser(user.id);
+
+    const [customer] = await db.select().from(paddleCustomers)
+      .where(eq(paddleCustomers.customerId, 'ctm_erase'));
+    expect(customer).toMatchObject({ email: null, userId: null });
   });
 });

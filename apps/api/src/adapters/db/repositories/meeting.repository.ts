@@ -1,6 +1,6 @@
 import { db } from '../client';
 import { meetings } from '../schema';
-import { eq, inArray, desc, and, lt } from 'drizzle-orm';
+import { eq, inArray, desc, and, lt, gt, isNotNull } from 'drizzle-orm';
 import type { MeetingRepository } from '../../../ports/repositories.port';
 import type { Meeting, MeetingPlatform, MeetingSource, MeetingStatus } from '../../../domain/types';
 import crypto from 'crypto';
@@ -12,6 +12,8 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     meetingUrl?: string;
     platform?: MeetingPlatform;
     participantNames?: string[];
+    recordingNoticeConfirmedAt?: Date;
+    recordingNoticeVersion?: string;
   }): Promise<Meeting> {
     const shareToken = crypto.randomBytes(16).toString('base64url');
     const [row] = await db
@@ -23,6 +25,8 @@ export class DrizzleMeetingRepository implements MeetingRepository {
         status: 'pending',
         source: input.source,
         participantNames: input.participantNames ?? null,
+        recordingNoticeConfirmedAt: input.recordingNoticeConfirmedAt ?? null,
+        recordingNoticeVersion: input.recordingNoticeVersion ?? null,
         shareToken,
       })
       .returning();
@@ -57,8 +61,33 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     const [row] = await db
       .select()
       .from(meetings)
-      .where(eq(meetings.shareToken, token));
+      .where(and(
+        eq(meetings.shareToken, token),
+        eq(meetings.shareEnabled, true),
+        gt(meetings.shareExpiresAt, new Date()),
+      ));
     return (row as Meeting) || null;
+  }
+
+  async enableShare(id: string, userId: string, expiresAt: Date): Promise<Meeting | null> {
+    const shareToken = crypto.randomBytes(24).toString('base64url');
+    const [row] = await db.update(meetings).set({
+      shareToken,
+      shareEnabled: true,
+      shareExpiresAt: expiresAt,
+      updatedAt: new Date(),
+    }).where(and(eq(meetings.id, id), eq(meetings.ownerUserId, userId))).returning();
+    return (row as Meeting) || null;
+  }
+
+  async revokeShare(id: string, userId: string): Promise<boolean> {
+    const rows = await db.update(meetings).set({
+      shareEnabled: false,
+      shareExpiresAt: null,
+      updatedAt: new Date(),
+    }).where(and(eq(meetings.id, id), eq(meetings.ownerUserId, userId)))
+      .returning({ id: meetings.id });
+    return rows.length > 0;
   }
 
   async findByTranscriptionJobId(jobId: string): Promise<Meeting | null> {
@@ -168,6 +197,18 @@ export class DrizzleMeetingRepository implements MeetingRepository {
           lt(meetings.updatedAt, cutoff)
         )
       )) as Meeting[];
+  }
+
+  async findFailedWithAudioOlderThan(hours: number): Promise<Meeting[]> {
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+    return (await db
+      .select()
+      .from(meetings)
+      .where(and(
+        eq(meetings.status, 'failed'),
+        isNotNull(meetings.audioStoragePath),
+        lt(meetings.updatedAt, cutoff),
+      ))) as Meeting[];
   }
 
   async findStuckActiveOlderThan(minutes: number): Promise<Meeting[]> {

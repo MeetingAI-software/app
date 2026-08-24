@@ -246,7 +246,9 @@ describe('DrizzleWebhookEventRepository', () => {
       await repo.markProcessed(target.id);
 
       expect((await byExternalId('target')).processedAt).toBeInstanceOf(Date);
+      expect((await byExternalId('target')).payload).toEqual({ redacted: true });
       expect((await byExternalId('bystander')).processedAt).toBeNull();
+      expect((await byExternalId('bystander')).payload).toEqual({ id: 'bystander' });
     });
 
     it('markProcessed takes the row out of the queue for good', async () => {

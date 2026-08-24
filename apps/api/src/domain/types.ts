@@ -26,7 +26,11 @@ export interface Meeting {
   errorMessage: string | null;
   summary: string | null;
   shareToken: string;
+  shareEnabled?: boolean;
+  shareExpiresAt?: Date | null;
   participantNames: string[] | null;      // Day 3: names entered before an in-room recording
+  recordingNoticeConfirmedAt?: Date | null;
+  recordingNoticeVersion?: string | null;
   audioStoragePath: string | null;        // Day 3: Supabase Storage path for uploads
   transcriptionJobId: string | null;      // Day 3: AssemblyAI job id for uploads
   createdAt: Date;
@@ -38,6 +42,12 @@ export interface User {
   id: string;
   email: string;          // stored lowercase; unique
   emailVerified: boolean;
+  /** Non-sensitive authentication capabilities used by account settings. */
+  hasPassword?: boolean;
+  hasGoogleLogin?: boolean;
+  organizationName?: string | null;
+  businessUseConfirmedAt?: Date | null;
+  termsVersionAccepted?: string | null;
   createdAt: Date;
 }
 

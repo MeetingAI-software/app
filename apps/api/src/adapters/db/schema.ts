@@ -12,7 +12,11 @@ export const meetings = pgTable('meetings', {
   errorMessage: text('error_message'),
   summary: text('summary'),
   shareToken: text('share_token').notNull().unique(),
+  shareEnabled: boolean('share_enabled').notNull().default(false),
+  shareExpiresAt: timestamp('share_expires_at', { withTimezone: true }),
   participantNames: jsonb('participant_names'),                    // Day 3: string[] entered before an in-room recording
+  recordingNoticeConfirmedAt: timestamp('recording_notice_confirmed_at', { withTimezone: true }),
+  recordingNoticeVersion: text('recording_notice_version'),
   audioStoragePath: text('audio_storage_path'),                   // Day 3: Supabase Storage path for uploads
   transcriptionJobId: text('transcription_job_id'),               // Day 3: AssemblyAI job id for uploads
   ownerUserId: uuid('owner_user_id').notNull().references(() => users.id),  // Day 6 §6: the DB is the guard — an ownerless meeting is invisible, so make it impossible
@@ -22,6 +26,7 @@ export const meetings = pgTable('meetings', {
   meetingsStatusIdx: index('meetings_status_idx').on(t.status),
   meetingsBotIdIdx: index('meetings_bot_id_idx').on(t.botId),
   meetingsOwnerUserIdIdx: index('meetings_owner_user_id_idx').on(t.ownerUserId),
+  meetingsShareExpiryIdx: index('meetings_share_expiry_idx').on(t.shareEnabled, t.shareExpiresAt),
 }));
 
 export const transcripts = pgTable('transcripts', {
@@ -99,6 +104,9 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash'),                            // nullable for OAuth users
   googleId: text('google_id').unique(),                           // Google OAuth sub ID
   emailVerified: boolean('email_verified').notNull().default(false), // true for OAuth / verified
+  organizationName: text('organization_name'),
+  businessUseConfirmedAt: timestamp('business_use_confirmed_at', { withTimezone: true }),
+  termsVersionAccepted: text('terms_version_accepted'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
