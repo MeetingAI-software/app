@@ -22,6 +22,9 @@ export default function DocumentView({ content, createdAt }: DocumentViewProps) 
         <p className="text-xs text-slate-400 font-mono tracking-wider uppercase">
           Published on {formattedDate}
         </p>
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+          AI-generated draft — verify decisions, owners, dates, and other important details against the transcript.
+        </p>
       </header>
 
       {/* Missed5 - Hero Section */}
