@@ -1,6 +1,7 @@
 import express from 'express';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
+import type { DestinationStream } from 'pino';
 import { requestIdMiddleware } from './middleware/request-id';
 import { errorHandler } from './middleware/error-handler';
 import { requireUser } from './middleware/require-user';
@@ -8,6 +9,28 @@ import { requireVerifiedEmail } from './middleware/require-verified-email';
 import { originCheck } from './middleware/origin-check';
 import type { User } from '../../domain/types';
 import { config } from '../../config/env';
+
+export interface ServerOptions {
+  /** Test-only injection point. Production uses pino's default stdout destination. */
+  requestLogStream?: DestinationStream;
+}
+
+/** Keep only the path. Both query names and values are attacker-controlled and may contain data. */
+export function sanitizeRequestUrl(rawUrl: string | undefined): string {
+  if (!rawUrl) return '';
+  const queryAt = rawUrl.indexOf('?');
+  if (queryAt === -1) return rawUrl;
+  return `${rawUrl.slice(0, queryAt)}?[Redacted]`;
+}
+
+function safeRequestLog(req: express.Request) {
+  return {
+    id: req.headers['x-request-id'],
+    method: req.method,
+    url: sanitizeRequestUrl(req.originalUrl || req.url),
+    remoteAddress: req.ip,
+  };
+}
 
 // /api endpoints that must work WITHOUT a session. Paths here are relative to the '/api' mount.
 function isPublicApi(method: string, path: string): boolean {
@@ -32,7 +55,8 @@ function isVerificationExempt(method: string, path: string): boolean {
 
 export function createServer(
   routes: express.Router[],
-  authenticate: (sessionToken: string) => Promise<User | null>
+  authenticate: (sessionToken: string) => Promise<User | null>,
+  options: ServerOptions = {},
 ): express.Application {
   const app = express();
 
@@ -57,10 +81,27 @@ export function createServer(
   // Logging & Request ID
   app.use(requestIdMiddleware);
   app.use(pinoHttp({
+    // The default request serializer includes every header. Keep raw requests out of both the
+    // automatic completion record and the child loggers used by route code.
+    quietReqLogger: true,
+    quietResLogger: true,
+    genReqId: (req) => String(req.headers['x-request-id'] ?? ''),
     customAttributeKeys: {
       reqId: 'x-request-id'
-    }
-  }));
+    },
+    customSuccessObject: (req, res, value) => ({
+      request: safeRequestLog(req as express.Request),
+      response: { statusCode: res.statusCode },
+      responseTime: value.responseTime,
+    }),
+    customErrorObject: (req, res, error, value) => ({
+      request: safeRequestLog(req as express.Request),
+      response: { statusCode: res.statusCode },
+      responseTime: value.responseTime,
+      // Provider error messages may embed response bodies or credentials.
+      error: { type: error.name },
+    }),
+  }, options.requestLogStream));
 
   // CORS — echo the allowed origin and allow credentials so the session cookie can flow.
   app.use((req, res, next) => {
@@ -70,7 +111,10 @@ export function createServer(
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, X-Recording-Notice-Confirmed, X-Recording-Notice-Version',
+    );
     // Retry-After is not a CORS-safelisted response header, so without this the limiter's backoff
     // hint is set on the wire but invisible to the browser — decoration, not a signal.
     res.setHeader('Access-Control-Expose-Headers', 'Retry-After');
