@@ -77,7 +77,7 @@ describe('processPaddleEvent', () => {
     }));
   });
 
-  it('ignores unrelated event types', async () => {
+  it('acknowledges unimplemented event types without persistence side effects', async () => {
     const repo = repository();
     await processPaddleEvent({ eventType: 'transaction.completed', data: {} } as EventEntity, repo);
     expect(repo.upsertCustomer).not.toHaveBeenCalled();
