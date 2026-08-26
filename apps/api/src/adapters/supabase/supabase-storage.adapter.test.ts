@@ -40,10 +40,17 @@ describe('SupabaseStorageAdapter', () => {
       expect(options.headers['Content-Type']).toBe('audio/webm;codecs=opus');
     });
 
-    it('derives the extension from the mime subtype', async () => {
+    it('maps a known mime to its extension', async () => {
       fetchFn.mockResolvedValue(makeRes(200, {}));
       const { path } = await adapterWith(fetchFn).upload('m2', Buffer.from('x'), 'audio/mp4');
       expect(path).toBe('m2/audio.mp4');
+    });
+
+    it('falls back to .bin rather than putting an unrecognised mime in the object key', async () => {
+      fetchFn.mockResolvedValue(makeRes(200, {}));
+      // The key must be built only from values we control, whatever the mime happens to contain.
+      const { path } = await adapterWith(fetchFn).upload('m3', Buffer.from('x'), 'audio/..%2Fescape');
+      expect(path).toBe('m3/audio.bin');
     });
 
     it('throws when the upload fails', async () => {
