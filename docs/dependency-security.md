@@ -1,16 +1,18 @@
 # Dependency security
 
-## Automated detection
+## Detection
 
-`.github/dependabot.yml` opens weekly version-update pull requests for npm (one entry covers both
-workspaces — the root `package-lock.json` is the only lockfile) and for the GitHub Actions pinned
-in CI. Minor and patch bumps are grouped into a single pull request; majors arrive individually so
-each is read rather than rubber-stamped.
+Dependabot **alerts** are enabled at Settings -> Code security. They fire when an advisory is
+published against a dependency, and they are a notification only: visible to repository
+administrators, no pull request opened, no commit authored.
 
-Version updates are only half of it. Dependabot **alerts** and **security updates** — which fire
-when an advisory is published rather than on a schedule — are a repository setting, not a file:
-Settings -> Code security. Without them this repository still learns about a vulnerable dependency
-only when someone runs `npm audit` by hand.
+Dependabot **security updates** and scheduled **version updates** are both deliberately off. Both
+work by opening pull requests, and a merged Dependabot pull request records `dependabot[bot]` as
+the commit author. This is a two-person student project whose history is meant to show only its two
+authors, so upgrades are applied by hand: read the alert, apply the change locally, run the
+verification below, and commit it like any other change.
+
+`npm outdated` from the repository root lists routine drift that no advisory covers.
 
 ## Verification
 
