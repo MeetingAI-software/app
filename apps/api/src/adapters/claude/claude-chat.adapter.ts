@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../../config/env';
 import { logger } from '../../config/logger';
+import { ChatProviderError } from '../../domain/errors';
+import { callChatProvider } from '../chat-retry';
 import type { MeetingChatPort, ChatMessage } from '../../ports/chat.port';
 import type { TranscriptSegment } from '../../domain/types';
 import { buildChatSystemPrompt } from './chat-prompts';
@@ -26,7 +28,7 @@ export class ClaudeChatAdapter implements MeetingChatPort {
       client ??
       new Anthropic({
         apiKey: config.ANTHROPIC_API_KEY,
-        timeout: config.CLAUDE_TIMEOUT_MS, // milliseconds
+        timeout: config.CHAT_TIMEOUT_MS, // ms — shorter than docs; someone is waiting
       });
   }
 
@@ -54,13 +56,15 @@ export class ClaudeChatAdapter implements MeetingChatPort {
       { role: 'user', content: question },
     ];
 
-    const message = await this.client.messages.create({
-      model: config.CLAUDE_MODEL,
-      max_tokens: CHAT_MAX_TOKENS,
-      temperature: TEMPERATURE,
-      system,
-      messages,
-    });
+    const message = await callChatProvider('claude', () =>
+      this.client.messages.create({
+        model: config.CLAUDE_MODEL,
+        max_tokens: CHAT_MAX_TOKENS,
+        temperature: TEMPERATURE,
+        system,
+        messages,
+      })
+    );
 
     logger.info(
       {
@@ -72,9 +76,12 @@ export class ClaudeChatAdapter implements MeetingChatPort {
       'Claude token usage'
     );
 
+    // A 200 with nothing in it is still a provider failure from the customer's side, and the fix
+    // is the same one: ask again.
     const answer = extractText(message);
     if (!answer) {
-      throw new Error('Claude returned an empty chat answer');
+      logger.warn({ model: message.model }, 'Claude returned an empty chat answer');
+      throw new ChatProviderError();
     }
 
     return {

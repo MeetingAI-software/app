@@ -5,6 +5,7 @@ import {
   BotProviderError,
   InvalidTransitionError,
   DocumentGenerationError,
+  ChatProviderError,
   MeetingNotReadyError,
   InvalidCredentialsError,
   EmailTakenError,
@@ -209,6 +210,19 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(502).json({
       error: {
         code: 'DOCUMENT_GENERATION_ERROR',
+        message: err.message,
+      },
+    });
+  }
+
+  // The chat model timed out or was overloaded. 502 like the other provider failures: our request
+  // was fine, theirs was the side that broke. Still Sentry-reported — a rise in these is an outage
+  // we want to see, even though each individual one clears on a retry.
+  if (err instanceof ChatProviderError) {
+    report5xx();
+    return res.status(502).json({
+      error: {
+        code: 'CHAT_PROVIDER_ERROR',
         message: err.message,
       },
     });

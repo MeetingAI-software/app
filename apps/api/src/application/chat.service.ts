@@ -45,13 +45,16 @@ export class ChatService {
     // 3. Prior turns become the model's conversation memory (oldest first).
     const history = await this.chatRepo.listByMeeting(meetingId);
 
-    // 4. Persist the user's question, then answer it, then persist the answer.
-    await this.chatRepo.add(meetingId, 'user', question);
+    // 4. Answer first, THEN persist the exchange. Writing the question up front made a provider
+    //    outage cost the customer one of their questions for this meeting — the cap counts user
+    //    rows — and left it sitting in the history with nothing under it. A failed question now
+    //    costs nothing and leaves no trace, so retrying is free.
     const { answer, inputTokens, outputTokens } = await this.chatAdapter.answerQuestion(
       segments,
       question,
       history
     );
+    await this.chatRepo.add(meetingId, 'user', question);
     await this.chatRepo.add(meetingId, 'assistant', answer, {
       input: inputTokens,
       output: outputTokens,

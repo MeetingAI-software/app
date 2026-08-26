@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { ClaudeChatAdapter } from './claude-chat.adapter';
+import { ChatProviderError } from '../../domain/errors';
 import type { TranscriptSegment } from '../../domain/types';
 import type { ChatMessage } from '../../ports/chat.port';
 
@@ -84,13 +85,25 @@ describe('ClaudeChatAdapter.answerQuestion', () => {
     );
   });
 
-  it('throws when Claude returns an empty answer', async () => {
+  it('throws ChatProviderError when Claude returns an empty answer', async () => {
     const { client } = clientReturning('   ');
 
     await expect(
       new ClaudeChatAdapter(client).answerQuestion(SEGMENTS, 'q', [])
-    ).rejects.toThrow(/empty/i);
+    ).rejects.toThrow(ChatProviderError);
   });
+
+  // Same contract as the Gemini adapter: whichever provider is switched on, a failure on their
+  // side reaches the error handler typed, not as a raw SDK object.
+  it('turns an overloaded provider into ChatProviderError after one retry', async () => {
+    const create = vi.fn().mockRejectedValue(Object.assign(new Error('Overloaded'), { status: 529 }));
+    const client = { messages: { create } } as unknown as Anthropic;
+
+    await expect(
+      new ClaudeChatAdapter(client).answerQuestion(SEGMENTS, 'q', [])
+    ).rejects.toThrow(ChatProviderError);
+    expect(create).toHaveBeenCalledTimes(2);
+  }, 10_000);
 
   it('rejects an oversized transcript rather than calling the API', async () => {
     const { client, create } = clientReturning('answer');

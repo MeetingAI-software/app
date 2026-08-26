@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GeminiChatAdapter, type GeminiClient } from './gemini-chat.adapter';
+import { ChatProviderError } from '../../domain/errors';
 import { buildChatSystemPrompt } from './prompts';
 import type { TranscriptSegment } from '../../domain/types';
 import type { ChatMessage } from '../../ports/chat.port';
@@ -75,13 +76,50 @@ describe('GeminiChatAdapter.answerQuestion', () => {
     );
   });
 
-  it('throws when Gemini returns an empty answer', async () => {
+  it('throws ChatProviderError when Gemini returns an empty answer', async () => {
     const { client } = clientReturning('   ');
 
     await expect(
       new GeminiChatAdapter(client).answerQuestion(SEGMENTS, 'q', [])
-    ).rejects.toThrow(/empty/i);
+    ).rejects.toThrow(ChatProviderError);
   });
+
+  // The production failure of 2026-08-26: Gemini was overloaded and never answered, and the raw
+  // SDK error fell through the error handler as a generic 500. It must arrive typed instead.
+  it('turns a provider timeout into ChatProviderError, without retrying it', async () => {
+    const generateContent = vi.fn().mockRejectedValue(
+      Object.assign(
+        new Error('{"code":504,"message":"Deadline expired before operation could complete.","status":"DEADLINE_EXCEEDED"}'),
+        { status: 504 }
+      )
+    );
+    const client: GeminiClient = { models: { generateContent } };
+
+    await expect(
+      new GeminiChatAdapter(client).answerQuestion(SEGMENTS, 'q', [])
+    ).rejects.toThrow(ChatProviderError);
+    expect(generateContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries once when Gemini is overloaded and answers on the second try', async () => {
+    const generateContent = vi.fn()
+      .mockRejectedValueOnce(
+        Object.assign(
+          new Error('{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}'),
+          { status: 503 }
+        )
+      )
+      .mockResolvedValueOnce({
+        text: 'We ship chat first [00:00].',
+        usageMetadata: { promptTokenCount: 300, candidatesTokenCount: 40 },
+      });
+    const client: GeminiClient = { models: { generateContent } };
+
+    const result = await new GeminiChatAdapter(client).answerQuestion(SEGMENTS, 'q', []);
+
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    expect(result.answer).toBe('We ship chat first [00:00].');
+  }, 10_000);
 
   it('rejects an oversized transcript rather than calling the API', async () => {
     const { client, generateContent } = clientReturning('answer');

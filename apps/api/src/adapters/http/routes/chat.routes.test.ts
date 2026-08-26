@@ -5,7 +5,7 @@ import { config } from '../../../config/env';
 import type { MeetingRepository } from '../../../ports/repositories.port';
 import type { ChatService } from '../../../application/chat.service';
 import type { Meeting, MeetingStatus, User } from '../../../domain/types';
-import { CapExceededError, MeetingNotReadyError } from '../../../domain/errors';
+import { CapExceededError, ChatProviderError, MeetingNotReadyError } from '../../../domain/errors';
 import { createServer } from '../server';
 import { createChatRoutes } from './chat.routes';
 
@@ -179,6 +179,7 @@ describe('chat routes', () => {
     it.each([
       [new CapExceededError('No questions left for this meeting'), 429, 'CAP_EXCEEDED'],
       [new MeetingNotReadyError('Meeting is not transcribed yet'), 409, 'MEETING_NOT_READY'],
+      [new ChatProviderError(), 502, 'CHAT_PROVIDER_ERROR'],
     ])('maps %s to HTTP %i', async (error, expectedStatus, expectedCode) => {
       ask.mockRejectedValueOnce(error);
       const user = `mapper-${expectedStatus}`;

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ChatService } from './chat.service';
-import { MeetingNotReadyError, CapExceededError } from '../domain/errors';
+import { MeetingNotReadyError, CapExceededError, ChatProviderError } from '../domain/errors';
 import type { TranscriptRepository, ChatMessageRepository } from '../ports/repositories.port';
 import type { MeetingChatPort, ChatMessage } from '../ports/chat.port';
 import type { TranscriptSegment } from '../domain/types';
@@ -95,6 +95,19 @@ describe('ChatService', () => {
 
       expect(chatAdapter.answerQuestion).toHaveBeenCalledWith(SEGMENTS, 'Follow-up?', history);
       expect(result.remaining).toBe(0); // cap 2, this was the 2nd question
+    });
+
+    // Regression, 2026-08-26: Gemini timed out and the customer still lost one of their questions
+    // for the meeting — the cap counts user rows, and the question had already been written. A
+    // provider failure must leave the meeting exactly as it found it.
+    it('writes nothing when the provider fails, so the question is not burned', async () => {
+      vi.mocked(transcriptRepo.getByMeetingId).mockResolvedValue(SEGMENTS);
+      vi.mocked(chatRepo.countUserMessages).mockResolvedValue(0);
+      vi.mocked(chatRepo.listByMeeting).mockResolvedValue([]);
+      vi.mocked(chatAdapter.answerQuestion).mockRejectedValue(new ChatProviderError());
+
+      await expect(service.ask('u1', 'm1', 'What did we decide?')).rejects.toThrow(ChatProviderError);
+      expect(chatRepo.add).not.toHaveBeenCalled();
     });
 
     it('reads history BEFORE persisting the new question (no self-echo)', async () => {
