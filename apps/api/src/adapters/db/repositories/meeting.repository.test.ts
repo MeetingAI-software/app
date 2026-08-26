@@ -225,6 +225,58 @@ describe('DrizzleMeetingRepository', () => {
     });
   });
 
+  describe('share controls', () => {
+    // A link you cannot switch off is a publication, not a share. These two operations answer
+    // different questions — "stop sharing" and "this leaked" — and the split only holds if
+    // disabling preserves the token while rotating destroys it.
+    it('creates a meeting unshared', async () => {
+      const m = await repo.create({ ownerUserId: alice, source: 'bot' });
+      expect(m.shareEnabled).toBe(false);
+    });
+
+    it('enables and disables sharing without changing the token', async () => {
+      const m = await insertMeeting({ shareToken: 'stable-tok' });
+
+      const enabled = await repo.setShareEnabled(m.id, true);
+      expect(enabled.shareEnabled).toBe(true);
+      expect(enabled.shareToken).toBe('stable-tok');
+
+      const disabled = await repo.setShareEnabled(m.id, false);
+      expect(disabled.shareEnabled).toBe(false);
+      // Re-enabling has to restore the URL people already have, so the token must survive.
+      expect(disabled.shareToken).toBe('stable-tok');
+    });
+
+    it('rotating mints a new token and strands the old one', async () => {
+      const m = await insertMeeting({ shareToken: 'leaked-tok', shareEnabled: true });
+
+      const rotated = await repo.rotateShareToken(m.id);
+
+      expect(rotated.shareToken).not.toBe('leaked-tok');
+      expect(rotated.shareToken.length).toBeGreaterThan(0);
+      expect(await repo.findByShareToken('leaked-tok')).toBeNull();
+      expect((await repo.findByShareToken(rotated.shareToken))?.id).toBe(m.id);
+    });
+
+    it('rotating leaves the enabled flag alone', async () => {
+      const on = await insertMeeting({ shareEnabled: true });
+      const off = await insertMeeting({ shareEnabled: false });
+
+      expect((await repo.rotateShareToken(on.id)).shareEnabled).toBe(true);
+      expect((await repo.rotateShareToken(off.id)).shareEnabled).toBe(false);
+    });
+
+    it('advances updatedAt on both operations', async () => {
+      const m = await insertMeeting({ updatedAt: new Date(Date.now() - HOUR) });
+
+      const enabled = await repo.setShareEnabled(m.id, true);
+      expect(enabled.updatedAt.getTime()).toBeGreaterThan(m.updatedAt.getTime());
+
+      const rotated = await repo.rotateShareToken(m.id);
+      expect(rotated.updatedAt.getTime()).toBeGreaterThanOrEqual(enabled.updatedAt.getTime());
+    });
+  });
+
   describe('updateStatus', () => {
     it('changes status and advances updatedAt', async () => {
       const m = await insertMeeting({ updatedAt: new Date(Date.now() - HOUR) });
