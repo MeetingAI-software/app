@@ -41,9 +41,6 @@ export default function PricingPage() {
       <main className="min-h-screen bg-slate-50/50 text-slate-900 pt-28 pb-16 px-4 sm:px-6 lg:px-8">
       {/* Animated Hero section */}
       <div className="max-w-4xl mx-auto text-center mb-12 blur-in">
-        <span className="inline-flex items-center px-3.5 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 border border-blue-200 mb-4 shadow-xs">
-          Transparent Pricing
-        </span>
         <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-slate-900 mb-4">
           Simple pricing for real meeting intelligence
         </h1>

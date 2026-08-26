@@ -1,4 +1,5 @@
 'use client';
+import { LogoMark } from '@/components/Logo';
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
@@ -196,8 +197,7 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
           <div className="flex justify-between items-center px-margin-page py-4 max-w-container-max mx-auto">
             <div className="flex items-center gap-8 lg:gap-10">
               <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/nota-mark-black.svg" alt="Syncmemos logo" width={28} height={28} className="h-7 w-7" />
+                <LogoMark />
                 Syncmemos
               </Link>
               <nav className="hidden md:flex items-center gap-gutter">
