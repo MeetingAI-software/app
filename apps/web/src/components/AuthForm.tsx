@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { googleOAuthUrl } from '@/lib/api';
 import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
+import { LogoMark } from '@/components/Logo';
 import { PublicFooter } from '@/components/PublicFooter';
 
 interface Props {
@@ -50,9 +51,7 @@ export default function AuthForm(props: Props) {
         <header className="bg-surface-container-lowest/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 border-b border-slate-200 shadow-sm content-layer">
           <div className="flex justify-between items-center px-margin-page py-4 max-w-container-max mx-auto">
             <Link href="/" className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2">
-              <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                summarize
-              </span>
+              <LogoMark />
               {BRAND_NAME}
             </Link>
             <nav className="hidden md:flex items-center gap-gutter">
