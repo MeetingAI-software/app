@@ -22,6 +22,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     errorMessage: null,
     summary: null,
     shareToken: 'tok',
+    shareEnabled: true,
     participantNames: null,
     audioStoragePath: null,
     transcriptionJobId: null,

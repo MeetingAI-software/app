@@ -28,6 +28,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     errorMessage: null,
     summary: null,
     shareToken: 'tok',
+    shareEnabled: true,
     participantNames: ['Alper', 'AbdulRehman'],
     audioStoragePath: 'm1/audio.webm',
     transcriptionJobId: null,
@@ -62,6 +63,8 @@ describe('ProcessUploadEventService', () => {
       findByIdForUser: vi.fn(),
       listForUser: vi.fn(),
       deleteById: vi.fn(),
+      setShareEnabled: vi.fn(),
+      rotateShareToken: vi.fn(),
     };
     transcriptRepo = { save: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
     usageRepo = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };

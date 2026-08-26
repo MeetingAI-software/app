@@ -15,6 +15,7 @@ const MEETING: Meeting = {
   errorMessage: null,
   summary: 'A public-safe summary.',
   shareToken: 'tok_public',
+  shareEnabled: true,
   participantNames: ['SecretNameA', 'SecretNameB'],
   audioStoragePath: 'meeting-audio/SECRET.webm',
   transcriptionJobId: 'job-SECRET',

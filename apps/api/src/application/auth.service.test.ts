@@ -235,6 +235,7 @@ function meetingRepoOver(store: Meeting[]): MeetingRepository {
     create: vi.fn(), findById: vi.fn(), findByBotId: vi.fn(),
     findByShareToken: vi.fn(), findByTranscriptionJobId: vi.fn(),
     updateStatus: vi.fn(), setSummary: vi.fn(), setUploadInfo: vi.fn(),
+    setShareEnabled: vi.fn(), rotateShareToken: vi.fn(),
     countActive: vi.fn(), countActiveForUser: vi.fn(), list: vi.fn(), findByIdForUser: vi.fn(),
     listForUser: vi.fn(async (uid: string) => store.filter((m) => m.ownerUserId === uid)),
     deleteById: vi.fn(async (id: string) => {
@@ -248,7 +249,7 @@ function makeMeeting(over: Partial<Meeting>): Meeting {
   return {
     id: 'm1', meetingUrl: null, platform: 'zoom', status: 'transcribed', source: 'bot',
     botId: null, ownerUserId: 'u1', durationSeconds: 60, errorMessage: null, summary: null,
-    shareToken: 'tok', participantNames: null, audioStoragePath: null, transcriptionJobId: null,
+    shareToken: 'tok', shareEnabled: true, participantNames: null, audioStoragePath: null, transcriptionJobId: null,
     createdAt: new Date(), updatedAt: new Date(), ...over,
   };
 }
