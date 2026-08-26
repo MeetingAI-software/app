@@ -193,3 +193,17 @@ export interface PaddleSubscriptionRecord {
   lastEventAt: Date;
 }
 
+
+/** Which pre-launch dialog an address was left in — the only intent signal a waitlist row carries. */
+export type WaitlistSource = 'signin' | 'upgrade';
+
+/**
+ * Pre-launch waitlist. `add` is idempotent on the address: the endpoint behind it is public and
+ * unauthenticated, so a repeated submission must be a no-op, never a duplicate row or an error the
+ * visitor sees.
+ */
+export interface WaitlistRepository {
+  /** Returns false when the address was already on the list. */
+  add(input: { email: string; source: WaitlistSource }): Promise<boolean>;
+  count(): Promise<number>;
+}
