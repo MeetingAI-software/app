@@ -15,10 +15,18 @@ interface AssemblyTranscript {
   utterances?: AssemblyUtterance[] | null;
 }
 
+/**
+ * A display label, not prose. Bound it: `speaker` is provider-supplied and lands on the public
+ * share page. Kept local rather than imported from the Recall normalizer so the two adapters stay
+ * independent. Truncate rather than reject — a long label must not cost the user their transcript.
+ */
+const MAX_SPEAKER_LENGTH = 120;
+
 /** AssemblyAI diarizes as "A", "B", … — present them as generic "Speaker A" labels (mapSpeakers renames later). */
 function speakerLabel(raw: string | undefined): string {
   const label = (raw ?? 'A').toString().trim() || 'A';
-  return /^speaker\b/i.test(label) ? label : `Speaker ${label}`;
+  const full = /^speaker\b/i.test(label) ? label : `Speaker ${label}`;
+  return full.slice(0, MAX_SPEAKER_LENGTH);
 }
 
 /**

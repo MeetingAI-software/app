@@ -34,6 +34,17 @@ describe('parseParticipantNames', () => {
     const many = JSON.stringify(Array.from({ length: 51 }, (_, i) => `Name ${i}`));
     expect(() => parseParticipantNames(many)).toThrow(ZodError);
   });
+
+  it('rejects a single absurdly long name', () => {
+    // The array cap bounds the count, not the size — without a per-name cap one entry could be
+    // megabytes of text, stored and then rendered as the meeting's title.
+    expect(() => parseParticipantNames(JSON.stringify(['x'.repeat(81)]))).toThrow(ZodError);
+  });
+
+  it('accepts a name at the length limit', () => {
+    const name = 'x'.repeat(80);
+    expect(parseParticipantNames(JSON.stringify([name]))).toEqual([name]);
+  });
 });
 
 describe('isAudioMime', () => {
