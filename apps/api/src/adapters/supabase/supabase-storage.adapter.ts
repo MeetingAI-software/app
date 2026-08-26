@@ -31,10 +31,27 @@ function isObjectNotFound(body: string): boolean {
   }
 }
 
-/** `audio/webm;codecs=opus` → `.webm`; unknown → `.bin`. */
+/**
+ * Extensions we are willing to write, keyed by canonical MIME. An allowlist rather than a slice of
+ * the MIME string: the object key must never contain a substring the caller chose, even though the
+ * upload route only passes types it detected from the file's own bytes. Unknown → `.bin`.
+ */
+const EXT_BY_MIME: Record<string, string> = {
+  'audio/webm': '.webm',
+  'audio/mp4': '.mp4',
+  'audio/ogg': '.ogg',
+  'audio/wav': '.wav',
+  'audio/flac': '.flac',
+  'audio/aiff': '.aiff',
+  'audio/x-caf': '.caf',
+  'audio/amr': '.amr',
+  'audio/mpeg': '.mp3',
+};
+
+/** `audio/webm;codecs=opus` → `.webm`; anything unrecognised → `.bin`. */
 function extForMime(mimeType: string): string {
-  const subtype = mimeType.split('/')[1]?.split(';')[0]?.trim();
-  return subtype ? `.${subtype}` : '.bin';
+  const base = mimeType.split(';')[0]?.trim().toLowerCase() ?? '';
+  return EXT_BY_MIME[base] ?? '.bin';
 }
 
 /**
