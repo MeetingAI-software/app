@@ -203,3 +203,131 @@ threejs-scene {
 }
 
 
+
+/* ==========================================================================
+   Syncmemos console design tokens
+   Ported from the design handoff bundle (reference/tokens.css), which was
+   extracted verbatim from "01 Syncmemos Console (PRIMARY).dc.html".
+
+   The custom properties, the .sm-scroll helper and the keyframes are the
+   handoff file unchanged. The bundle's bare `body {}` and `a {}` rules are
+   deliberately NOT included: this stylesheet is shared with the marketing
+   site, the pricing page and the legal pages, and those two rules would
+   repaint the landing page white and restyle every link on it. The console
+   applies them itself via .sm-console instead.
+   ========================================================================== */
+
+:root {
+  --sm-bg:          #FFFFFF;
+  --sm-surface:     #FFFFFF;
+  --sm-surface-2:   #F7F7F8;
+  --sm-surface-3:   #EFEFF1;
+
+  --sm-line:        rgba(0, 0, 0, .09);
+  --sm-line-strong: rgba(0, 0, 0, .16);
+
+  --sm-ink:         #0A0A0A;
+  --sm-ink-2:       #52525B;
+  --sm-ink-3:       #A1A1AA;
+
+  --sm-invert-bg:   #18181B;
+  --sm-invert-fg:   #FAFAFA;
+
+  --sm-chip-bg:     rgba(24, 24, 27, .08);
+  --sm-chip-bd:     rgba(24, 24, 27, .16);
+  --sm-chip-fg:     #18181B;
+
+  --sm-accent:      #18181B;
+  --sm-accent-fg:   #FAFAFA;
+
+  --sm-ok-bg:   #ECFDF5;  --sm-ok-bd:   #A7F3D0;  --sm-ok-fg:   #047857;
+  --sm-info-bg: #EFF4FE;  --sm-info-bd: #C7D9FB;  --sm-info-fg: #0051D5;
+  --sm-err-bg:  #FEF2F2;  --sm-err-bd:  #FECACA;  --sm-err-fg:  #DC2626;
+  --sm-warn-bg: #FEF3C7;                          --sm-warn-fg: #B45309;
+
+  --sm-sh-1:   0 1px 2px rgba(0, 0, 0, .05);
+  --sm-sh-pop: 0 10px 30px -18px rgba(0, 0, 0, .5), 0 1px 2px rgba(0, 0, 0, .06);
+}
+
+[data-sm-theme="dark"] {
+  color-scheme: dark;
+
+  --sm-bg:          #0A0A0A;
+  --sm-surface:     #141414;
+  --sm-surface-2:   #1C1C1C;
+  --sm-surface-3:   #262626;
+
+  --sm-line:        rgba(255, 255, 255, .09);
+  --sm-line-strong: rgba(255, 255, 255, .2);
+
+  --sm-ink:         #FAFAFA;
+  --sm-ink-2:       #A1A1AA;
+  --sm-ink-3:       #71717A;
+
+  --sm-invert-bg:   #FAFAFA;
+  --sm-invert-fg:   #0A0A0A;
+
+  --sm-chip-bg:     rgba(250, 250, 250, .1);
+  --sm-chip-bd:     rgba(250, 250, 250, .22);
+  --sm-chip-fg:     #FAFAFA;
+
+  --sm-accent:      #FAFAFA;
+  --sm-accent-fg:   #18181B;
+
+  --sm-ok-bg:   rgba(16, 185, 129, .13);  --sm-ok-bd:   rgba(16, 185, 129, .32);  --sm-ok-fg:   #34D399;
+  --sm-info-bg: rgba(96, 165, 250, .14);  --sm-info-bd: rgba(96, 165, 250, .3);   --sm-info-fg: #8AB4FF;
+  --sm-err-bg:  rgba(248, 113, 113, .12); --sm-err-bd:  rgba(248, 113, 113, .3);  --sm-err-fg:  #F87171;
+  --sm-warn-bg: rgba(251, 191, 36, .16);                                          --sm-warn-fg: #FBBF24;
+
+  --sm-sh-1:   0 1px 2px rgba(0, 0, 0, .5);
+  --sm-sh-pop: 0 14px 34px -18px rgba(0, 0, 0, .85), 0 1px 2px rgba(0, 0, 0, .5);
+}
+
+/* Fixed brand colours — these do NOT flip with the theme. */
+:root {
+  --sm-avatar:      #6D28D9;  /* feed avatar circle */
+  --sm-avatar-fg:   #FFFFFF;
+  --sm-thumb:       #7C6BF0;  /* feed card thumbnail background */
+  --sm-thumb-glyph: #6D28D9;  /* icon inside the thumbnail */
+}
+
+/* Type stack. Averta is licensed and is NOT bundled — Figtree (Google Fonts, weights 300–700,
+   loaded via next/font in app/layout.tsx) is the shipped face and what the design was tuned
+   against. `averta` stays first in the stack so a future licensed copy drops in without a
+   code change; until then it simply never resolves. */
+:root {
+  --sm-font: averta, "Averta", var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* The console owns its own background and type stack, scoped so the rest of the site keeps the
+   marketing styling. `box-sizing: border-box` matches the prototype's `*` reset.
+
+   The handoff's global `a { color: var(--sm-chip-fg) }` is deliberately NOT reproduced. This
+   stylesheet is unlayered while Tailwind v4's utilities sit in a cascade layer, so an `a`
+   selector here would outrank every `text-*` utility on every link in the console regardless of
+   specificity. Console links set their own colour instead. */
+.sm-console,
+.sm-console *,
+.sm-console *::before,
+.sm-console *::after { box-sizing: border-box; }
+
+.sm-console {
+  background: var(--sm-bg);
+  color: var(--sm-ink);
+  font-family: var(--sm-font);
+}
+
+/* Links in the console are styled per component; only the underline reset is global. */
+.sm-console a { text-decoration: none; }
+
+/* Scrollbars are hidden on both scroll regions (rail nav + feed). */
+.sm-scroll::-webkit-scrollbar { width: 0; height: 0; }
+.sm-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+
+@keyframes smPop   { from { opacity: 0; transform: translateY(-4px) scale(.97) } to { opacity: 1; transform: none } }
+@keyframes smFade  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes smModal { from { opacity: 0; transform: translateY(8px) scale(.98) }  to { opacity: 1; transform: none } }
+@keyframes smIn    { from { opacity: 0; transform: translateY(8px) }             to { opacity: 1; transform: none } }
+
+/* The existing `prefers-reduced-motion` block above already neutralises animation and
+   transition durations globally, which is the guard the handoff asks to keep. */

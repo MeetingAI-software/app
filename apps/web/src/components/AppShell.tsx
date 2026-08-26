@@ -2,25 +2,41 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { getMe, logout, getUsage, type User, type UsageSummary } from '@/lib/api';
+import {
+  getMe,
+  getSubscription,
+  getUsage,
+  logout,
+  type SubscriptionSummary,
+  type UsageSummary,
+  type User,
+} from '@/lib/api';
 import { shouldRequireEmailVerification } from '@/lib/email-verification';
 import {
   EMAIL_VERIFICATION_COMPLETED_EVENT,
   EMAIL_VERIFICATION_STORAGE_KEY,
 } from '@/lib/verify-email';
 import VerificationRequired from '@/components/VerificationRequired';
+import Rail from '@/components/console/Rail';
+import { SessionProvider } from '@/components/console/session';
 
 /**
  * Session shell for the protected app (/meetings*, /settings). Probes /api/auth/me on mount and
- * bounces to /login if there's no valid session; renders the header (nav, email, usage, logout)
- * once authenticated. Any mid-session 401 from the API client fires 'unauthorized-api-call' → /login.
+ * bounces to /login if there's no valid session. Once authenticated it renders the console frame
+ * from SPEC §3.1: the left navigation rail, a top bar, and the page content beside them. Any
+ * mid-session 401 from the API client fires 'unauthorized-api-call' → /login.
+ *
+ * The rail replaces the old top header, whose nav/account/usage controls now live inside it.
+ * The top bar currently carries only the rail toggle (SPEC §3.6, item 1) — the search pill and
+ * the Import/Record cluster belong to later passes.
  */
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionSummary | null>(null);
+  const [railCollapsed, setRailCollapsed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -38,7 +54,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user) return;
-    getUsage().then(setUsage).catch(() => {}); // best-effort; the header just omits it on failure
+    // Both are best-effort; the rail's usage card degrades to a placeholder on failure.
+    getUsage().then(setUsage).catch(() => {});
+    getSubscription().then(setSubscription).catch(() => {});
   }, [user]);
 
   useEffect(() => {
@@ -90,61 +108,43 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-transparent text-slate-900 flex flex-col">
-      <header className="sticky top-0 z-50 border-b border-slate-200 bg-surface-container-lowest/80 backdrop-blur-md shadow-sm print:hidden">
-        <div className="max-w-container-max mx-auto px-margin-page h-16 flex items-center justify-between gap-4">
-          <Link
-            href="/meetings"
-            className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2"
+    <div className="sm-console h-screen flex overflow-hidden">
+      <Rail
+        user={user}
+        usage={usage}
+        subscription={subscription}
+        collapsed={railCollapsed}
+        onExpandRail={() => setRailCollapsed(false)}
+        onLogout={handleLogout}
+      />
+
+      <div className="flex-1 min-w-0 flex flex-col" style={{ background: 'var(--sm-bg)' }}>
+        <div
+          className="flex-none h-[60px] flex items-center gap-[12px] px-[18px] print:hidden"
+          style={{ background: 'var(--sm-surface)', borderBottom: '1px solid var(--sm-line)' }}
+        >
+          <button
+            type="button"
+            onClick={() => setRailCollapsed((collapsed) => !collapsed)}
+            title="Toggle sidebar"
+            aria-label="Toggle sidebar"
+            aria-expanded={!railCollapsed}
+            className="flex-none w-[32px] h-[32px] rounded-[9px] border-0 bg-transparent cursor-pointer grid place-items-center text-[var(--sm-ink-2)] transition-[background,color] duration-[160ms] hover:bg-[var(--sm-surface-2)] hover:text-[var(--sm-ink)]"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/nota-mark-black.svg" alt="Syncmemos logo" width={28} height={28} className="h-7 w-7" />
-            Syncmemos
-          </Link>
-
-          <div className="flex items-center gap-2 sm:gap-4 text-sm">
-            <Link
-              href="/meetings"
-              className="hidden sm:inline text-on-surface-variant hover:text-secondary transition-colors font-medium"
-            >
-              Meetings
-            </Link>
-
-            {usage && (
-              <span
-                className="hidden sm:inline text-on-surface-variant font-medium tabular-nums font-label-mono text-xs"
-                title="Recorded this month"
-              >
-                {formatHours(usage.secondsUsed)} / {formatHours(usage.secondsCap)} h
-              </span>
-            )}
-
-            {user && <span className="hidden md:inline text-slate-400 text-xs">{user.email}</span>}
-
-            <Link
-              href="/settings"
-              className="text-on-surface-variant hover:text-secondary transition-colors font-medium inline-flex items-center gap-1"
-            >
-              <span className="material-symbols-outlined text-[18px]">settings</span>
-              <span className="hidden sm:inline">Settings</span>
-            </Link>
-
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-900 rounded px-3 py-1.5 text-sm font-medium transition-colors shadow-sm cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-[18px]">logout</span>
-              <span className="hidden sm:inline">Log out</span>
-            </button>
-          </div>
+            <span className="material-symbols-outlined text-[19px] leading-none">
+              {railCollapsed ? 'left_panel_open' : 'left_panel_close'}
+            </span>
+          </button>
         </div>
-      </header>
 
-      <main className="flex-1">{children}</main>
+        {/* SPEC §4: the scroll region is the area under the top bar, scrollbar hidden. Owning
+            it here keeps every page under the shell scrollable, not just the feed. */}
+        <main className="sm-scroll relative flex-1 min-h-0 overflow-y-auto">
+          <SessionProvider value={{ user, usage, subscription }}>
+            {children}
+          </SessionProvider>
+        </main>
+      </div>
     </div>
   );
-}
-
-function formatHours(seconds: number): string {
-  return (seconds / 3600).toFixed(1);
 }
