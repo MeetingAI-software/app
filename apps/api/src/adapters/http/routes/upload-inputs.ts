@@ -3,6 +3,9 @@ import { z } from 'zod';
 /** A sane ceiling so a malformed field cannot allocate an enormous names array. */
 const MAX_NAMES = 50;
 
+/** The array cap alone bounds the count, not the size — one "name" could still be megabytes. */
+const MAX_NAME_LENGTH = 80;
+
 /**
  * `participantNames` arrives as a JSON-array string in a multipart text field. Parse it, validate
  * it is an array of strings, then trim and drop blanks. Invalid input throws a ZodError, which the
@@ -21,7 +24,7 @@ const participantNamesSchema = z.preprocess(
     return val;
   },
   z
-    .array(z.string())
+    .array(z.string().max(MAX_NAME_LENGTH))
     .max(MAX_NAMES)
     .transform((arr) => arr.map((s) => s.trim()).filter((s) => s.length > 0))
 );
