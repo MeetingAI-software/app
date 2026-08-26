@@ -48,6 +48,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     errorMessage: null,
     summary: 'A short recap.',
     shareToken: 'share-tok',
+    shareEnabled: true,
     participantNames: ['Alper Eken'],
     audioStoragePath: 'recordings/secret.m4a',
     transcriptionJobId: 'job-1',
@@ -88,12 +89,17 @@ describe('meeting routes', () => {
   /** Overridden per-test when a case needs a status other than `transcribed`. */
   let meetingOverrides: Partial<Meeting> = {};
 
+  const setShareEnabled = vi.fn();
+  const rotateShareToken = vi.fn();
+
   const meetingRepo = {
     findByIdForUser: vi.fn(async (id: string, userId: string) =>
       (id === ownMeetingOf(userId) ? meeting({ id, ownerUserId: userId, ...meetingOverrides }) : null)),
     listForUser,
     findByShareToken,
     list,
+    setShareEnabled,
+    rotateShareToken,
   } as unknown as MeetingRepository;
 
   const transcriptRepo = { getByMeetingId: getTranscript } as unknown as TranscriptRepository;
@@ -165,6 +171,9 @@ describe('meeting routes', () => {
       ['GET', (id: string) => `/api/meetings/${id}/transcript`],
       ['GET', (id: string) => `/api/meetings/${id}/document`],
       ['POST', (id: string) => `/api/meetings/${id}/document`],
+      ['POST', (id: string) => `/api/meetings/${id}/share/enable`],
+      ['POST', (id: string) => `/api/meetings/${id}/share/disable`],
+      ['POST', (id: string) => `/api/meetings/${id}/share/rotate`],
     ])('answers 404 to %s %s for a meeting owned by somebody else', async (method, path) => {
       const intruder = `intruder-${method}-${Math.random().toString(36).slice(2, 8)}`;
       const target = path(ownMeetingOf('victim'));
@@ -191,6 +200,17 @@ describe('meeting routes', () => {
       expect(getDocument).not.toHaveBeenCalled();
       expect(generateDocument).not.toHaveBeenCalled();
       expect(upsertForMeeting).not.toHaveBeenCalled();
+    });
+
+    // A stranger must not be able to pull the rug out from under someone else's share link.
+    it('does not touch share state on a refused request', async () => {
+      const target = ownMeetingOf('victim');
+
+      await asUser('intruder-d').post(`/api/meetings/${target}/share/disable`);
+      await asUser('intruder-e').post(`/api/meetings/${target}/share/rotate`);
+
+      expect(setShareEnabled).not.toHaveBeenCalled();
+      expect(rotateShareToken).not.toHaveBeenCalled();
     });
 
     it('answers 404 for a meeting that does not exist at all', async () => {
@@ -437,6 +457,34 @@ describe('meeting routes', () => {
     });
   });
 
+  describe('share controls', () => {
+    it('enable and disable set the flag and echo the current link', async () => {
+      setShareEnabled.mockResolvedValue(meeting({ shareEnabled: true }));
+      const on = await asUser('sharer-a').post(`/api/meetings/${ownMeetingOf('sharer-a')}/share/enable`);
+
+      expect(on.status).toBe(200);
+      expect(await on.json()).toEqual({ shareToken: 'share-tok', shareEnabled: true });
+      expect(setShareEnabled).toHaveBeenCalledWith(ownMeetingOf('sharer-a'), true);
+
+      setShareEnabled.mockResolvedValue(meeting({ shareEnabled: false }));
+      const off = await asUser('sharer-b').post(`/api/meetings/${ownMeetingOf('sharer-b')}/share/disable`);
+
+      expect(off.status).toBe(200);
+      expect(await off.json()).toEqual({ shareToken: 'share-tok', shareEnabled: false });
+      expect(setShareEnabled).toHaveBeenLastCalledWith(ownMeetingOf('sharer-b'), false);
+    });
+
+    it('rotate returns the replacement token', async () => {
+      rotateShareToken.mockResolvedValue(meeting({ shareToken: 'fresh-tok', shareEnabled: true }));
+
+      const response = await asUser('sharer-c').post(`/api/meetings/${ownMeetingOf('sharer-c')}/share/rotate`);
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ shareToken: 'fresh-tok', shareEnabled: true });
+      expect(rotateShareToken).toHaveBeenCalledWith(ownMeetingOf('sharer-c'));
+    });
+  });
+
   // -------------------------------------------------------------------------
   // The public share link — the only endpoint a stranger may reach.
   // -------------------------------------------------------------------------
@@ -459,6 +507,28 @@ describe('meeting routes', () => {
 
       expect(response.status).toBe(404);
       expect(body.error.message).toBe('Unknown share token');
+    });
+
+    // Turning sharing off has to actually close the door, and it must look identical to a token
+    // that never existed — otherwise the response tells a stranger they found a real meeting.
+    it('answers the same 404 when sharing is switched off', async () => {
+      findByShareToken.mockResolvedValue(meeting({ shareEnabled: false }));
+      getDocument.mockResolvedValue({ content: docContent(), createdAt: new Date() });
+
+      const response = await fetch(`${baseUrl}/api/share/share-tok`);
+      const body = await response.json() as { error: { code: string; message: string } };
+
+      expect(response.status).toBe(404);
+      expect(body.error).toEqual({ code: 'NOT_FOUND', message: 'Unknown share token' });
+    });
+
+    it('reads no transcript or document for a disabled link', async () => {
+      findByShareToken.mockResolvedValue(meeting({ shareEnabled: false }));
+
+      await fetch(`${baseUrl}/api/share/share-tok`);
+
+      expect(getTranscript).not.toHaveBeenCalled();
+      expect(getDocument).not.toHaveBeenCalled();
     });
 
     // A share link goes to strangers. The mapper's field list is pinned in share-response.test.ts;
