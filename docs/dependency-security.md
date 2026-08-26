@@ -1,5 +1,17 @@
 # Dependency security
 
+## Automated detection
+
+`.github/dependabot.yml` opens weekly version-update pull requests for npm (one entry covers both
+workspaces — the root `package-lock.json` is the only lockfile) and for the GitHub Actions pinned
+in CI. Minor and patch bumps are grouped into a single pull request; majors arrive individually so
+each is read rather than rubber-stamped.
+
+Version updates are only half of it. Dependabot **alerts** and **security updates** — which fire
+when an advisory is published rather than on a schedule — are a repository setting, not a file:
+Settings -> Code security. Without them this repository still learns about a vulnerable dependency
+only when someone runs `npm audit` by hand.
+
 ## Verification
 
 Run `npm audit` from the repository root together with both applications' normal test, typecheck,
