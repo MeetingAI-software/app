@@ -61,6 +61,30 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     return (row as Meeting) || null;
   }
 
+  /**
+   * Turning sharing off leaves the token in place, so re-enabling restores the SAME link. That is
+   * the point of keeping rotate separate: "pause this" and "this leaked" are different problems
+   * and only one of them should invalidate a URL people may have bookmarked.
+   */
+  async setShareEnabled(id: string, enabled: boolean): Promise<Meeting> {
+    const [row] = await db
+      .update(meetings)
+      .set({ shareEnabled: enabled, updatedAt: new Date() })
+      .where(eq(meetings.id, id))
+      .returning();
+    return row as Meeting;
+  }
+
+  /** Mints a fresh token. Anyone holding the old link gets a 404 from the next request onward. */
+  async rotateShareToken(id: string): Promise<Meeting> {
+    const [row] = await db
+      .update(meetings)
+      .set({ shareToken: crypto.randomBytes(16).toString('base64url'), updatedAt: new Date() })
+      .where(eq(meetings.id, id))
+      .returning();
+    return row as Meeting;
+  }
+
   async findByTranscriptionJobId(jobId: string): Promise<Meeting | null> {
     const [row] = await db
       .select()

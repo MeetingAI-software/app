@@ -21,6 +21,8 @@ export interface MeetingRepository {
   updateStatus(id: string, to: MeetingStatus,
     patch?: Partial<Pick<Meeting, 'botId' | 'durationSeconds' | 'errorMessage'>>): Promise<Meeting>;
   setSummary(id: string, summary: string): Promise<void>;
+  setShareEnabled(id: string, enabled: boolean): Promise<Meeting>;   // turn a public link on or off
+  rotateShareToken(id: string): Promise<Meeting>;                    // mint a new token; the old link dies
   setUploadInfo(id: string, patch: { audioStoragePath?: string | null;
     transcriptionJobId?: string }): Promise<void>;                    // Day 3: upload path
   countActive(): Promise<number>;   // status in (bot_joining, recording, processing)
