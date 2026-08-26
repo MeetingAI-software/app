@@ -127,7 +127,7 @@ export function ComingSoonDialog({ variant, onClose }: ComingSoonDialogProps) {
                 <button
                   type="submit"
                   disabled={status === 'sending'}
-                  className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-60"
+                  className="shrink-0 whitespace-nowrap rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-60"
                 >
                   {status === 'sending' ? 'Sparar…' : 'Meddela mig'}
                 </button>
