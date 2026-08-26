@@ -6,13 +6,14 @@ import { logger } from '../../../config/logger';
 import type { MeetingRepository, WebhookEventRepository } from '../../../ports/repositories.port';
 import type { UsageMeterService } from '../../../application/usage-meter.service';
 import type { AudioStoragePort } from '../../../ports/audio-storage.port';
-import { parseParticipantNames, isAudioMime } from './upload-inputs';
+import { parseParticipantNames, isAudioMime, detectAudioFormat } from './upload-inputs';
 import { perUserRouteLimiter, SPEND_LIMITS } from '../middleware/rate-limit';
 
 /**
  * POST /api/meetings/upload — in-room recording upload.
  * multipart: `audio` file + `participantNames` (JSON array). Reject > MAX_UPLOAD_MB (413) and
- * non-audio MIME (400). The monthly-hours cap protects the wallet on this path too. On success:
+ * anything whose bytes are not a recognised audio container (400). The monthly-hours cap protects
+ * the wallet on this path too. On success:
  * create meeting (source:'upload') → storage.upload → setUploadInfo → enqueue `audio_uploaded` → 201.
  */
 export function createUploadRoutes(
@@ -69,6 +70,14 @@ export function createUploadRoutes(
     if (!isAudioMime(file.mimetype)) {
       return res.status(400).json({ error: { code: 'INVALID_AUDIO', message: 'Only audio uploads are supported' } });
     }
+    // The declared type above is the caller's word for it; this is the file's. Runs before the
+    // usage meter so a spoofed upload never reaches the (paid) transcription vendor.
+    const audio = detectAudioFormat(file.buffer);
+    if (!audio) {
+      return res.status(400).json({
+        error: { code: 'INVALID_AUDIO', message: 'The uploaded file is not a recognised audio recording' },
+      });
+    }
 
     // Throws ZodError (→ 400) on a malformed participantNames field.
     const participantNames = parseParticipantNames(req.body?.participantNames);
@@ -79,7 +88,9 @@ export function createUploadRoutes(
     const meeting = await meetingRepo.create({ ownerUserId: req.userId!, source: 'upload', participantNames });
 
     try {
-      const { path } = await storage.upload(meeting.id, file.buffer, file.mimetype);
+      // The detected type, not the declared one — the stored object key is then derived entirely
+      // from bytes we verified rather than from a header the caller chose.
+      const { path } = await storage.upload(meeting.id, file.buffer, audio.mime);
       await meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: path });
       await webhookRepo.insertIfNew({
         provider: 'upload',
@@ -99,7 +110,10 @@ export function createUploadRoutes(
       throw err;
     }
 
-    logger.info({ meetingId: meeting.id, participants: participantNames.length }, 'In-room audio uploaded');
+    logger.info(
+      { meetingId: meeting.id, participants: participantNames.length, format: audio.format },
+      'In-room audio uploaded'
+    );
     return res.status(201).json({ meeting });
   }
 
