@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { BRAND_NAME } from '@/lib/brand';
+import { LogoMark } from '@/components/Logo';
 
 export function Header() {
   const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -27,12 +28,7 @@ export function Header() {
           href="/"
           className="font-headline-md text-headline-md font-bold tracking-tight text-slate-900 flex items-center gap-2 text-xl"
         >
-          <span
-            className="material-symbols-outlined text-blue-600"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            summarize
-          </span>
+          <LogoMark />
           {BRAND_NAME}
         </Link>
         <nav className="hidden md:flex items-center gap-8">
