@@ -54,6 +54,10 @@ export const envSchema = z.object({
   MAX_CHAT_QUESTIONS_PER_MEETING: z.coerce.number().default(20),
   MAX_UPLOAD_MB: z.coerce.number().default(200),
   CHAT_PROVIDER: z.enum(['fake', 'claude', 'gemini']).default('fake'),
+  // Shorter than CLAUDE_TIMEOUT_MS on purpose. A document is generated in the background and can
+  // afford a full minute; chat has somebody watching a "Thinking…" spinner, and a minute of that
+  // is worse than an honest "the AI is busy, try again" at thirty seconds.
+  CHAT_TIMEOUT_MS: z.coerce.number().default(30000),
   // --- Day 5: accounts + sessions ---
   SESSION_TTL_DAYS: z.coerce.number().int().default(30),
   // --- Day 6: observability ---

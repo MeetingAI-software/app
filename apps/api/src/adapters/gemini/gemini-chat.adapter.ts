@@ -1,6 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../../config/env';
 import { logger } from '../../config/logger';
+import { ChatProviderError } from '../../domain/errors';
+import { callChatProvider } from '../chat-retry';
 import type { MeetingChatPort, ChatMessage } from '../../ports/chat.port';
 import type { TranscriptSegment } from '../../domain/types';
 import { buildChatSystemPrompt, renderTranscript } from './prompts';
@@ -45,7 +47,7 @@ export class GeminiChatAdapter implements MeetingChatPort {
       client ??
       (new GoogleGenAI({
         apiKey: config.GEMINI_API_KEY,
-        httpOptions: { timeout: config.CLAUDE_TIMEOUT_MS }, // shared LLM request timeout (ms)
+        httpOptions: { timeout: config.CHAT_TIMEOUT_MS }, // ms — shorter than docs; someone is waiting
       }) as unknown as GeminiClient);
   }
 
@@ -70,15 +72,17 @@ export class GeminiChatAdapter implements MeetingChatPort {
     const systemInstruction = buildChatSystemPrompt(segments);
     const contents = toGeminiContents(history, question);
 
-    const response = await this.client.models.generateContent({
-      model: config.GEMINI_CHAT_MODEL,
-      contents,
-      config: {
-        systemInstruction,
-        temperature: TEMPERATURE,
-        maxOutputTokens: CHAT_MAX_TOKENS,
-      },
-    });
+    const response = await callChatProvider('gemini', () =>
+      this.client.models.generateContent({
+        model: config.GEMINI_CHAT_MODEL,
+        contents,
+        config: {
+          systemInstruction,
+          temperature: TEMPERATURE,
+          maxOutputTokens: CHAT_MAX_TOKENS,
+        },
+      })
+    );
 
     const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
     const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
@@ -88,9 +92,12 @@ export class GeminiChatAdapter implements MeetingChatPort {
       'Gemini token usage'
     );
 
+    // A 200 with nothing in it is still a provider failure from the customer's side, and the fix
+    // is the same one: ask again.
     const answer = (response.text ?? '').trim();
     if (!answer) {
-      throw new Error('Gemini returned an empty chat answer');
+      logger.warn({ model: config.GEMINI_CHAT_MODEL }, 'Gemini returned an empty chat answer');
+      throw new ChatProviderError();
     }
 
     return { answer, inputTokens, outputTokens };
