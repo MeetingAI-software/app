@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { COMING_SOON_COPY, type ComingSoonVariant } from '@/lib/launch';
-import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
+import { BRAND_NAME } from '@/lib/brand';
 import { LogoMark } from '@/components/Logo';
+import { ApiError, joinWaitlist } from '@/lib/api';
 
 interface ComingSoonDialogProps {
   variant: ComingSoonVariant;
@@ -18,6 +19,28 @@ interface ComingSoonDialogProps {
 export function ComingSoonDialog({ variant, onClose }: ComingSoonDialogProps) {
   const copy = COMING_SOON_COPY[variant];
   const dismissRef = useRef<HTMLButtonElement>(null);
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState<'idle' | 'sending' | 'joined'>('idle');
+  const [error, setError] = useState<string | null>(null);
+
+  const handleJoin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (status === 'sending') return;
+    setStatus('sending');
+    setError(null);
+    try {
+      await joinWaitlist(email.trim(), variant);
+      setStatus('joined');
+    } catch (err) {
+      // The API's own message is English and written for developers, so the visitor gets ours.
+      setStatus('idle');
+      setError(
+        err instanceof ApiError && err.status === 429
+          ? 'Du har försökt några gånger redan. Vänta en stund och försök igen.'
+          : 'Något gick fel när vi skulle spara adressen. Försök igen om en liten stund.',
+      );
+    }
+  };
 
   useEffect(() => {
     dismissRef.current?.focus();
@@ -78,18 +101,55 @@ export function ComingSoonDialog({ variant, onClose }: ComingSoonDialogProps) {
             {copy.note}
           </div>
 
-          <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <a
-              href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`${BRAND_NAME} launch`)}`}
-              className="rounded-xl border border-slate-300 px-5 py-3 text-center text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50"
+          {status === 'joined' ? (
+            <p
+              role="status"
+              className="mt-7 rounded-2xl bg-emerald-50 p-4 text-sm font-medium leading-relaxed text-emerald-800 ring-1 ring-emerald-100"
             >
-              Meddela mig vid lansering
-            </a>
+              Tack! Du står på listan — vi hör av oss så fort {BRAND_NAME} öppnar.
+            </p>
+          ) : (
+            <form onSubmit={handleJoin} className="mt-7">
+              <label htmlFor="waitlist-email" className="text-sm font-semibold text-slate-800">
+                Vill du veta när vi öppnar?
+              </label>
+              <div className="mt-2 flex flex-col gap-3 sm:flex-row">
+                <input
+                  id="waitlist-email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="din@epost.se"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-slate-900"
+                />
+                <button
+                  type="submit"
+                  disabled={status === 'sending'}
+                  className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {status === 'sending' ? 'Sparar…' : 'Meddela mig'}
+                </button>
+              </div>
+              {error && (
+                <p role="alert" className="mt-2 text-sm font-medium text-rose-600">
+                  {error}
+                </p>
+              )}
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                Vi sparar bara adressen för att höra av oss vid lanseringen, och du kan säga till
+                när som helst om du vill bli borttagen.
+              </p>
+            </form>
+          )}
+
+          <div className="mt-5 flex justify-end">
             <button
               ref={dismissRef}
               type="button"
               onClick={onClose}
-              className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+              className="rounded-xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50"
             >
               {copy.dismiss}
             </button>

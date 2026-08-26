@@ -256,6 +256,22 @@ export async function resendVerification(email: string): Promise<void> {
   return handleVoid(response);
 }
 
+// --- Pre-launch waitlist ---
+/**
+ * Public and unauthenticated: the waitlist exists precisely because nobody can sign in yet.
+ * The API answers the same way whether the address was new or already stored, so there is
+ * nothing here to branch on — a resolved promise means "you're on the list".
+ */
+export async function joinWaitlist(email: string, source: 'signin' | 'upgrade'): Promise<void> {
+  const response = await api('/api/waitlist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, source }),
+  });
+  // Void, and quiet: a 401 can't mean a lapsed session on a route that never had one.
+  return handleVoid(response);
+}
+
 export async function verifyEmail(token: string): Promise<AuthUserResponse> {
   const response = await api('/api/auth/verify-email', {
     method: 'POST',

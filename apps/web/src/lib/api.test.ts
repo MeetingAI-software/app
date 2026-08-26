@@ -4,6 +4,7 @@ import {
   createCheckoutTransaction,
   createMeeting,
   getOptionalBillingContext,
+  joinWaitlist,
   resendVerification,
   throttleMessage,
   verifyEmail,
@@ -197,5 +198,40 @@ describe('verifyEmail', () => {
       code: 'VERIFICATION_TOKEN_EXPIRED',
       message: 'Verification token has expired',
     });
+  });
+});
+
+describe('joinWaitlist', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('posts the address and which dialog it came from', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ joined: true }),
+      { status: 201, headers: { 'content-type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await joinWaitlist('person@example.com', 'upgrade');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/waitlist',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ email: 'person@example.com', source: 'upgrade' }),
+      }),
+    );
+  });
+
+  // The dialog turns this into its own Swedish sentence, so what matters is that the status
+  // survives the trip — 429 reads differently to a visitor than a server fault does.
+  it('surfaces the rate limit with its status intact', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }),
+      { status: 429, headers: { 'content-type': 'application/json' } },
+    )));
+
+    await expect(joinWaitlist('person@example.com', 'signin')).rejects.toMatchObject({ status: 429 });
   });
 });
