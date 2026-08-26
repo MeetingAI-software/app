@@ -6,8 +6,19 @@ import Link from 'next/link';
 import * as THREE from 'three';
 import { BackgroundPaths } from '@/components/ui/background-paths';
 import { PublicFooter } from '@/components/PublicFooter';
+import { LAUNCH_PAUSED } from '@/lib/launch';
+import { ComingSoonDialog } from '@/components/ComingSoonDialog';
 
 export function LandingPageClient({ legalPublished }: { legalPublished: boolean }) {
+  // Pre-launch gate: the sign-in entry points open a notice instead of the app.
+  const [showComingSoon, setShowComingSoon] = useState(false);
+
+  const handleSignInClick = (e: React.MouseEvent) => {
+    if (!LAUNCH_PAUSED) return;
+    e.preventDefault();
+    setShowComingSoon(true);
+  };
+
   // View switcher state
   const [activeView, setActiveView] = useState<'summary' | 'transcript'>('summary');
 
@@ -207,11 +218,16 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
               </nav>
             </div>
             <div className="flex items-center gap-4 lg:mr-6">
-              <Link href="/meetings" className="hidden sm:inline-block text-slate-900 font-medium hover:text-secondary transition-colors duration-200">
+              <Link
+                href="/meetings"
+                onClick={handleSignInClick}
+                className="hidden sm:inline-block text-slate-900 font-medium hover:text-secondary transition-colors duration-200"
+              >
                 Sign In
               </Link>
               <Link
                 href="/meetings"
+                onClick={handleSignInClick}
                 className="magnetic-btn btn-shimmer bg-slate-900 text-white px-6 py-2 rounded font-medium hover:bg-slate-800 transition-colors shadow-sm text-sm"
                 onMouseMove={handleMagneticMouseMove}
                 onMouseLeave={handleMagneticMouseLeave}
@@ -223,7 +239,7 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
         </header>
 
         {/* Hero Section — animated background paths */}
-        <BackgroundPaths />
+        <BackgroundPaths onGetStarted={handleSignInClick} />
 
         {/* Interactive Component Preview */}
         <section className="py-section-gap bg-slate-50/90 backdrop-blur-sm content-layer relative z-10" id="demo">
@@ -418,6 +434,9 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
 
         <PublicFooter legalPublished={legalPublished} />
       </div>
+      {showComingSoon && (
+        <ComingSoonDialog variant="signin" onClose={() => setShowComingSoon(false)} />
+      )}
     </>
   );
 }

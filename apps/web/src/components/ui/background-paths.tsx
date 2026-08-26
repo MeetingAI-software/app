@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
+import type React from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
@@ -14,7 +15,12 @@ const STATS = [
     { value: "1 link", label: "To share" },
 ];
 
-export function BackgroundPaths() {
+interface BackgroundPathsProps {
+    // Set while the launch gate is on so the hero CTA opens the notice instead of the app.
+    onGetStarted?: (e: React.MouseEvent) => void;
+}
+
+export function BackgroundPaths({ onGetStarted }: BackgroundPathsProps) {
     return (
         <div
             className="relative w-full overflow-hidden bg-white pt-20 pb-20"
@@ -47,6 +53,7 @@ export function BackgroundPaths() {
                 <div className="flex flex-col sm:flex-row items-center gap-4 mb-12">
                     <Link
                         href="/meetings"
+                        onClick={onGetStarted}
                         className="inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-lg font-semibold text-neutral-950 shadow-sm transition-opacity hover:opacity-90"
                         style={{ background: HIGHLIGHT }}
                     >
