@@ -90,6 +90,19 @@ export class DocumentGenerationError extends Error {
   }
 }
 
+/**
+ * The chat model itself failed us — timed out, was overloaded, or returned nothing usable.
+ * Not the customer's fault and not a bug in our code, so it earns an honest message instead of
+ * collapsing into the catch-all 500's "An unexpected error occurred". Retrying is the fix, which
+ * is exactly what the default message tells the customer to do.
+ */
+export class ChatProviderError extends Error {
+  constructor(message = 'The AI is busy right now. Please try again in a moment.') {
+    super(message);
+    this.name = 'ChatProviderError';
+  }
+}
+
 export class MeetingNotReadyError extends Error {
   constructor(message: string) {
     super(message);
