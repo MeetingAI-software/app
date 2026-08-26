@@ -12,6 +12,10 @@ export const meetings = pgTable('meetings', {
   errorMessage: text('error_message'),
   summary: text('summary'),
   shareToken: text('share_token').notNull().unique(),
+  // A share link you cannot switch off is not a share link, it is a publication. Defaults to
+  // false so a meeting is private until its owner decides otherwise; the migration backfills
+  // pre-existing rows to true so links already handed out keep working.
+  shareEnabled: boolean('share_enabled').notNull().default(false),
   participantNames: jsonb('participant_names'),                    // Day 3: string[] entered before an in-room recording
   audioStoragePath: text('audio_storage_path'),                   // Day 3: Supabase Storage path for uploads
   transcriptionJobId: text('transcription_job_id'),               // Day 3: AssemblyAI job id for uploads

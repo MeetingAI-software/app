@@ -26,6 +26,7 @@ export interface Meeting {
   errorMessage: string | null;
   summary: string | null;
   shareToken: string;
+  shareEnabled: boolean;                  // false until the owner shares; rotating mints a new token
   participantNames: string[] | null;      // Day 3: names entered before an in-room recording
   audioStoragePath: string | null;        // Day 3: Supabase Storage path for uploads
   transcriptionJobId: string | null;      // Day 3: AssemblyAI job id for uploads
