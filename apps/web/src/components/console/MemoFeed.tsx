@@ -133,11 +133,21 @@ function MemoCard({
         {avatarInitial(owner)}
       </span>
 
-      <Link
-        href={`/meetings/${meeting.id}`}
-        className="group flex-1 min-w-0 flex items-start gap-[16px] px-[20px] py-[17px] rounded-[13px] cursor-pointer border border-[var(--sm-line)] hover:border-[var(--sm-line-strong)] hover:shadow-[var(--sm-sh-1)] transition-[border-color,box-shadow] duration-200"
+      {/* The card is a plain container with a stretched link laid over it, rather than a <Link>
+          wrapping everything. "Show more" is interactive, and an interactive element nested inside
+          an <a> is invalid HTML: it breaks keyboard tabbing and makes screen readers announce the
+          toggle as part of the link. Here the two are siblings — the overlay (z-1) keeps the whole
+          card clickable, and the toggle (z-2) sits above it and needs no event suppression. */}
+      <div
+        className="relative flex-1 min-w-0 flex items-start gap-[16px] px-[20px] py-[17px] rounded-[13px] border border-[var(--sm-line)] hover:border-[var(--sm-line-strong)] hover:shadow-[var(--sm-sh-1)] transition-[border-color,box-shadow] duration-200"
         style={{ background: 'var(--sm-surface)' }}
       >
+        <Link
+          href={`/meetings/${meeting.id}`}
+          aria-label={meetingTitle(meeting)}
+          className="absolute inset-0 z-[1] rounded-[13px] cursor-pointer"
+        />
+
         <div className="flex-1 min-w-0 flex flex-col gap-[4px]">
           <div className="text-[19px] font-medium tracking-[-.015em] leading-[1.2] text-[var(--sm-ink)] overflow-hidden text-ellipsis whitespace-nowrap">
             {meetingTitle(meeting)}
@@ -161,25 +171,14 @@ function MemoCard({
               >
                 {summary}
               </p>
-              <span
-                role="button"
-                tabIndex={0}
-                // Inside a Link, so the card's navigation has to be suppressed explicitly.
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setExpanded((value) => !value);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setExpanded((value) => !value);
-                }}
-                className="mt-[7px] w-fit text-[13.5px] text-[var(--sm-ink-2)] cursor-pointer hover:text-[var(--sm-ink)] hover:underline"
+              <button
+                type="button"
+                onClick={() => setExpanded((value) => !value)}
+                aria-expanded={expanded}
+                className="relative z-[2] mt-[7px] w-fit text-left text-[13.5px] text-[var(--sm-ink-2)] cursor-pointer border-0 bg-transparent p-0 font-[inherit] hover:text-[var(--sm-ink)] hover:underline"
               >
                 {expanded ? 'Show less' : 'Show more'}
-              </span>
+              </button>
             </>
           )}
 
@@ -187,7 +186,7 @@ function MemoCard({
               data source: meetings carry no comment count and no image. They are left out
               rather than rendered with placeholder values on every card. */}
         </div>
-      </Link>
+      </div>
     </div>
   );
 }
