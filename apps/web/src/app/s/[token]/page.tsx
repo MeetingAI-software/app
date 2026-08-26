@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { getShare, type ShareResponse } from '@/lib/api';
+import { ApiError, getShare, type ShareResponse } from '@/lib/api';
 import SharePageClient from '@/components/SharePageClient';
 import { BRAND_NAME } from '@/lib/brand';
 
@@ -42,9 +42,16 @@ async function loadSharePage(token: string): Promise<SharePageResult> {
   try {
     return { ok: true, data: await getShare(token) };
   } catch (error: unknown) {
+    // A 404 here is now routine rather than rare — the owner can switch sharing off, and the API
+    // deliberately answers the same way for that as for a token that never existed. Whoever opened
+    // the link is a stranger who cannot act on "Unknown share token", so they get plain English
+    // instead of the API's wording. Anything else still surfaces its own message.
+    const notFound = error instanceof ApiError && error.status === 404;
     return {
       ok: false,
-      message: error instanceof Error ? error.message : 'This link may have expired or is invalid.',
+      message: notFound || !(error instanceof Error)
+        ? 'This link is no longer available. The owner may have turned off sharing or replaced the link.'
+        : error.message,
     };
   }
 }
