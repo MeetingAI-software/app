@@ -1,0 +1,48 @@
+# Automated dependency updates.
+#
+# This file covers VERSION updates only — routine bumps on a schedule. Dependabot *security*
+# updates (the ones that fire the moment an advisory lands, regardless of schedule) are a separate
+# repository setting: Settings → Code security → enable "Dependabot alerts" and "Dependabot
+# security updates". Enabling those is the half that actually matters for security; this file
+# exists so ordinary upgrades do not silently rot in between.
+#
+# See docs/dependency-security.md for the manual `npm audit` process this supplements — in
+# particular the accepted development-only drizzle-kit -> esbuild advisory, which Dependabot may
+# surface repeatedly until a stable Drizzle Kit drops the affected loader.
+version: 2
+
+updates:
+  # One entry, not three: npm workspaces means a single root package-lock.json covers the root,
+  # apps/api and apps/web, and Dependabot updates every workspace manifest from it.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Minor and patch bumps arrive as ONE pull request. Individually they are noise a solo
+      # maintainer learns to ignore, and an ignored Dependabot queue is the same as not having one.
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    # Majors are deliberately left ungrouped so each arrives on its own and gets read. A Next.js
+    # or React major is a migration, not an upgrade — see apps/web/AGENTS.md.
+    commit-message:
+      prefix: chore(deps)
+
+  # CI pins actions by major tag (actions/checkout@v4, actions/setup-node@v4), which does not pick
+  # up a compromised-action revocation on its own.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: chore(ci)
