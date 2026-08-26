@@ -277,11 +277,54 @@ export function createMeetingRoutes(
     }
   });
 
+  /**
+   * Share controls. All three are owner-scoped through findByIdForUser, so a miss is a 404 for the
+   * same reason every other meeting route returns one: a meeting you do not own does not exist.
+   *
+   * enable/disable and rotate are separate on purpose. Disabling parks a link and keeps the token,
+   * so re-enabling restores the URL people already have. Rotating throws the token away, which is
+   * the only answer when a link has leaked. Collapsing them into one control would mean you cannot
+   * pause sharing without also breaking every bookmark.
+   */
+  async function ownedMeetingOr404(req: any, res: any) {
+    const meeting = await meetingRepo.findByIdForUser(req.params.id, req.userId!);
+    if (!meeting) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
+      return null;
+    }
+    return meeting;
+  }
+
+  for (const [path, enabled] of [['enable', true], ['disable', false]] as const) {
+    router.post(`/api/meetings/:id/share/${path}`, async (req, res, next) => {
+      try {
+        if (!(await ownedMeetingOr404(req, res))) return;
+        const updated = await meetingRepo.setShareEnabled(req.params.id, enabled);
+        return res.status(200).json({ shareToken: updated.shareToken, shareEnabled: updated.shareEnabled });
+      } catch (err) {
+        return next(err);
+      }
+    });
+  }
+
+  // POST /api/meetings/:id/share/rotate — the old link 404s from the next request onward.
+  router.post('/api/meetings/:id/share/rotate', async (req, res, next) => {
+    try {
+      if (!(await ownedMeetingOr404(req, res))) return;
+      const updated = await meetingRepo.rotateShareToken(req.params.id);
+      return res.status(200).json({ shareToken: updated.shareToken, shareEnabled: updated.shareEnabled });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
   // GET /api/share/:token (PUBLIC, no auth)
   router.get('/api/share/:token', async (req, res, next) => {
     try {
       const meeting = await meetingRepo.findByShareToken(req.params.token);
-      if (!meeting) {
+      // Same 404 for "no such token" and "sharing is off", so the response cannot be used to probe
+      // whether a token was ever real.
+      if (!meeting || !meeting.shareEnabled) {
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown share token' } });
       }
 
