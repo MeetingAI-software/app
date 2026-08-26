@@ -10,14 +10,14 @@ describe('ComingSoonDialog', () => {
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
     expect(html).toContain(COMING_SOON_COPY.signin.title);
-    expect(html).toContain('Notify me at launch');
+    expect(html).toContain('Meddela mig vid lansering');
   });
 
   it('explains that checkout is closed on the upgrade variant', () => {
     const html = renderToStaticMarkup(<ComingSoonDialog variant="upgrade" onClose={() => {}} />);
 
     expect(html).toContain(COMING_SOON_COPY.upgrade.title);
-    expect(html).toContain('Checkout is paused');
+    expect(html).toContain('Betalningen är pausad');
     expect(html).not.toContain(COMING_SOON_COPY.signin.title);
   });
 });

@@ -52,7 +52,7 @@ export function ComingSoonDialog({ variant, onClose }: ComingSoonDialogProps) {
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label="Stäng"
           className="absolute right-4 top-5 rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900"
         >
           <span aria-hidden="true">&#10005;</span>
@@ -83,7 +83,7 @@ export function ComingSoonDialog({ variant, onClose }: ComingSoonDialogProps) {
               href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`${BRAND_NAME} launch`)}`}
               className="rounded-xl border border-slate-300 px-5 py-3 text-center text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50"
             >
-              Notify me at launch
+              Meddela mig vid lansering
             </a>
             <button
               ref={dismissRef}

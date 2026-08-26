@@ -16,21 +16,23 @@ interface ComingSoonCopy {
   dismiss: string;
 }
 
+// Swedish, unlike the rest of the public site: while the product is paused, the people reaching
+// this dialog are the ones we are talking to directly, and they are Swedish.
 export const COMING_SOON_COPY: Record<ComingSoonVariant, ComingSoonCopy> = {
   signin: {
-    eyebrow: 'Launching soon',
-    title: 'Accounts open shortly',
+    eyebrow: 'Snart lansering',
+    title: 'Kontona öppnar inom kort',
     body:
-      'Syncmemos is in the final stretch of being built. Sign-in stays closed while we finish the last pieces, so nothing breaks in the middle of your first meeting.',
-    note: 'Have a look around the site in the meantime — pricing and a sample memo are already live.',
-    dismiss: 'Got it',
+      'Syncmemos är i slutskedet av att byggas. Inloggningen håller stängt tills de sista bitarna är på plats, så att inget går sönder mitt i ditt första möte.',
+    note: 'Titta gärna runt på sajten under tiden — priserna och ett exempelmemo finns redan här.',
+    dismiss: 'Jag förstår',
   },
   upgrade: {
-    eyebrow: 'Launching soon',
-    title: 'Plans are not on sale yet',
+    eyebrow: 'Snart lansering',
+    title: 'Planerna säljs inte än',
     body:
-      'Checkout is paused until Syncmemos launches. The plans and prices below are final, but you cannot subscribe or upgrade just yet.',
-    note: 'We will open billing as soon as the product is ready — no payment is taken before then.',
-    dismiss: 'Got it',
+      'Betalningen är pausad tills Syncmemos lanseras. Planerna och priserna nedan är de slutgiltiga, men det går inte att prenumerera eller uppgradera än.',
+    note: 'Vi öppnar betalningen så fort produkten är klar — ingen betalning dras innan dess.',
+    dismiss: 'Jag förstår',
   },
 };
