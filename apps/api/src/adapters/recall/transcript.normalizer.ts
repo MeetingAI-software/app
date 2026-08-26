@@ -23,6 +23,17 @@ export interface SpeakerSource {
 }
 
 /**
+ * A display label, not prose. Providers echo back a name the participant chose, so this is
+ * third-party text that ends up on the public share page — bound it. Truncate rather than
+ * reject: an absurd display name must never cost the user their transcript.
+ */
+const MAX_SPEAKER_LENGTH = 120;
+
+function capSpeaker(value: string): string {
+  return value.trim().slice(0, MAX_SPEAKER_LENGTH);
+}
+
+/**
  * Speaker labelling, shared by the post-call and live paths so an unnamed participant gets the
  * same `Speaker N` label in both. Stateful: the returned function remembers which anonymous
  * participant it has already numbered, so one resolver must be used per transcript (post-call)
@@ -35,12 +46,12 @@ export function createSpeakerResolver(): (raw: SpeakerSource) => string {
   return (raw: SpeakerSource): string => {
     const rawSpeaker = raw.speaker;
     if (typeof rawSpeaker === 'string' && rawSpeaker.trim()) {
-      return rawSpeaker.trim();
+      return capSpeaker(rawSpeaker);
     }
 
     const participantName = raw.participant?.name;
     if (typeof participantName === 'string' && participantName.trim()) {
-      return participantName.trim();
+      return capSpeaker(participantName);
     }
 
     const rawId = raw.speaker_id ?? raw.participant?.id;

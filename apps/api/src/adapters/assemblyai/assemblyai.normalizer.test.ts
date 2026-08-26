@@ -45,6 +45,18 @@ describe('normalizeAssemblyTranscript', () => {
     expect(segs).toEqual([{ startMs: 1000, endMs: 2000, speaker: 'Speaker B', text: 'Real words.' }]);
   });
 
+  it('truncates an absurdly long speaker label but keeps the segment', () => {
+    // `speaker` is provider-supplied and lands on the public share page. A long label must be
+    // bounded, but must never cost the user the utterance itself.
+    const segs = normalizeAssemblyTranscript({
+      status: 'completed',
+      utterances: [{ speaker: 'x'.repeat(500), start: 0, end: 1000, text: 'Hi.' }],
+    });
+    expect(segs).toHaveLength(1);
+    expect(segs[0].speaker).toHaveLength(120);
+    expect(segs[0].text).toBe('Hi.');
+  });
+
   it('keeps a speaker label that already says "Speaker"', () => {
     const segs = normalizeAssemblyTranscript({
       status: 'completed',

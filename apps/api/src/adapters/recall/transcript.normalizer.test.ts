@@ -131,6 +131,29 @@ describe('transcript.normalizer', () => {
     ]);
   });
 
+  it('should truncate an absurdly long participant name but keep the words', () => {
+    // The name is chosen by the participant and lands on the public share page, so it is bounded.
+    // Truncating rather than dropping the segment: a silly display name must not cost the user
+    // what that person actually said.
+    const payload = [
+      {
+        participant: { id: 1, name: 'x'.repeat(500) },
+        words: [
+          {
+            text: 'Hello',
+            start_timestamp: { relative: 0 },
+            end_timestamp: { relative: 0.5 },
+          },
+        ],
+      },
+    ];
+
+    const segments = normalizeTranscript(payload);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].speaker).toHaveLength(120);
+    expect(segments[0].text).toBe('Hello');
+  });
+
   it('should fall back to numbered speakers when the participant has no name', () => {
     const payload = [
       {
