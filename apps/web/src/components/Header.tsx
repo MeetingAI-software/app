@@ -1,11 +1,22 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { BRAND_NAME } from '@/lib/brand';
 import { LogoMark } from '@/components/Logo';
+import { LAUNCH_PAUSED } from '@/lib/launch';
+import { ComingSoonDialog } from '@/components/ComingSoonDialog';
 
 export function Header() {
+  const [showComingSoon, setShowComingSoon] = useState(false);
+
+  // While the launch gate is on, the sign-in entry points explain the wait instead of navigating.
+  const handleSignInClick = (e: React.MouseEvent) => {
+    if (!LAUNCH_PAUSED) return;
+    e.preventDefault();
+    setShowComingSoon(true);
+  };
+
   const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
     const btn = e.currentTarget;
     const rect = btn.getBoundingClientRect();
@@ -22,6 +33,7 @@ export function Header() {
   };
 
   return (
+    <>
     <header className="bg-surface-container-lowest/80 backdrop-blur-md font-body-md text-body-md fixed top-0 w-full z-50 border-b border-slate-200 shadow-sm content-layer">
       <div className="flex justify-between items-center px-4 sm:px-8 py-4 max-w-7xl mx-auto">
         <Link
@@ -54,6 +66,7 @@ export function Header() {
         <div className="flex items-center gap-4">
           <Link
             href="/meetings"
+            onClick={handleSignInClick}
             className="hidden sm:inline-block text-slate-900 font-medium hover:text-blue-600 transition-colors duration-200 text-sm"
           >
             Sign In
@@ -61,6 +74,7 @@ export function Header() {
           <Link
             href="/meetings"
             className="magnetic-btn btn-shimmer bg-slate-900 text-white px-5 py-2 rounded-lg font-medium hover:bg-slate-800 transition-colors shadow-sm text-sm"
+            onClick={handleSignInClick}
             onMouseMove={handleMagneticMouseMove}
             onMouseLeave={handleMagneticMouseLeave}
           >
@@ -69,5 +83,9 @@ export function Header() {
         </div>
       </div>
     </header>
+    {showComingSoon && (
+      <ComingSoonDialog variant="signin" onClose={() => setShowComingSoon(false)} />
+    )}
+    </>
   );
 }

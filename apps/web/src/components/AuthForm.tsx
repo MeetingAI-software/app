@@ -6,6 +6,8 @@ import { googleOAuthUrl } from '@/lib/api';
 import { BRAND_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 import { LogoMark } from '@/components/Logo';
 import { PublicFooter } from '@/components/PublicFooter';
+import { LAUNCH_PAUSED } from '@/lib/launch';
+import { ComingSoonDialog } from '@/components/ComingSoonDialog';
 
 interface Props {
   mode: 'signup' | 'login';
@@ -27,6 +29,23 @@ interface Props {
 
 export default function AuthForm(props: Props) {
   const [showPassword, setShowPassword] = useState(false);
+  // Pre-launch gate: the form and the Google button stay on screen but never submit.
+  const [showComingSoon, setShowComingSoon] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    if (LAUNCH_PAUSED) {
+      e.preventDefault();
+      setShowComingSoon(true);
+      return;
+    }
+    props.onSubmit(e);
+  };
+
+  const handleGoogleClick = (e: React.MouseEvent) => {
+    if (!LAUNCH_PAUSED) return;
+    e.preventDefault();
+    setShowComingSoon(true);
+  };
 
   const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
     const btn = e.currentTarget;
@@ -123,7 +142,7 @@ export default function AuthForm(props: Props) {
                 </div>
 
                 {/* Form */}
-                <form className="space-y-4 text-left" onSubmit={props.onSubmit}>
+                <form className="space-y-4 text-left" onSubmit={handleSubmit}>
                   {/* Email Field */}
                   <div className="space-y-1.5">
                     <label className="block font-label-mono text-xs uppercase tracking-wider font-semibold text-on-surface" htmlFor="email">
@@ -216,6 +235,7 @@ export default function AuthForm(props: Props) {
                 {/* Social Login Button */}
                 <a
                   href={googleOAuthUrl()}
+                  onClick={handleGoogleClick}
                   className="w-full bg-surface-container-lowest border border-slate-200 text-slate-900 font-label-mono text-xs uppercase tracking-wider font-semibold py-3 px-6 rounded transition-all hover:bg-slate-50 flex justify-center items-center gap-3 shadow-xs cursor-pointer no-underline"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -238,6 +258,9 @@ export default function AuthForm(props: Props) {
 
         <PublicFooter compact legalPublished={props.legalPublished} />
       </div>
+      {showComingSoon && (
+        <ComingSoonDialog variant="signin" onClose={() => setShowComingSoon(false)} />
+      )}
     </>
   );
 }

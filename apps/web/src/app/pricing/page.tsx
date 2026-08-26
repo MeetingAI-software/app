@@ -7,17 +7,28 @@ import { PricingCards } from '@/components/pricing/PricingCards';
 import { PricingTable } from '@/components/pricing/PricingTable';
 import { getPaddle } from '@/lib/paddle';
 import { BUSINESS_CONTACT_HREF } from '@/lib/brand';
+import { LAUNCH_PAUSED } from '@/lib/launch';
+import { ComingSoonDialog } from '@/components/ComingSoonDialog';
 
 export default function PricingPage() {
   const [isAnnual, setIsAnnual] = useState(true);
+  const [showComingSoon, setShowComingSoon] = useState(false);
 
   // Paddle's transaction payment links append `_ptxn` to this public page. Initializing on load
   // lets Paddle.js detect that parameter and open the matching checkout without a button click.
+  // While the launch gate is on, Paddle is not loaded at all, so no checkout can open here.
   useEffect(() => {
+    if (LAUNCH_PAUSED) return;
     void getPaddle().catch((error) => {
       console.error('Unable to initialize Paddle.js on the pricing page', error);
     });
   }, []);
+
+  const handleSignupClick = (e: React.MouseEvent) => {
+    if (!LAUNCH_PAUSED) return;
+    e.preventDefault();
+    setShowComingSoon(true);
+  };
 
   // Magnetic button handler for CTA section
   const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -85,6 +96,7 @@ export default function PricingPage() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <a
                 href="/signup"
+                onClick={handleSignupClick}
                 onMouseMove={handleMagneticMouseMove}
                 onMouseLeave={handleMagneticMouseLeave}
                 className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm shadow-lg shadow-blue-600/30 transition-colors btn-shimmer inline-flex items-center justify-center gap-2"
@@ -105,6 +117,9 @@ export default function PricingPage() {
         </div>
       </div>
     </main>
+    {showComingSoon && (
+      <ComingSoonDialog variant="signin" onClose={() => setShowComingSoon(false)} />
+    )}
   </>
 );
 }
