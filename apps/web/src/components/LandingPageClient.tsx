@@ -274,6 +274,11 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
                 The summary for everyone who missed it — and the full transcript underneath, for when
                 you need the exact words.
               </p>
+              {/* The panels below hold a handful of lines. Say so, so nobody reads them as the whole
+                  output of a 45-minute meeting. */}
+              <p className="mt-3 text-xs text-slate-500">
+                An excerpt from a 45-minute meeting — the memo and transcript you get run longer.
+              </p>
             </div>
             <div className="flex justify-center mb-stack-lg blur-in" style={{ animationDelay: '0.2s' }}>
               <div className="inline-flex bg-white rounded border border-slate-200 p-1 shadow-sm">
