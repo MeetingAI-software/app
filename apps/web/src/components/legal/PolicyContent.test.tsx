@@ -51,6 +51,15 @@ describe('legal policy content', () => {
     expect(html).not.toContain('Request refund');
   });
 
+  it.each([
+    ['en', 'separate things and are requested separately'],
+    ['sv', 'två skilda saker och begärs var för sig'],
+  ] as const)('keeps withdrawal and refund apart in the %s terms', (locale, marker) => {
+    const html = renderToStaticMarkup(<PolicyContent kind="terms" locale={locale} seller={seller} />);
+
+    expect(html).toContain(marker);
+  });
+
   it.each(['en', 'sv'] as const)('does not present submission as approval in %s', (locale) => {
     const html = renderToStaticMarkup(<PolicyContent kind="terms" locale={locale} seller={seller} />);
 
