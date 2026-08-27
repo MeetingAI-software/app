@@ -469,125 +469,122 @@ export function HowItWorks({ restartSignal = 0 }: HowItWorksProps) {
   const { sectionRef, step, progress, goTo } = useStepPlayer(restartSignal);
   const Stage = STAGES[step];
 
+  // Same panel geometry as #features: capped, centred and inset, rather than a full-bleed band
+  // with its contents floating in the middle of it.
   return (
     <section
       ref={sectionRef}
       id="how-it-works"
       aria-labelledby="how-it-works-title"
-      className="content-layer relative z-10 my-8 scroll-mt-28 rounded-3xl bg-white/80 px-margin-page py-section-gap backdrop-blur-sm"
+      className="content-layer relative z-10 mx-auto mb-8 max-w-container-max scroll-mt-28 rounded-3xl bg-white/80 px-margin-page py-section-gap backdrop-blur-sm"
     >
-      <div className="mx-auto max-w-container-max">
-        <div className="mb-stack-lg text-center">
-          <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
-            How it works
-          </p>
-          <h2
-            id="how-it-works-title"
-            className="font-headline-lg mt-3 text-4xl font-bold tracking-tight text-slate-900 md:text-5xl"
-          >
-            From &ldquo;hello&rdquo; to a shareable memo.
-          </h2>
-          <p className="font-body-lg mt-4 text-lg text-on-surface-variant">
-            Three steps — and you spend the first two simply having your meeting.
-          </p>
-        </div>
+      <div className="mb-stack-lg text-center">
+        <h2
+          id="how-it-works-title"
+          className="font-headline-lg text-4xl font-bold tracking-tight text-slate-900 md:text-5xl"
+        >
+          From &ldquo;hello&rdquo; to a shareable memo.
+        </h2>
+        <p className="font-body-lg mt-4 text-lg text-on-surface-variant">
+          Three steps — and you spend the first two simply having your meeting.
+        </p>
+      </div>
 
-        <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,25rem)_minmax(0,1fr)] lg:gap-14">
-          {/* Step rail */}
-          <ol className="space-y-2">
-            {STEPS.map((item, i) => {
-              const active = i === step;
-              return (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    onClick={() => goTo(i)}
-                    aria-current={active ? 'step' : undefined}
-                    className={`relative w-full rounded-2xl py-5 pl-6 pr-5 text-left transition-colors duration-300 ${
-                      active ? 'bg-slate-50' : 'hover:bg-slate-50/60'
-                    }`}
-                  >
-                    {/* Progress track — fills over the active step's duration. */}
-                    <span className="absolute bottom-5 left-0 top-5 w-[3px] overflow-hidden rounded-full bg-slate-200">
-                      <span
-                        className="block w-full rounded-full bg-slate-900"
-                        style={{ height: active ? `${Math.min(progress, 1) * 100}%` : '0%' }}
-                      />
+      <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,25rem)_minmax(0,1fr)] lg:gap-14">
+        {/* Step rail */}
+        <ol className="space-y-2">
+          {STEPS.map((item, i) => {
+            const active = i === step;
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => goTo(i)}
+                  aria-current={active ? 'step' : undefined}
+                  className={`relative w-full rounded-2xl py-5 pl-6 pr-5 text-left transition-colors duration-300 ${
+                    active ? 'bg-slate-50' : 'hover:bg-slate-50/60'
+                  }`}
+                >
+                  {/* Progress track — fills over the active step's duration. */}
+                  <span className="absolute bottom-5 left-0 top-5 w-[3px] overflow-hidden rounded-full bg-slate-200">
+                    <span
+                      className="block w-full rounded-full bg-slate-900"
+                      style={{ height: active ? `${Math.min(progress, 1) * 100}%` : '0%' }}
+                    />
+                  </span>
+
+                  <div className="flex items-start gap-4">
+                    <span
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold transition-colors duration-300 ${
+                        active ? 'text-slate-950' : 'bg-slate-100 text-slate-400'
+                      }`}
+                      style={active ? { background: BRAND_HIGHLIGHT } : undefined}
+                    >
+                      {i + 1}
                     </span>
-
-                    <div className="flex items-start gap-4">
-                      <span
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold transition-colors duration-300 ${
-                          active ? 'text-slate-950' : 'bg-slate-100 text-slate-400'
-                        }`}
-                        style={active ? { background: BRAND_HIGHLIGHT } : undefined}
-                      >
-                        {i + 1}
-                      </span>
-                      <div className={active ? '' : 'opacity-60'}>
-                        <h3 className="font-headline-md text-lg font-bold tracking-tight text-slate-900">
-                          {item.title}
-                        </h3>
-                        <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
-                          {item.body}
-                        </p>
-                        <p className="mt-2 text-xs leading-relaxed text-slate-400">{item.note}</p>
-                      </div>
+                    <div className={active ? '' : 'opacity-60'}>
+                      <h3 className="font-headline-md text-lg font-bold tracking-tight text-slate-900">
+                        {item.title}
+                      </h3>
+                      <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
+                        {item.body}
+                      </p>
+                      <p className="mt-2 text-xs leading-relaxed text-slate-400">{item.note}</p>
                     </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
 
-          {/* Stage */}
-          <div className="relative">
-            {/* Soft brand glow behind the mock window. */}
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -inset-6 -z-10 rounded-[2rem] opacity-40 blur-3xl"
-              style={{ background: BRAND_HIGHLIGHT }}
-            />
-            <div
-              aria-hidden="true"
-              className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_70px_-40px_rgba(15,23,42,0.55)]"
-            >
-              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/80 px-5 py-3">
-                <span className="flex gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-slate-200" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-slate-200" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-slate-200" />
-                </span>
-                <span className="truncate font-mono text-[11px] text-slate-400">
-                  {STEPS[step].chrome}
-                </span>
-              </div>
-              <div key={STEPS[step].id} className="walkthrough-stage-in min-h-[420px]">
-                <Stage progress={progress} />
-              </div>
-            </div>
-
-            <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-slate-500">
-              <span
-                aria-hidden="true"
-                className="material-symbols-outlined mt-px shrink-0 text-[15px] leading-none"
-              >
-                info
-              </span>
-              <span>{SHORTENED_NOTICE}</span>
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-stack-lg flex justify-center">
-          <a
-            href="#demo"
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition-colors hover:bg-slate-50"
+        {/* Stage */}
+        <div className="relative">
+          {/* Soft brand glow behind the mock window. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -inset-6 -z-10 rounded-[2rem] opacity-40 blur-3xl"
+            style={{ background: BRAND_HIGHLIGHT }}
+          />
+          <div
+            aria-hidden="true"
+            className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_70px_-40px_rgba(15,23,42,0.55)]"
           >
-            See the memo it produces
-            <span aria-hidden="true">&darr;</span>
-          </a>
+            <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/80 px-5 py-3">
+              <span className="flex gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-slate-200" />
+                <span className="h-2.5 w-2.5 rounded-full bg-slate-200" />
+                <span className="h-2.5 w-2.5 rounded-full bg-slate-200" />
+              </span>
+              <span className="truncate font-mono text-[11px] text-slate-400">
+                {STEPS[step].chrome}
+              </span>
+            </div>
+            <div key={STEPS[step].id} className="walkthrough-stage-in min-h-[420px]">
+              <Stage progress={progress} />
+            </div>
+          </div>
+
+          <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-slate-500">
+            <span
+              aria-hidden="true"
+              className="material-symbols-outlined mt-px shrink-0 text-[15px] leading-none"
+            >
+              info
+            </span>
+            <span>{SHORTENED_NOTICE}</span>
+          </p>
         </div>
+      </div>
+
+      <div className="mt-stack-lg flex justify-center">
+        <a
+          href="#demo"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition-colors hover:bg-slate-50"
+        >
+          See the memo it produces
+          <span aria-hidden="true">&darr;</span>
+        </a>
       </div>
     </section>
   );
