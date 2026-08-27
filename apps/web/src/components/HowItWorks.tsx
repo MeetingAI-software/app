@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { CSSProperties } from 'react';
 import { BRAND_HIGHLIGHT } from '@/lib/brand';
 
 /**
@@ -11,14 +11,15 @@ import { BRAND_HIGHLIGHT } from '@/lib/brand';
  * page's answer to "what actually happens?". It ends by pointing at #demo, which shows the memo
  * those three steps produce.
  *
- * Everything inside the stage is revealed from the player's `progress` value rather than from its
- * own CSS animation. That keeps every reveal locked to the rail's progress bar, makes the whole
- * thing deterministic (progress 1 = the finished frame, which is also what the server renders and
- * what a visitor with reduced motion or no JS sees), and means clicking a step jumps cleanly
- * instead of leaving half-finished animations behind.
+ * Each stage draws its whole screen straight away and animates only what is *arriving* — the URL
+ * being typed, transcript lines landing, memo bullets being written. Nothing that frames the
+ * screen is gated behind progress, so the stage never reads as an empty box while it waits.
+ *
+ * The arriving parts are driven by the player's 0…1 `progress` rather than by their own CSS
+ * animations. That locks every reveal to the rail's progress bar, keeps it deterministic
+ * (progress 1 = the finished frame, which is what the server renders and what a visitor with
+ * reduced motion or no JS sees), and lets a click on a step jump cleanly.
  */
-
-const TICK_MS = 50;
 
 interface Step {
   id: string;
@@ -43,7 +44,7 @@ const STEPS: Step[] = [
       + 'Sitting around a table instead? Hit record on your phone. Nothing to install for anyone else.',
     note: 'Meeting bots are on every plan; in-room recording comes with Team.',
     chrome: 'Syncmemos — New meeting',
-    durationMs: 7000,
+    durationMs: 6500,
   },
   {
     id: 'talk',
@@ -56,7 +57,7 @@ const STEPS: Step[] = [
       'Names are matched to voices in the order people first speak — which is why the round of '
       + 'introductions goes first.',
     chrome: 'Syncmemos — Recording',
-    durationMs: 9500,
+    durationMs: 10000,
   },
   {
     id: 'memo',
@@ -66,9 +67,18 @@ const STEPS: Step[] = [
       + 'what was decided, and who owns what. Send the link or print it to PDF.',
     note: 'Share links and PDF export are included on every plan.',
     chrome: 'Syncmemos — Q3 Product Strategy Sync',
-    durationMs: 9500,
+    durationMs: 10000,
   },
 ];
+
+/**
+ * Said in the page's own voice, beside the stage rather than inside it, because the stage is
+ * aria-hidden and this is the one thing a visitor could otherwise get wrong: the frames here are
+ * cut down to a few lines, and a real meeting is not.
+ */
+const SHORTENED_NOTICE =
+  'A shortened demo. A real meeting records for as long as you talk, and the transcript and memo '
+  + 'it produces run far longer than the few lines shown here.';
 
 /** How far `progress` has travelled through the window [from, to], clamped to 0…1. */
 function windowProgress(progress: number, from: number, to: number): number {
@@ -77,10 +87,10 @@ function windowProgress(progress: number, from: number, to: number): number {
   return (progress - from) / (to - from);
 }
 
-/** Fade-and-rise for one revealed element, driven by its own window of the step's progress. */
+/** Fade-and-rise for one arriving element, driven by its own window of the step's progress. */
 function reveal(progress: number, from: number, to: number): CSSProperties {
   const p = windowProgress(progress, from, to);
-  return { opacity: p, transform: `translateY(${(1 - p) * 10}px)` };
+  return { opacity: p, transform: `translateY(${(1 - p) * 8}px)` };
 }
 
 function clock(totalSeconds: number): string {
@@ -106,15 +116,17 @@ const getReducedMotionOnServer = () => false;
  * Drives the step index and its 0…1 progress.
  *
  * Starts at the finished frame (`progress` 1) so the server-rendered markup and a visitor who
- * never gets JS both see a complete stage rather than an empty one; the first scroll into view
- * rewinds to the start and plays. Autoplay is suspended while the section is off-screen, while a
- * mouse is resting on it, and entirely when the visitor asks for reduced motion.
+ * never gets JS both see a complete stage; scrolling it into view starts the run from the top on
+ * the very next frame. It plays whenever it is on screen — deliberately *not* paused on hover,
+ * because the section is taller than most viewports and a resting cursor would otherwise freeze
+ * it before a visitor ever saw it move.
  */
 function useStepPlayer(restartSignal: number) {
   const [step, setStep] = useState(0);
   const [progress, setProgress] = useState(1);
   const [inView, setInView] = useState(false);
-  const [hovered, setHovered] = useState(false);
+  /** Bumped whenever a run should restart from the top of the current step. */
+  const [runToken, setRunToken] = useState(0);
   const reducedMotion = useSyncExternalStore(
     subscribeToReducedMotion,
     getReducedMotion,
@@ -127,45 +139,42 @@ function useStepPlayer(restartSignal: number) {
     const section = sectionRef.current;
     if (!section || typeof IntersectionObserver === 'undefined') return;
 
-    // Scoped to the observer rather than kept in a ref: the first scroll into view rewinds to
-    // step one, while a later re-entry resumes wherever the visitor left off.
-    let hasPlayed = false;
-
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        setInView(entry.isIntersecting);
-        if (entry.isIntersecting && !hasPlayed) {
-          hasPlayed = true;
-          setStep(0);
-          setProgress(0);
-        }
-      },
-      { threshold: 0.3 },
+      ([entry]) => setInView(entry.isIntersecting),
+      // Low enough that the run is already under way by the time the stage is worth looking at.
+      { threshold: 0.1 },
     );
     observer.observe(section);
     return () => observer.disconnect();
   }, []);
 
-  const playing = inView && !hovered && !reducedMotion;
+  const playing = inView && !reducedMotion;
 
+  // Timed off the clock rather than by accumulating ticks, so a dropped frame cannot leave the
+  // stage lagging behind the rail's progress bar.
   useEffect(() => {
     if (!playing) return;
-    const timer = setInterval(() => {
-      setProgress((current) => {
-        const next = current + TICK_MS / STEPS[step].durationMs;
-        if (next < 1) return next;
+    const duration = STEPS[step].durationMs;
+    const startedAt = performance.now();
+    let frame = requestAnimationFrame(function tick(now) {
+      const elapsed = now - startedAt;
+      if (elapsed >= duration) {
         setStep((i) => (i + 1) % STEPS.length);
-        return 0;
-      });
-    }, TICK_MS);
-    return () => clearInterval(timer);
-  }, [playing, step]);
+        setProgress(0);
+        return;
+      }
+      setProgress(elapsed / duration);
+      frame = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [playing, step, runToken]);
 
   const goTo = useCallback(
     (index: number) => {
       setStep(index);
       // With motion suppressed nothing would ever advance the frame, so land on the finished one.
       setProgress(reducedMotion ? 1 : 0);
+      setRunToken((token) => token + 1);
     },
     [reducedMotion],
   );
@@ -177,22 +186,11 @@ function useStepPlayer(restartSignal: number) {
   if (lastRestart !== restartSignal) {
     setLastRestart(restartSignal);
     setStep(0);
-    setProgress(0);
+    setProgress(reducedMotion ? 1 : 0);
+    setRunToken((token) => token + 1);
   }
 
-  const pointerHandlers = useMemo(
-    () => ({
-      onPointerEnter: (event: ReactPointerEvent) => {
-        if (event.pointerType === 'mouse') setHovered(true);
-      },
-      onPointerLeave: (event: ReactPointerEvent) => {
-        if (event.pointerType === 'mouse') setHovered(false);
-      },
-    }),
-    [],
-  );
-
-  return { sectionRef, step, progress, goTo, pointerHandlers };
+  return { sectionRef, step, progress, goTo };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -202,26 +200,30 @@ function useStepPlayer(restartSignal: number) {
 
 const MEETING_URL = 'https://us02web.zoom.us/j/84210093';
 
+const JOIN_LOG = [
+  'Syncmemos Notetaker joined the call',
+  'Recording started',
+  'Transcribing live',
+];
+
 function StartStage({ progress }: { progress: number }) {
-  const typedLength = Math.round(windowProgress(progress, 0.12, 0.55) * MEETING_URL.length);
+  const typedLength = Math.round(windowProgress(progress, 0.05, 0.4) * MEETING_URL.length);
   const typed = MEETING_URL.slice(0, typedLength);
-  const consented = windowProgress(progress, 0.6, 0.68) > 0.5;
-  const dispatched = progress >= 0.8;
+  const consented = progress >= 0.48;
+  const dispatched = progress >= 0.6;
 
   return (
     <div className="p-6 sm:p-8">
-      <div style={reveal(progress, 0, 0.08)}>
-        <div className="inline-flex gap-1 rounded-full border border-slate-200 bg-slate-100/80 p-1">
-          <span className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white shadow-sm">
-            Online
-          </span>
-          <span className="rounded-full px-4 py-1.5 text-xs font-semibold text-slate-500">
-            In-room
-          </span>
-        </div>
+      <div className="inline-flex gap-1 rounded-full border border-slate-200 bg-slate-100/80 p-1">
+        <span className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white shadow-sm">
+          Online
+        </span>
+        <span className="rounded-full px-4 py-1.5 text-xs font-semibold text-slate-500">
+          In-room
+        </span>
       </div>
 
-      <div className="mt-6" style={reveal(progress, 0.06, 0.14)}>
+      <div className="mt-6">
         <p className="text-xs font-semibold text-slate-700">Meeting URL</p>
         <div className="mt-2 flex min-h-[46px] items-center rounded-lg border border-slate-200 bg-white px-4 py-3">
           <span className="truncate font-mono text-[13px] text-slate-900">{typed}</span>
@@ -231,7 +233,7 @@ function StartStage({ progress }: { progress: number }) {
         </div>
       </div>
 
-      <div className="mt-5 flex items-start gap-3" style={reveal(progress, 0.56, 0.64)}>
+      <div className="mt-5 flex items-start gap-3">
         <span
           className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300 ${
             consented ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white'
@@ -248,26 +250,42 @@ function StartStage({ progress }: { progress: number }) {
         </p>
       </div>
 
-      <div className="mt-6 min-h-[46px]">
+      <div className="mt-6">
         {dispatched ? (
-          <div
-            className="walkthrough-stage-in inline-flex items-center gap-2.5 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3"
-            style={reveal(progress, 0.8, 0.9)}
-          >
+          <div className="inline-flex items-center gap-2.5 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3">
             <span className="walkthrough-blink h-2 w-2 rounded-full bg-indigo-500" />
-            <span className="text-sm font-semibold text-indigo-700">
-              Bot is joining the call…
-            </span>
+            <span className="text-sm font-semibold text-indigo-700">Bot is joining the call…</span>
           </div>
         ) : (
           <span
-            className="inline-flex rounded-lg bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow-sm"
-            style={reveal(progress, 0.64, 0.72)}
+            className={`inline-flex rounded-lg px-6 py-3 text-sm font-semibold shadow-sm transition-colors duration-300 ${
+              consented ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-400'
+            }`}
           >
             Start meeting bot
           </span>
         )}
       </div>
+
+      <ul className="mt-6 space-y-2.5 border-t border-slate-100 pt-5">
+        {JOIN_LOG.map((entry, i) => (
+          <li
+            key={entry}
+            className="flex items-center gap-2.5 text-xs text-slate-500"
+            style={reveal(progress, 0.66 + i * 0.09, 0.74 + i * 0.09)}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5 shrink-0 text-emerald-600"
+              fill="none"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+            </svg>
+            {entry}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -276,17 +294,21 @@ const PARTICIPANTS = ['Sarah Jenkins', 'Marcus Lin', 'David Chen'];
 
 const UTTERANCES = [
   { speaker: 'Sarah Jenkins', at: '00:04', text: "Hi everyone — I'm Sarah, I'll take us through the Q3 roadmap." },
-  { speaker: 'Marcus Lin', at: '00:11', text: 'Marcus here, marketing side.' },
-  { speaker: 'David Chen', at: '00:19', text: 'And David — engineering.' },
-  { speaker: 'Sarah Jenkins', at: '00:31', text: "Great. Mobile architecture is lagging, so let's start there." },
+  { speaker: 'Marcus Lin', at: '00:12', text: 'Marcus here, marketing side.' },
+  { speaker: 'David Chen', at: '00:21', text: 'And David — engineering.' },
+  { speaker: 'Sarah Jenkins', at: '00:33', text: "Great. Mobile architecture is lagging, so let's start there." },
+  { speaker: 'David Chen', at: '00:47', text: 'Security audit needs two more weeks before we can open the beta.' },
 ];
 
+/** Where each line starts arriving. The first is already landing at progress 0.02. */
+const UTTERANCE_AT = [0.02, 0.19, 0.35, 0.53, 0.72];
+
 function TalkStage({ progress }: { progress: number }) {
-  const elapsed = Math.floor(windowProgress(progress, 0.02, 0.98) * 38);
+  const elapsed = Math.floor(progress * 52);
 
   return (
     <div className="p-6 sm:p-8">
-      <div className="flex items-center justify-between gap-4" style={reveal(progress, 0, 0.06)}>
+      <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
           <span className="walkthrough-blink h-2.5 w-2.5 rounded-full bg-rose-500" />
           <span className="font-mono text-sm font-semibold text-slate-900">{clock(elapsed)}</span>
@@ -303,11 +325,10 @@ function TalkStage({ progress }: { progress: number }) {
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        {PARTICIPANTS.map((name, i) => (
+        {PARTICIPANTS.map((name) => (
           <span
             key={name}
             className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700"
-            style={reveal(progress, 0.06 + i * 0.04, 0.13 + i * 0.04)}
           >
             {name}
           </span>
@@ -316,7 +337,7 @@ function TalkStage({ progress }: { progress: number }) {
 
       <div className="mt-6 space-y-4 border-t border-slate-100 pt-5">
         {UTTERANCES.map((line, i) => (
-          <div key={i} style={reveal(progress, 0.24 + i * 0.15, 0.34 + i * 0.15)}>
+          <div key={line.at} style={reveal(progress, UTTERANCE_AT[i], UTTERANCE_AT[i] + 0.07)}>
             <div className="flex items-baseline gap-2.5">
               <span className="text-sm font-bold text-slate-900">{line.speaker}</span>
               <span className="font-mono text-[11px] text-slate-400">{line.at}</span>
@@ -326,11 +347,9 @@ function TalkStage({ progress }: { progress: number }) {
         ))}
       </div>
 
-      <p
-        className="mt-6 rounded-lg bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-500"
-        style={reveal(progress, 0.88, 0.96)}
-      >
-        Matched in the order people first speak.
+      <p className="mt-6 flex items-center gap-2 text-xs text-slate-400">
+        <span className="walkthrough-blink h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
+        Listening — names matched in the order people first speak.
       </p>
     </div>
   );
@@ -348,38 +367,21 @@ const DECISIONS = [
 ];
 
 function MemoStage({ progress }: { progress: number }) {
-  const generating = progress < 0.18;
-
-  if (generating) {
-    return (
-      <div className="p-6 sm:p-8">
-        <div className="flex items-center gap-2.5">
-          <span className="walkthrough-blink h-2 w-2 rounded-full bg-indigo-500" />
-          <span className="text-sm font-semibold text-slate-700">
-            Meeting ended — writing the memo…
-          </span>
-        </div>
-        <div className="mt-7 space-y-3">
-          {[0.85, 0.65, 0.75, 0.45].map((width, i) => (
-            <div
-              key={i}
-              className="h-3 rounded-full bg-slate-100"
-              style={{ width: `${width * 100}%`, opacity: 0.4 + windowProgress(progress, 0, 0.18) * 0.6 }}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  // Long enough to read as "the meeting ended and the memo is being written", short enough that
+  // nobody experiences it as waiting for something to load.
+  const writing = progress < 0.08;
 
   return (
-    <div className="walkthrough-stage-in p-6 sm:p-8">
-      <div style={reveal(progress, 0.18, 0.26)}>
+    <div className="p-6 sm:p-8">
+      <div>
         <h3 className="text-lg font-extrabold tracking-tight text-slate-950">
           Q3 Product Strategy Sync
         </h3>
-        <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-slate-400">
-          Summarised automatically · 45 min · 3 participants
+        <p className="mt-1 flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-slate-400">
+          {writing && <span className="walkthrough-blink h-1.5 w-1.5 rounded-full bg-indigo-500" />}
+          {writing
+            ? 'Meeting ended — writing the memo'
+            : 'Summarised automatically · 45 min · 3 participants'}
         </p>
       </div>
 
@@ -390,9 +392,9 @@ function MemoStage({ progress }: { progress: number }) {
         <div className="mt-3 space-y-3">
           {TAKEAWAYS.map((item, i) => (
             <div
-              key={i}
+              key={item}
               className="flex gap-3"
-              style={reveal(progress, 0.26 + i * 0.09, 0.34 + i * 0.09)}
+              style={reveal(progress, 0.1 + i * 0.08, 0.17 + i * 0.08)}
             >
               <span className="font-mono text-xs font-bold text-indigo-600">
                 {String(i + 1).padStart(2, '0')}
@@ -410,9 +412,9 @@ function MemoStage({ progress }: { progress: number }) {
         <div className="mt-3 space-y-2.5">
           {DECISIONS.map((item, i) => (
             <div
-              key={i}
+              key={item}
               className="flex gap-3"
-              style={reveal(progress, 0.56 + i * 0.07, 0.64 + i * 0.07)}
+              style={reveal(progress, 0.38 + i * 0.08, 0.45 + i * 0.08)}
             >
               <svg
                 viewBox="0 0 24 24"
@@ -428,7 +430,7 @@ function MemoStage({ progress }: { progress: number }) {
         </div>
       </div>
 
-      <div className="mt-6 border-t border-slate-100 pt-5" style={reveal(progress, 0.7, 0.78)}>
+      <div className="mt-6 border-t border-slate-100 pt-5" style={reveal(progress, 0.56, 0.63)}>
         <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400">
           Action items
         </p>
@@ -440,7 +442,7 @@ function MemoStage({ progress }: { progress: number }) {
         </div>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2" style={reveal(progress, 0.84, 0.94)}>
+      <div className="mt-6 flex flex-wrap gap-2" style={reveal(progress, 0.68, 0.76)}>
         <span className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-semibold text-white">
           <span className="material-symbols-outlined text-[16px]">link</span>
           Copy share link
@@ -464,7 +466,7 @@ interface HowItWorksProps {
 }
 
 export function HowItWorks({ restartSignal = 0 }: HowItWorksProps) {
-  const { sectionRef, step, progress, goTo, pointerHandlers } = useStepPlayer(restartSignal);
+  const { sectionRef, step, progress, goTo } = useStepPlayer(restartSignal);
   const Stage = STAGES[step];
 
   return (
@@ -473,7 +475,6 @@ export function HowItWorks({ restartSignal = 0 }: HowItWorksProps) {
       id="how-it-works"
       aria-labelledby="how-it-works-title"
       className="content-layer relative z-10 my-8 scroll-mt-28 rounded-3xl bg-white/80 px-margin-page py-section-gap backdrop-blur-sm"
-      {...pointerHandlers}
     >
       <div className="mx-auto max-w-container-max">
         <div className="mb-stack-lg text-center">
@@ -510,10 +511,7 @@ export function HowItWorks({ restartSignal = 0 }: HowItWorksProps) {
                     <span className="absolute bottom-5 left-0 top-5 w-[3px] overflow-hidden rounded-full bg-slate-200">
                       <span
                         className="block w-full rounded-full bg-slate-900"
-                        style={{
-                          height: active ? `${Math.min(progress, 1) * 100}%` : '0%',
-                          transition: 'height 50ms linear',
-                        }}
+                        style={{ height: active ? `${Math.min(progress, 1) * 100}%` : '0%' }}
                       />
                     </span>
 
@@ -564,10 +562,20 @@ export function HowItWorks({ restartSignal = 0 }: HowItWorksProps) {
                   {STEPS[step].chrome}
                 </span>
               </div>
-              <div key={STEPS[step].id} className="walkthrough-stage-in min-h-[430px]">
+              <div key={STEPS[step].id} className="walkthrough-stage-in min-h-[420px]">
                 <Stage progress={progress} />
               </div>
             </div>
+
+            <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-slate-500">
+              <span
+                aria-hidden="true"
+                className="material-symbols-outlined mt-px shrink-0 text-[15px] leading-none"
+              >
+                info
+              </span>
+              <span>{SHORTENED_NOTICE}</span>
+            </p>
           </div>
         </div>
 

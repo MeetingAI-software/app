@@ -58,4 +58,13 @@ describe('HowItWorks', () => {
     expect(html).toContain('https://us02web.zoom.us/j/84210093');
     expect(html).not.toContain('opacity:0');
   });
+
+  // The frames hold five transcript lines and three takeaways. Nobody should come away thinking a
+  // two-hour meeting is summarised in that much and no more.
+  it('says out loud that the demo is a shortened one', () => {
+    const html = renderToStaticMarkup(<HowItWorks />);
+
+    expect(html).toContain('A shortened demo');
+    expect(html).toContain('run far longer than the few lines shown here');
+  });
 });
