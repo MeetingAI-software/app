@@ -259,8 +259,22 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
         <HowItWorks restartSignal={walkthroughRestart} />
 
         {/* Interactive Component Preview */}
-        <section className="py-section-gap bg-slate-50/90 backdrop-blur-sm content-layer relative z-10 scroll-mt-28" id="demo">
+        <section
+          className="py-section-gap bg-slate-50/90 backdrop-blur-sm content-layer relative z-10 scroll-mt-28"
+          id="demo"
+          aria-labelledby="demo-title"
+        >
           <div className="max-w-4xl mx-auto px-margin-page">
+            <div className="text-center mb-stack-lg blur-in">
+              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">Step 3, in full</p>
+              <h2 id="demo-title" className="font-headline-lg mt-3 text-4xl md:text-5xl font-bold text-slate-900 tracking-tight">
+                This is what you send round.
+              </h2>
+              <p className="font-body-lg mt-4 text-lg text-on-surface-variant">
+                The summary for everyone who missed it — and the full transcript underneath, for when
+                you need the exact words.
+              </p>
+            </div>
             <div className="flex justify-center mb-stack-lg blur-in" style={{ animationDelay: '0.2s' }}>
               <div className="inline-flex bg-white rounded border border-slate-200 p-1 shadow-sm">
                 <button
