@@ -33,3 +33,9 @@ generated migrations remain reviewed artifacts.
 The current npm remediation suggestion is a forced downgrade to `drizzle-kit@0.18.1`, so it is not
 accepted. Recheck this exception whenever Drizzle Kit is updated and remove it as soon as a stable
 release no longer includes the affected loader. Critical and high findings are not accepted.
+
+Rechecked 2026-08-27 as part of the launch readiness pass: unchanged. The same four moderate
+findings are reported through the same chain, `drizzle-kit@0.31.10` is still the latest published
+release, and the only remediation npm offers is still the breaking downgrade. The exception stands
+for the same reason it was written. Next recheck: at the next Drizzle Kit release, or before Live,
+whichever comes first.

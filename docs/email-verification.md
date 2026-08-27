@@ -43,7 +43,8 @@ Google supplies a verified email claim.
    `ALLOW_PRODUCTION_MIGRATION=yes` only when that is genuinely the intent.
 
    **In production the deploy pipeline runs migrations itself**, before the deploy, on every merge
-   to `main` — see `DEPLOYMENT.md`. The guard keys on a TTY, so the pipeline is unaffected.
+   to `main` — see the `deploy` job in `.github/workflows/ci.yml`, which runs `db:migrate` before
+   `railway up`. The guard keys on a TTY, so the pipeline is unaffected.
 
 5. Start the API and frontend in separate terminals:
 
