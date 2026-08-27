@@ -19,6 +19,12 @@ describe('SettingsPageClient withdrawal navigation', () => {
 
     expect(html).toContain('Exercise withdrawal right');
     expect(html).toContain('href="https://paddle.net"');
-    expect(html).toContain('Request refund');
+  });
+
+  it('tells the account holder that withdrawal is not a refund request', () => {
+    const html = renderToStaticMarkup(<SettingsPageClient legalPublished />);
+
+    expect(html).toContain('rather than a general refund request');
+    expect(html).not.toContain('Request refund');
   });
 });

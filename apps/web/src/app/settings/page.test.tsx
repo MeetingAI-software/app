@@ -45,6 +45,7 @@ describe('Settings legal publication wiring', () => {
 
     expect(html).toContain('Exercise withdrawal right');
     expect(html).toContain('href="https://paddle.net"');
-    expect(html).toContain('Request refund');
+    expect(html).toContain('rather than a general refund request');
+    expect(html).not.toContain('Request refund');
   });
 });
