@@ -4,10 +4,7 @@ import { Fragment } from "react";
 import type React from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-
-// Soft periwinkle → lavender → mauve highlight gradient.
-const HIGHLIGHT =
-    "linear-gradient(90deg, #a5b4fc 0%, #d8b4fe 55%, #eebef2 100%)";
+import { BRAND_HIGHLIGHT } from "@/lib/brand";
 
 const STATS = [
     { value: "90 sec", label: "To catch up" },
@@ -33,7 +30,7 @@ export function BackgroundPaths({ onGetStarted }: BackgroundPathsProps) {
                     <span
                         className="rounded-2xl px-4 py-0 text-neutral-950"
                         style={{
-                            background: HIGHLIGHT,
+                            background: BRAND_HIGHLIGHT,
                             WebkitBoxDecorationBreak: "clone",
                             boxDecorationBreak: "clone",
                         }}
@@ -55,7 +52,7 @@ export function BackgroundPaths({ onGetStarted }: BackgroundPathsProps) {
                         href="/meetings"
                         onClick={onGetStarted}
                         className="inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-lg font-semibold text-neutral-950 shadow-sm transition-opacity hover:opacity-90"
-                        style={{ background: HIGHLIGHT }}
+                        style={{ background: BRAND_HIGHLIGHT }}
                     >
                         Get Started
                         <ArrowRight className="w-4 h-4" />
