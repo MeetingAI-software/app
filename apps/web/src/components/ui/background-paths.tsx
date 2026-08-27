@@ -4,10 +4,7 @@ import { Fragment } from "react";
 import type React from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-
-// Soft periwinkle → lavender → mauve highlight gradient.
-const HIGHLIGHT =
-    "linear-gradient(90deg, #a5b4fc 0%, #d8b4fe 55%, #eebef2 100%)";
+import { BRAND_HIGHLIGHT } from "@/lib/brand";
 
 const STATS = [
     { value: "90 sec", label: "To catch up" },
@@ -18,9 +15,12 @@ const STATS = [
 interface BackgroundPathsProps {
     // Set while the launch gate is on so the hero CTA opens the notice instead of the app.
     onGetStarted?: (e: React.MouseEvent) => void;
+    // Scrolls to the walkthrough and replays it from step one. The anchor's href already goes
+    // there without JavaScript, so this only ever adds the replay.
+    onSeeExample?: (e: React.MouseEvent) => void;
 }
 
-export function BackgroundPaths({ onGetStarted }: BackgroundPathsProps) {
+export function BackgroundPaths({ onGetStarted, onSeeExample }: BackgroundPathsProps) {
     return (
         <div
             className="relative w-full overflow-hidden bg-white pt-20 pb-20"
@@ -33,7 +33,7 @@ export function BackgroundPaths({ onGetStarted }: BackgroundPathsProps) {
                     <span
                         className="rounded-2xl px-4 py-0 text-neutral-950"
                         style={{
-                            background: HIGHLIGHT,
+                            background: BRAND_HIGHLIGHT,
                             WebkitBoxDecorationBreak: "clone",
                             boxDecorationBreak: "clone",
                         }}
@@ -55,17 +55,18 @@ export function BackgroundPaths({ onGetStarted }: BackgroundPathsProps) {
                         href="/meetings"
                         onClick={onGetStarted}
                         className="inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-lg font-semibold text-neutral-950 shadow-sm transition-opacity hover:opacity-90"
-                        style={{ background: HIGHLIGHT }}
+                        style={{ background: BRAND_HIGHLIGHT }}
                     >
                         Get Started
                         <ArrowRight className="w-4 h-4" />
                     </Link>
-                    <Link
-                        href="/s/demo"
+                    <a
+                        href="#how-it-works"
+                        onClick={onSeeExample}
                         className="inline-flex items-center justify-center rounded-xl border border-neutral-200 bg-white px-6 py-3 text-lg font-semibold text-neutral-900 shadow-sm transition-colors hover:bg-neutral-50"
                     >
-                        See a sample
-                    </Link>
+                        See how it works
+                    </a>
                 </div>
 
                 {/* Stats */}

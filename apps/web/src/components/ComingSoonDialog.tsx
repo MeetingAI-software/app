@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { COMING_SOON_COPY, type ComingSoonVariant } from '@/lib/launch';
-import { BRAND_NAME } from '@/lib/brand';
+import { BRAND_HIGHLIGHT, BRAND_NAME } from '@/lib/brand';
 import { LogoMark } from '@/components/Logo';
 import { ApiError, joinWaitlist } from '@/lib/api';
 
@@ -69,7 +69,7 @@ export function ComingSoonDialog({ variant, onClose }: ComingSoonDialogProps) {
         {/* Soft launch-gradient cap, matching the landing hero highlight. */}
         <div
           className="h-1.5 w-full"
-          style={{ background: 'linear-gradient(90deg, #a5b4fc 0%, #d8b4fe 55%, #eebef2 100%)' }}
+          style={{ background: BRAND_HIGHLIGHT }}
         />
 
         <button
