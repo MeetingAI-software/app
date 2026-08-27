@@ -39,7 +39,16 @@ describe('legal policy content', () => {
 
     expect(html).toContain(`href="https://paddle.net"`);
     expect(html).toContain(label);
-    expect(html).toContain('Request refund');
+  });
+
+  it.each([
+    ['en', 'rather than a general refund request'],
+    ['sv', 'i stället för en allmän begäran om återbetalning'],
+  ] as const)('tells %s readers that withdrawal is not a refund request', (locale, marker) => {
+    const html = renderToStaticMarkup(<PolicyContent kind="refund" locale={locale} seller={seller} />);
+
+    expect(html).toContain(marker);
+    expect(html).not.toContain('Request refund');
   });
 
   it.each(['en', 'sv'] as const)('does not present submission as approval in %s', (locale) => {
