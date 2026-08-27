@@ -20,6 +20,18 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
     setShowComingSoon(true);
   };
 
+  // Bumped by the hero's walkthrough button so the section replays from step one on every click.
+  const [walkthroughRestart, setWalkthroughRestart] = useState(0);
+
+  const handleSeeExample = (e: React.MouseEvent) => {
+    const section = document.getElementById('how-it-works');
+    // No section found means the anchor's own href is the better answer — leave the click alone.
+    if (!section) return;
+    e.preventDefault();
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setWalkthroughRestart((n) => n + 1);
+  };
+
   // View switcher state
   const [activeView, setActiveView] = useState<'summary' | 'transcript'>('summary');
 
@@ -241,10 +253,10 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
         </header>
 
         {/* Hero Section — animated background paths */}
-        <BackgroundPaths onGetStarted={handleSignInClick} />
+        <BackgroundPaths onGetStarted={handleSignInClick} onSeeExample={handleSeeExample} />
 
         {/* Three-step walkthrough, ending in a pointer at the memo preview below. */}
-        <HowItWorks />
+        <HowItWorks restartSignal={walkthroughRestart} />
 
         {/* Interactive Component Preview */}
         <section className="py-section-gap bg-slate-50/90 backdrop-blur-sm content-layer relative z-10 scroll-mt-28" id="demo">
