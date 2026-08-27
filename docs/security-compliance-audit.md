@@ -7,15 +7,44 @@
 
 | Uppgift | Värde |
 |---|---|
-| Granskningsdatum | 2026-08-24 |
+| Granskningsdatum | 2026-08-24 (granskning); 2026-08-27 (ombasering och omverifiering) |
 | Granskat Git-commit | `516bfc0ee2bf485c00ee06c85dc686a5a3f1b0e5` (`origin/main` vid branchskapandet) |
-| Åtgärdsrevision | Arbetskopia på `fix/security-compliance-hardening`; rapporten länkar till aktuell branch |
+| Ombasering | 2026-08-27 ombasades `fix/security-compliance-hardening` på `origin/main` `8b579e6` ("fix(legal): split withdrawal from refund in the terms"). Trädet i tabellen ovan finns inte längre; **alla fil- och radhänvisningar i rapporten avser den ombasade branchen**, inte det ursprungliga trädet. Se avsnitt 1.1 för vad ombaseringen ändrade |
+| Åtgärdsrevision | `fix/security-compliance-hardening`, ombasad: nio ursprungliga åtgärdscommits plus `test(upload)`-anpassningen och den här rapportuppdateringen. Rapporten länkar till aktuell branch |
 | Kodmiljö | Node.js 20-monorepo; Express-API, Next.js-webb och PostgreSQL/Drizzle |
 | Produktionsmål | [www.syncmemos.com](https://www.syncmemos.com) och [api.syncmemos.com](https://api.syncmemos.com) |
 | Avsedd marknad | B2B inom EU; servern kräver nu organisation, B2B-bekräftelse och versionsstyrda villkor, men uppgifterna är självdeklarerade och avtals-/säljarunderlag saknas |
 | Säkerhetsreferenser | [OWASP ASVS 5.0.0](https://owasp.org/www-project-application-security-verification-standard/) och [OWASP API Security Top 10 2023](https://owasp.org/API-Security/editions/2023/en/0x03-introduction/) |
 | Metod | Statisk kodgranskning, tester, typkontroll, lint, bygg, beroende- och hemlighetssökning samt passiva/säkra HTTP-, TLS- och DNS-kontroller |
 | Externa dashboards | Ingen autentiserad skrivskyddad åtkomst fanns; berörda kontroller är märkta `Ej verifierad` |
+
+### 1.1 Vad ombaseringen ändrade
+
+Branchen låg 61 commits efter `main`. Ombaseringen löste sex konflikter; tre av dem ändrade
+sakinnehåll och måste vara synliga för granskaren:
+
+1. **Migrationsnummer.** Branchens `0010`/`0011`/`0012` krockade med `main`s `0010_abnormal_human_robot`
+   (waitlist) i både filnamn och journalens `idx: 10`. De är omnumrerade till `0011_windy_master_mold`
+   (share), `0012_lonely_maggott` (B2B/villkor) och `0013_recording_notice_evidence`. Snapshotkedjan och
+   `_journal.json` är omskrivna så att waitlist-tabellen ingår i alla tre snapshots och `0011` pekar på
+   `main`s `0010`-snapshot. Ingen SQL ändrades.
+2. **Uppladdningskontrollen.** Branchen införde `hasMatchingAudioSignature`, som kontrollerar att
+   containersignaturen matchar den *deklarerade* MIME-typen, plus en MIME-allowlist. `main` har sedan
+   dess infört `detectAudioFormat`, som identifierar containern enbart ur bytes och struntar i den
+   deklarerade typen — starkare, eftersom både `Content-Type` och filnamn är angriparens att välja.
+   `main`s variant behölls och branchens togs bort; branchens tester för den utgick. `isAudioMime`
+   är därmed åter ett billigt förfilter i `multer.fileFilter`, inte en säkerhetskontroll, och det är
+   dokumenterat som sådant i koden. Branchens orphan cleanup vid persistensfel behölls.
+3. **CSP.** Båda sidor rörde `apps/web/next.config.ts`. `main`s policy är mer detaljerad och
+   levereras avsiktligt som `Content-Security-Policy-Report-Only` tills en manuell genomgång av
+   appen visar noll violations. Den behölls; från branchen togs `https://*.sentry.io` i `connect-src`,
+   `https://*.paddle.com` i `script-src` och `form-action` in. **Policyn är alltså fortfarande inte
+   tvingande.** Flippen av `CSP_REPORT_ONLY` ligger som en egen punkt i
+   [pre-merge-checklistan](security-branch-premerge.md) och ska ske i en separat PR.
+
+De tre övriga konflikterna (`_journal.json`, migrationssnapshot, testfilen för uppladdning) var
+mekaniska. `main`s uppladdningstester anpassades i en egen commit till branchens `x-recording-notice-*`-gate
+och till att bytesniffningen kräver minst tolv byte.
 
 ### Omfattning och begränsningar
 
@@ -27,11 +56,11 @@ Ingen granskning kan garantera att en tjänst aldrig blir hackad.
 
 ## 2. Ledningssammanfattning
 
-Den kritiska loggningsbristen är åtgärdad i kod med allowlistad request-serialisering och full redigering av querydelen. OAuth-`state`, signerad Recall-live-webhook med fem minuters färskhetsfönster, tidsbegränsade opt-in-delningar, Google-kontoradering, fail-closed provider-radering, gallring av behandlade webhook-payloads och misslyckade ljudfiler, Paddle-anonymisering, filsignaturkontroll, serverlagrad inspelningsbekräftelse, B2B-/villkorsevidens, AI-datagränser, webbsäkerhetsrubriker och CI-härdning är också implementerade och testade.
+Den kritiska loggningsbristen är åtgärdad i kod med allowlistad request-serialisering och full redigering av querydelen. OAuth-`state`, signerad Recall-live-webhook med fem minuters färskhetsfönster, tidsbegränsade opt-in-delningar, Google-kontoradering, fail-closed provider-radering, gallring av behandlade webhook-payloads och misslyckade ljudfiler, Paddle-anonymisering, containeridentifiering ur bytes vid uppladdning, serverlagrad inspelningsbekräftelse, B2B-/villkorsevidens, AI-datagränser, webbsäkerhetsrubriker och CI-härdning är också implementerade och testade.
 
 Lanseringen är ändå stoppad. Historiska produktionsloggar måste bedömas och eventuellt saneras; sessioner och tidigare URL-hemligheter måste roteras efter dokumenterad incidentbedömning. De nya databasmigreringarna måste köras och en separat `RECALL_REALTIME_WEBHOOK_SECRET` konfigureras. Registrering är nu fail-closed tills policyerna är publicerade, men juridisk säljare, avtal, inspelningsansvar, DPIA/RoPA/DSR-/incidentrutiner samt DPA, region, gallring och överföringsmekanismer för leverantörerna saknar verifierbart underlag.
 
-Lokalt passerar 851 tester, typkontroll, lint och båda produktionsbyggena. `npm audit --omit=dev` visar noll sårbarheter; full audit visar fyra moderata, endast i utvecklingskedjan, och inga höga eller kritiska. Dessa resultat gäller arbetskopian och ersätter inte produktions- eller avtalsverifiering.
+Lokalt passerar 935 tester (798 API, 137 webb), typkontroll, lint och båda produktionsbyggena efter ombaseringen. `npm audit --omit=dev` visar noll sårbarheter; full audit visar fyra moderata, endast i utvecklingskedjan, och inga höga eller kritiska. Dessa resultat gäller arbetskopian och ersätter inte produktions- eller avtalsverifiering.
 
 ## 3. System-, data- och hotkarta
 
@@ -85,12 +114,12 @@ Status betyder: `Åtgärdad i kod` när regressionstest visar att arbetskopian s
 |---|---|---:|---|---|---|---|---|---|
 | SEC-001 | Loggning/hemligheter | **Kritisk** | Åtgärdad i kod; incidentbedömning krävs | [server.ts L19](../apps/api/src/adapters/http/server.ts#L19) redigerar hela querydelen och allowlistar requestfält; [regressionstest](../apps/api/src/adapters/http/request-logging.test.ts) visar att syntetiska hemligheter inte skrivs | Tidigare produktion kan ha loggat sessioner eller webhookvärden | Driftsätt, inventera/sanera loggsänkor, bedöm incident och rotera sessioner/hemligheter | Säkerhets-/driftansvarig | Canarytest i produktion utan verkliga hemligheter + loggåtkomstgranskning |
 | SEC-002 | OAuth | **Hög** | Åtgärdad i kod | 256-bitars HttpOnly-state skapas i [cookies.ts L63](../apps/api/src/adapters/http/cookies.ts#L63), skickas och konsumeras före kodutbyte i [auth.routes.ts L204](../apps/api/src/adapters/http/routes/auth.routes.ts#L204) | Login-CSRF/kontoförväxling om gammal version ligger kvar | Driftsätt och verifiera att redirect innehåller state och felaktig callback nekas | Backendansvarig | Negativa callback-tester + passiv produktionsredirect |
-| SEC-003 | Publik delning | **Hög** | Åtgärdad i kod; migrering krävs | [meeting.repository.ts L60](../apps/api/src/adapters/db/repositories/meeting.repository.ts#L60) kräver aktiv och icke utgången delning; [meetings.routes.ts L85](../apps/api/src/adapters/http/routes/meetings.routes.ts#L85) ger ägarbunden create/revoke; metadata är generisk och `noindex` | Gamla permanenta länkar är risk tills migration/deploy | Kör migration 0010, driftsätt och verifiera expiry/revoke/no-store/noindex | Backend/webb/drift | API-, repo- och header-/unfurltest i staging/produktion |
+| SEC-003 | Publik delning | **Hög** | Åtgärdad i kod; migrering krävs | [meeting.repository.ts L60](../apps/api/src/adapters/db/repositories/meeting.repository.ts#L60) kräver aktiv och icke utgången delning; [meetings.routes.ts L85](../apps/api/src/adapters/http/routes/meetings.routes.ts#L85) ger ägarbunden create/revoke; metadata är generisk och `noindex` | Gamla permanenta länkar är risk tills migration/deploy | Kör migration 0011, driftsätt och verifiera expiry/revoke/no-store/noindex | Backend/webb/drift | API-, repo- och header-/unfurltest i staging/produktion |
 | SEC-004 | Webhook-hemlighet | **Hög** | Åtgärdad i kod; rotation/config krävs | Recall-URL saknar nu token i [recall.adapter.ts L163](../apps/api/src/adapters/recall/recall.adapter.ts#L163); [webhooks.routes.ts L35](../apps/api/src/adapters/http/routes/webhooks.routes.ts#L35) kräver signerad rå body | Gammal URL-token kan finnas i loggar; fel config stoppar liveflöde | Skapa separat hemlighet, konfigurera Recall/Railway och rotera gammalt värde | Backend/drift | Signerade/ogiltiga/för gamla webhooktest + loggkontroll |
-| SEC-005 | Filuppladdning/resursbruk | **Hög** | Delvis åtgärdad | Standardgräns 50 MB och en samtidig heapbuffer i [env.ts L60](../apps/api/src/config/env.ts#L60); allowlist och containersignatur i [upload-inputs.ts L66](../apps/api/src/adapters/http/routes/upload-inputs.ts#L66); orphan cleanup vid persistensfel | Buffering är fortfarande per process och multi-replica-/stagingbelastning saknas | Strömma till isolerad lagring och verifiera global samtidighetskvot | Backend/drift | Negativt filkorpus och kontrollerat stagingbelastningstest |
+| SEC-005 | Filuppladdning/resursbruk | **Hög** | Delvis åtgärdad | Standardgräns 50 MB och en samtidig heapbuffer i [env.ts L60](../apps/api/src/config/env.ts#L60); containeridentifiering ur bytes i [upload-inputs.ts L72](../apps/api/src/adapters/http/routes/upload-inputs.ts#L72); orphan cleanup vid persistensfel | Buffering är fortfarande per process och multi-replica-/stagingbelastning saknas | Strömma till isolerad lagring och verifiera global samtidighetskvot | Backend/drift | Negativt filkorpus och kontrollerat stagingbelastningstest |
 | SEC-006 | Rate limiting | Medel | Öppen | [rate-limit.ts](../apps/api/src/adapters/http/middleware/rate-limit.ts) håller fixed-window-tillstånd i processminne | Omstart/flera repliker kan kringgå konto-, kostnads- och missbruksgränser | Delad atomisk store, dokumenterad proxykedja och multi-replica-tester | Backend/drift | Två-replika-staging och restart-test |
 | SEC-007 | Webhook replay | Medel | Åtgärdad i kod | [recall-webhook.verifier.ts](../apps/api/src/adapters/recall/recall-webhook.verifier.ts) kräver timestamp inom fem minuter och verifierar konstant-tidssignatur | Klockfel/providerretry över fönstret kan ge avvisning | Övervaka 401 och dokumentera klocksynk/retry | Backend/drift | Tester med gammal, framtida, ändrad och korrekt signerad händelse |
-| SEC-008 | Webbrubriker | Medel | Delvis åtgärdad | [next.config.ts L34](../apps/web/next.config.ts#L34) sätter CSP, no-referrer, Permissions-Policy, COOP, HSTS, nosniff och stänger powered-by | CSP tillåter fortfarande `unsafe-inline`; produktion inte verifierad | Inför nonce/hash där möjligt och kör header-/Paddle-regression efter deploy | Webansvarig | Automatiserat header- och checkouttest på alla sidtyper |
+| SEC-008 | Webbrubriker | Medel | Delvis åtgärdad | [next.config.ts L22](../apps/web/next.config.ts#L22) sätter CSP, no-referrer, Permissions-Policy, COOP, HSTS, nosniff och stänger powered-by | CSP levereras som **Report-Only** och tillåter `unsafe-inline`; produktion inte verifierad | Gå igenom appen med konsolen öppen, flippa `CSP_REPORT_ONLY` i egen PR och inför nonce/hash där möjligt | Webansvarig | Automatiserat header- och checkouttest på alla sidtyper |
 | SEC-009 | Sessions-/kontoskydd | Medel | Öppen | Session kan konfigureras upp till 90 dagar i [env.ts](../apps/api/src/config/env.ts); ingen MFA, idle timeout eller sessionsvy | Stulen cookie kan ha lång användbarhet, särskilt för känsligt mötesinnehåll | Kortare default, MFA/passkeys, idle/absolute timeout, sessionsvy och riskbaserad reautentisering | Produkt/backend | Konto- och sessionspenetrationstest |
 | SEC-010 | Resurskontroller | Medel | Delvis åtgärdad | Numeriska env-värden har nu rimliga min/max och negativa tester i [env.ts](../apps/api/src/config/env.ts); SSE saknar fortfarande global/per-user samtidighetsgräns | Autentiserad användare kan skapa många långlivade anslutningar | Delad/global anslutningskvot, timeout och backpressure | Backend/drift | Multi-replica stagingbelastning |
 | SEC-011 | AI prompt injection | Medel | Delvis åtgärdad | Claude/Gemini avgränsar nu escaped data som `untrusted_transcript`, förbjuder instruktioner/dataexfiltration; [DocumentView.tsx L26](../apps/web/src/components/DocumentView.tsx#L26) kräver mänsklig kontroll | Prompt injection och felaktiga AI-resultat kan inte elimineras med prompttext | Bygg systematiskt evalkorpus, kvalitetsgränser och incidentprocess | AI-/produktansvarig | Prompt-injection-/exfiltrations-/hallucinationsevals på alla funktioner |
@@ -107,7 +136,7 @@ Status betyder: `Åtgärdad i kod` när regressionstest visar att arbetskopian s
 | PRIV-009 | Cookies/terminalåtkomst | Medel | Ej verifierad | Nödvändig sessioncookie finns; full inventering av Paddle/Cloudflare/övrig runtime-lagring saknas | Icke-nödvändig lagring kan användas utan korrekt information/samtycke | Cookie-/SDK-inventering per sida och ändamål; CMP endast om något kräver samtycke | Webb/juridik | Ren webbläsarprofil före/efter val och blockeringsprov |
 | LEG-001 | Integritetsinformation | **Hög** | Åtgärdad fail-closed i kod; innehåll/config krävs | Produktion startar inte med öppen registrering utan publiceringsflagga och versionsdatum i [env.ts L96](../apps/api/src/config/env.ts#L96); signupservern nekar när stängd | Nuvarande produktion kan ligga på gammal version; juridiskt innehåll/säljare ej godkänt | Färdigställ juridik, publicera policyer, sätt samma flaggor/version i API och webb och smoke-testa | Juridik/dataskydd/produkt | Incognito- och direkt-API-test från signup till versionsstyrd policy |
 | LEG-002 | B2B-/konsumentavgränsning | **Hög** | Delvis åtgärdad | [auth.routes.ts L35](../apps/api/src/adapters/http/routes/auth.routes.ts#L35) kräver organisation och B2B-bekräftelse; tid/villkorsversion lagras; nya Google-konton blockeras | Självdeklaration bevisar inte näringsidkare/behörighet och äldre konton har ingen obligatorisk reaccept | Verifiera organisation/behörighet, re-gata legacykonton eller bygg full B2C-efterlevnad | Produkt/juridik | Privat e-post, falsk organisation, legacykonto, checkout och avtals-/kundklassning |
-| LEG-003 | Avtal/inspelning | **Hög** | Åtgärdad i kod; migrering/juridisk text krävs | [meetings.routes.ts](../apps/api/src/adapters/http/routes/meetings.routes.ts) och upload-gaten kräver aktuell bekräftelse; servern lagrar tid/version per möte via [schema.ts](../apps/api/src/adapters/db/schema.ts) | Bekräftelsen bevisar en affirmation men inte att faktisk deltagarinformation eller rättslig grund fanns | Kör migration 0012, juridiskt granska notice-texten och verifiera revisionsutdrag | Produkt/backend/juridik | Direkt-API-negativtest för bot/upload + DB-utdrag |
+| LEG-003 | Avtal/inspelning | **Hög** | Åtgärdad i kod; migrering/juridisk text krävs | [meetings.routes.ts](../apps/api/src/adapters/http/routes/meetings.routes.ts) och upload-gaten kräver aktuell bekräftelse; servern lagrar tid/version per möte via [schema.ts](../apps/api/src/adapters/db/schema.ts) | Bekräftelsen bevisar en affirmation men inte att faktisk deltagarinformation eller rättslig grund fanns | Kör migration 0013, juridiskt granska notice-texten och verifiera revisionsutdrag | Produkt/backend/juridik | Direkt-API-negativtest för bot/upload + DB-utdrag |
 | LEG-004 | Säljar-/avtalsinformation | **Hög** | Öppen | Policy-publicering kräver env-flaggor i [legal.ts L25](../apps/web/src/lib/legal.ts#L25); [legal-seller-readiness.md](legal-seller-readiness.md) visar obesvarad juridisk säljare/adress/granskning | E-handels- och avtalsinformation kan inte lämnas korrekt; avtalspart oklar | Fastställ säljare, adress, e-post, registrering/VAT, priser/skatter och godkända villkor | Ledning/juridik/ekonomi | Bolagsbevis, skatte-/VAT-underlag och publicerad information |
 | LEG-005 | Mötesinspelning/roller | **Hög** | Ej verifierad | Produkten kan skicka bot eller spela in lokalt men saknar visat kund-DPA, instruktion, deltagarinformation och rättslig roll-/ansvarsmodell | Olaglig/otillåten inspelning eller behandling i arbetslivet/känsliga möten | **Juristbedömning krävs:** definiera kund/Syncmemos-roller, tillåtna användningar, notice-mall och hantering av art. 9-data | Juridik/dataskydd/produkt | Avtalsgranskning och scenariobaserad DPIA |
 | LEG-006 | EU AI-förordningen | Medel | Delvis åtgärdad | UI märker dokument som AI-genererade och kräver mänsklig kontroll, men ingen klassificeringspromemoria, AI-kompetensplan, providerinstruktion eller utvärdering kunde visas | Bristande artikel 4/50-styrning och otydligt ansvar för AI-resultat | Klassificera varje use case/roll, utbilda personal, dokumentera transparens, human review och providerdata | AI-/juridikansvarig | Signerad AI Act-matris, utbildningsbevis och UI-test |
@@ -139,7 +168,7 @@ Det går däremot inte att fastställa här om den gamla versionen redan skrivit
 - Google OAuth använder en 256-bitars, HttpOnly, SameSite Lax, tio minuter gammal högst och engångskonsumerad `state`; felaktig eller saknad state avvisas före kodutbyte.
 - Publik delning är explicit opt-in, roterar token vid aktivering, har högst sju dagars livslängd (UI-standard 24 timmar), kan återkallas av ägaren och svarar med no-store/noindex och innehållsfri metadata.
 - Recall-live-endpointen innehåller inte längre hemlighet i URL. Inkommande rå body verifieras med leverantörens signaturheaders och fem minuters färskhetsfönster.
-- Upload accepterar endast en allowlist av ljudtyper vars containersignatur matchar, har 50 MB standardgräns, en samtidig buffer per process och städar lagring om DB/outboxpersistens misslyckas.
+- Upload identifierar containern ur filens egna bytes innan något lagras eller transkriberas, har 50 MB standardgräns, en samtidig buffer per process och städar lagring om DB/outboxpersistens misslyckas.
 - Claude och Gemini behandlar escaped transkript som otillförlitlig data, förbjuder transkriptinstruktioner att ändra uppgiften eller exfiltrera data, och UI markerar AI-resultat för mänsklig kontroll.
 - Webben sätter CSP, Referrer-Policy, Permissions-Policy, COOP, HSTS, nosniff och frame-skydd samt döljer powered-by.
 
@@ -147,7 +176,7 @@ Det går däremot inte att fastställa här om den gamla versionen redan skrivit
 
 - Filuppladdningen buffras fortfarande i applikationsminne; processlokal samtidighetsgräns ersätter inte streaming eller global/multi-replica-kvot.
 - Rate limiting och vissa SSE-gränser är processlokala. En omstart eller flera repliker kan kringgå dem.
-- CSP behöver på sikt nonce/hash för att ta bort `unsafe-inline`, och checkout måste regressionstestas efter skärpning.
+- CSP levereras som Report-Only och är alltså ännu inte tvingande; flippen kräver en manuell genomgång av appen och en checkout-regression, och nonce/hash behövs på sikt för att ta bort `unsafe-inline`.
 - MFA/passkeys, sessionsvy, idle timeout och självbetjänad verifierad kontoåterställning saknas.
 - Prompt injection och felaktiga AI-resultat kan reduceras men inte elimineras; systematiska evals saknas.
 
@@ -256,7 +285,7 @@ Följande kontroller passerade och ska bevaras med regressionstester:
 - Muterande API-anrop kräver exakt tillåten `Origin`; CORS reflekterar endast konfigurerad webborigin.
 - Recall och Paddle använder signerade webhooks, rå body, färskhetskontroll där leverantören stöder det och idempotens. AssemblyAI använder en separat delad webhookhemlighet.
 - Delningstokens har 128 bitars entropi, är opt-in/tidsbegränsade/återkallelsebara och publik API-representation utesluter ljudsökväg, mötes-URL, bot-ID och deltagarnamn.
-- Upload-, AI- och mötesflöden har storleks-/kostnads-/routegränser; upload har även MIME-allowlist, containersignatur och processlokal samtidighetsgräns.
+- Upload-, AI- och mötesflöden har storleks-/kostnads-/routegränser; upload identifierar dessutom containern ur bytes och har processlokal samtidighetsgräns.
 - Produktionsstart validerar viktiga provider-/billingvärden och skyddar mot lokal databas i produktion.
 - API-headers via Helmet, TLS, HTTPS-redirect och HSTS är aktiva; Next-konfigurationen lägger motsvarande webbläsarskydd vid nästa deploy.
 - Verifierad användar-/routeägarskapstäckning finns i automatiserade tester.
@@ -271,7 +300,7 @@ Detta är en riktad jämförelse, inte en formell ASVS-certifiering.
 |---|---|
 | ASVS authentication/session | Delvis uppfyllt: stark cookie/hash/rotation och OAuth-state; MFA, recovery, idle timeout och sessionshantering gapar |
 | ASVS access control / API1, API5 | Bra kod- och testbevis för objektägarskap och fail-closed route-gates |
-| ASVS input/file / API4 | Delvis: Zod, storleksgränser, allowlist och containersignatur finns; uploadbuffering och global SSE/samtidighet gapar |
+| ASVS input/file / API4 | Delvis: Zod, storleksgränser och containeridentifiering ur bytes finns; uploadbuffering och global SSE/samtidighet gapar |
 | ASVS browser / API8 | API-/origincheck bra och webb-CSP/referrer/permissions finns i arbetskopian; nonce/hash och produktionsbevis saknas |
 | ASVS logging/data protection | Kodåtgärdad requestlogg; historiska loggar, retention, åtkomst och scrubbing i externa sänkor är ej verifierade |
 | ASVS stored data/privacy | Förbättrad fail-closed radering/gallring; historik, durable retry, backups och providerbevis gapar |
@@ -295,7 +324,7 @@ Detta är en riktad jämförelse, inte en formell ASVS-certifiering.
 
 ### Före lansering
 
-1. Granska diffen, ta backup, kör migration `0010` (share), `0011` (B2B/villkor) och `0012` (inspelningsbevis), driftsätt API/webb och kör alla negativa auth/share/webhook-/notice-tester i staging.
+1. Granska diffen, ta backup, kör migration `0011` (share), `0012` (B2B/villkor) och `0013` (inspelningsbevis), driftsätt API/webb och kör alla negativa auth/share/webhook-/notice-tester i staging.
 2. Konfigurera samma `PUBLIC_REGISTRATION_ENABLED`, `LEGAL_POLICIES_PUBLISHED` och `LEGAL_POLICIES_VERSION` i API/webb; verifiera att fel config stänger signup och att policyversionen matchar DB-evidensen.
 3. Konfigurera Recall-signaturhemligheten, kontrollera signerade/ogiltiga/för gamla leveranser och verifiera att inga queryhemligheter eller headers loggas.
 4. Backfill/rensa historiska webhook-payloads, Paddle-e-post och orphan-ljud; inför durable raderingskö/dead-letter och leverantörsbevis.
@@ -329,7 +358,7 @@ Lansering kan inte omklassificeras från `STOPP` förrän minst följande bevis 
 
 - driftsatt kod och produktionsbevis att känsliga auth-/webhookvärden aldrig loggas;
 - incidentbedömning och dokumenterad rotation/revokering efter SEC-001/SEC-004;
-- körda migreringar `0010`/`0011`, ny Recall-signaturhemlighet och negativa produktions-/stagingtester för OAuth, share, webhook och kontoradering;
+- körda migreringar `0011`/`0012`/`0013`, ny Recall-signaturhemlighet och negativa produktions-/stagingtester för OAuth, share, webhook och kontoradering;
 - inventering/backfill och komplett raderingskedja inklusive failed audio, failed/historiska webhooks, Paddle mirror, providerkopior och relevanta backups;
 - publicerade korrekta policyer/säljaruppgifter, matchande policyversion i API/webb och tillräcklig B2B-/avtalsstyrning;
 - DPA/region/retention/transfer/radering för varje leverantör;
@@ -343,13 +372,13 @@ Lansering kan inte omklassificeras från `STOPP` förrän minst följande bevis 
 
 | Kontroll | Resultat |
 |---|---|
-| API-tester | 74 testfiler; 754 godkända, 5 avsiktligt hoppade |
-| Webtester | 19 testfiler; 97 godkända |
+| API-tester | 79 testfiler; 798 godkända, 5 avsiktligt hoppade (efter ombasering) |
+| Webtester | 24 testfiler; 137 godkända (efter ombasering) |
 | Typkontroll | Godkänd för API och webb |
 | Lint | Godkänd för webb |
 | Produktionsbygg | Godkänd för API och Next.js |
-| Databasmigreringar | Migrationerna 0000–0012 applicerades i PGlite-repositorytesterna; nya notice-fält round-trip-verifierades |
-| Lokal runtimebegränsning | Lokalt Node 24.11.1 trots projektkrav/CI Node 20.x. `drizzle-kit generate` stoppades av värdmiljöns `uv_os_get_passwd ENOMEM`; 0012 SQL/metadata verifierades genom JSON-parse, PGlite, typer och bygg. Node 20-CI krävs före deploy |
+| Databasmigreringar | Migrationerna 0000–0013 applicerades i PGlite-repositorytesterna; nya notice-fält round-trip-verifierades. Omnumreringen vid ombaseringen ändrade inte någon SQL |
+| Lokal runtimebegränsning | Lokalt Node 24.11.1 trots projektkrav/CI Node 20.x. `drizzle-kit generate` stoppades av värdmiljöns `uv_os_get_passwd ENOMEM`; 0013 SQL/metadata verifierades genom JSON-parse, PGlite, typer och bygg. Även omnumreringen vid ombaseringen gjordes för hand och verifierades på samma sätt. Node 20-CI krävs före deploy |
 | `npm audit --omit=dev` | 0 sårbarheter |
 | Full `npm audit` | 4 moderata dev-sårbarheter; 0 high/critical |
 | Nuvarande secret-mönster | 357 versionshanterade/icke ignorerade arbetskopiefiler; inga träffar för de specificerade högsignalsmönstren; historik/artifacts/loggar ej verifierade |
