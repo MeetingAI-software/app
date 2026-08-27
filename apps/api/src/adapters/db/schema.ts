@@ -177,3 +177,21 @@ export const paddleSubscriptions = pgTable('paddle_subscriptions', {
   paddleSubscriptionsStatusIdx: index('paddle_subscriptions_status_idx').on(t.status),
 }));
 
+
+/**
+ * Pre-launch waitlist. While the public site is gated (NEXT_PUBLIC_LAUNCH_PAUSED), the "coming
+ * soon" dialog collects an address here instead of dropping the visitor at a dead end.
+ *
+ * `email` is unique so a second submission is a no-op rather than a duplicate — the endpoint is
+ * public, and a person hitting the button twice must not create two rows. `source` records which
+ * dialog the address came from ('signin' | 'upgrade'), which is the only signal we get about
+ * whether someone wanted an account or a paid plan.
+ */
+export const waitlistSignups = pgTable('waitlist_signups', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: text('email').notNull().unique(),                          // lowercased by the app
+  source: text('source').notNull().default('signin'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  waitlistSignupsCreatedAtIdx: index('waitlist_signups_created_at_idx').on(t.createdAt),
+}));
