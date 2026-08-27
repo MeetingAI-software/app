@@ -8,6 +8,7 @@ import { BackgroundPaths } from '@/components/ui/background-paths';
 import { PublicFooter } from '@/components/PublicFooter';
 import { LAUNCH_PAUSED } from '@/lib/launch';
 import { ComingSoonDialog } from '@/components/ComingSoonDialog';
+import { HowItWorks } from '@/components/HowItWorks';
 
 export function LandingPageClient({ legalPublished }: { legalPublished: boolean }) {
   // Pre-launch gate: the sign-in entry points open a notice instead of the app.
@@ -212,6 +213,7 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
                 Syncmemos
               </Link>
               <nav className="hidden md:flex items-center gap-gutter">
+                <a href="#how-it-works" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">How it works</a>
                 <a href="#features" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Features</a>
                 <Link href="/pricing" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Pricing</Link>
                 <a href="#demo" className="text-on-surface-variant hover:text-secondary transition-colors duration-200 font-medium">Demo</a>
@@ -241,8 +243,11 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
         {/* Hero Section — animated background paths */}
         <BackgroundPaths onGetStarted={handleSignInClick} />
 
+        {/* Three-step walkthrough, ending in a pointer at the memo preview below. */}
+        <HowItWorks />
+
         {/* Interactive Component Preview */}
-        <section className="py-section-gap bg-slate-50/90 backdrop-blur-sm content-layer relative z-10" id="demo">
+        <section className="py-section-gap bg-slate-50/90 backdrop-blur-sm content-layer relative z-10 scroll-mt-28" id="demo">
           <div className="max-w-4xl mx-auto px-margin-page">
             <div className="flex justify-center mb-stack-lg blur-in" style={{ animationDelay: '0.2s' }}>
               <div className="inline-flex bg-white rounded border border-slate-200 p-1 shadow-sm">

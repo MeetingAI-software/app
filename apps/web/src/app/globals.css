@@ -331,3 +331,43 @@ threejs-scene {
 
 /* The existing `prefers-reduced-motion` block above already neutralises animation and
    transition durations globally, which is the guard the handoff asks to keep. */
+
+/* ==========================================================================
+   Landing page walkthrough (#how-it-works)
+
+   The stage swaps a mock UI per step; everything inside it is revealed from
+   the player's progress value rather than from CSS, so the reveal stays in
+   step with the rail's progress bar. Only the effects that must run on their
+   own clock live here. The `prefers-reduced-motion` block above already
+   neutralises all three.
+   ========================================================================== */
+
+@keyframes walkthroughStageIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+.walkthrough-stage-in {
+  animation: walkthroughStageIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Mic level bars while the mock recorder is running. */
+@keyframes walkthroughWave {
+  0%, 100% { transform: scaleY(0.28); }
+  50%      { transform: scaleY(1); }
+}
+
+.walkthrough-wave-bar {
+  transform-origin: center;
+  animation: walkthroughWave 1.1s ease-in-out infinite;
+}
+
+/* Text caret in the mock meeting-URL field, and the live recording dot. */
+@keyframes walkthroughBlink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0.15; }
+}
+
+.walkthrough-blink {
+  animation: walkthroughBlink 1s steps(1, end) infinite;
+}
