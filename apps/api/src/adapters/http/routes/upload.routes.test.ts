@@ -68,7 +68,7 @@ describe('in-room upload availability', () => {
 
   it('returns FEATURE_UNAVAILABLE before creating a meeting', async () => {
     const body = new FormData();
-    body.append('audio', new Blob([new Uint8Array([0x1a, 0x45, 0xdf, 0xa3])], { type: 'audio/webm' }), 'recording.webm');
+    body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
     body.append('participantNames', '[]');
 
     const response = await fetch(`${baseUrl}/api/meetings/upload`, {
@@ -122,7 +122,7 @@ describe('in-room upload availability', () => {
 
     try {
       const body = new FormData();
-      body.append('audio', new Blob([new Uint8Array([0x1a, 0x45, 0xdf, 0xa3])], { type: 'audio/webm' }), 'recording.webm');
+      body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
       body.append('participantNames', '[]');
       const response = await fetch(`${localBase}/api/meetings/upload`, {
         method: 'POST',
@@ -176,7 +176,12 @@ describe('in-room upload content validation', () => {
 
     const response = await fetch(`${baseUrl}/api/meetings/upload`, {
       method: 'POST',
-      headers: { origin: config.WEB_ORIGIN, cookie: 'session=valid-token' },
+      headers: {
+        origin: config.WEB_ORIGIN,
+        cookie: 'session=valid-token',
+        'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+      },
       body,
     });
 
