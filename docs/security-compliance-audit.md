@@ -46,6 +46,21 @@ De tre övriga konflikterna (`_journal.json`, migrationssnapshot, testfilen för
 mekaniska. `main`s uppladdningstester anpassades i en egen commit till branchens `x-recording-notice-*`-gate
 och till att bytesniffningen kräver minst tolv byte.
 
+### 1.2 Uppföljning av branchsynkningen, 2026-09-06
+
+Den ombasade branchen hade inte pushats: `origin` pekade fortfarande på `a2fde31`, medan
+den lokala branchen pekade på `778b8ac`. Skillnaden 73 ahead / 9 behind bestod av 61 ärvda
+commits från `main`, nio ombasade commits och tre uppföljningar. De nio äldre committerna
+motsvaras av åtgärderna i den ombasade historiken.
+
+Ombaseringen hade också återinfört `.github/dependabot.yml`, trots att PR #71 (`1009301`)
+avsiktligt tog bort schemalagda uppdaterings-PR:er. Konfigurationen har tagits bort igen för
+att behålla arbetsflödet i [dependency-security.md](dependency-security.md): säkerhetsvarningar
+och manuella uppdateringar. CI:s hemlighetsskanning och beroendegranskning är kvar.
+
+Branchsynkningen är separat från produktionssättning. Kraven i
+[pre-merge-checklistan](security-branch-premerge.md) gäller fortfarande före merge till `main`.
+
 ### Omfattning och begränsningar
 
 Granskningen omfattar den versionshanterade kodbasen, dokumentationen och publikt observerbara produktionsytor vid tidpunkten ovan. Ingen brute force, DoS, exploit mot riktiga konton, dataradering eller annan aktiv påverkan utfördes. Inget riktigt användarkonto skapades och inga kunddata öppnades. Railway, Vercel, Cloudflare, Supabase, Recall, AssemblyAI, Google, Anthropic, Resend, Sentry och Paddle kunde inte granskas bakom inloggning.
