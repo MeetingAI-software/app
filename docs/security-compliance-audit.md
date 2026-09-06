@@ -61,6 +61,12 @@ och manuella uppdateringar. CI:s hemlighetsskanning och beroendegranskning är k
 Branchsynkningen är separat från produktionssättning. Kraven i
 [pre-merge-checklistan](security-branch-premerge.md) gäller fortfarande före merge till `main`.
 
+En ny beroendegranskning samma dag hittade senare publicerade fynd i Browserslist och qs.
+Browserslist uppdaterades till `4.28.9` och qs till `6.16.0`; den tillfälliga qs-override som
+behövs för Express 4 dokumenteras i [dependency-security.md](dependency-security.md).
+Efter uppdateringen visar full `npm audit` fyra tidigare accepterade måttliga fynd i Drizzle Kits
+utvecklingskedja och noll höga/kritiska fynd. `npm audit --omit=dev` visar noll fynd.
+
 ### Omfattning och begränsningar
 
 Granskningen omfattar den versionshanterade kodbasen, dokumentationen och publikt observerbara produktionsytor vid tidpunkten ovan. Ingen brute force, DoS, exploit mot riktiga konton, dataradering eller annan aktiv påverkan utfördes. Inget riktigt användarkonto skapades och inga kunddata öppnades. Railway, Vercel, Cloudflare, Supabase, Recall, AssemblyAI, Google, Anthropic, Resend, Sentry och Paddle kunde inte granskas bakom inloggning.

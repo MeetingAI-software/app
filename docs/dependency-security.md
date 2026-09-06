@@ -20,6 +20,24 @@ Run `npm audit` from the repository root together with both applications' normal
 lint, and build commands. Do not use `npm audit fix --force`: major-version changes must be reviewed
 and tested explicitly.
 
+## September 2026 security refresh
+
+The security branch updates Browserslist to `4.28.9`, covering
+[GHSA-c83g-rgw3-j3cx](https://github.com/browserslist/browserslist/security/advisories/GHSA-c83g-rgw3-j3cx)
+and [GHSA-73wf-gq98-2v4g](https://github.com/browserslist/browserslist/security/advisories/GHSA-73wf-gq98-2v4g).
+
+The root `overrides.qs` pins `6.16.0` to address
+[GHSA-x5fp-wj9c-mxmx](https://github.com/ljharb/qs/security/advisories/GHSA-x5fp-wj9c-mxmx)
+and [GHSA-4mjr-xmp4-gh2g](https://github.com/ljharb/qs/security/advisories/GHSA-4mjr-xmp4-gh2g).
+Express `4.22.2` and body-parser `1.20.6` still request `~6.15.1`, so a normal update cannot select
+the fixed minor release. Remove the override when those parents allow a fixed version, then rerun
+the audit and HTTP test suite. This preserves the existing Express major version.
+
+When refreshing this override, use a resolver that handles overrides across workspace links:
+`npm@11.6.2` silently retained qs `6.15.3`. The lockfile was resolved with `npm@11.18.0` and an
+explicit `npm update qs --package-lock-only --ignore-scripts`. Always check `npm ls qs` after
+installation; the override declaration alone is not evidence that the fixed version is installed.
+
 ## Accepted development-only advisory
 
 As of 2026-08-13, npm reports four moderate findings through this development-only chain:
