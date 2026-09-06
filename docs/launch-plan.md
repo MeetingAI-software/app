@@ -1,5 +1,15 @@
 # Plan: få allt klart till dagen Paddle svarar
 
+> **Historisk plan från 2026-08-27 — inte aktuell drift- eller lanseringsstatus.**
+> Planen nedan bevaras som bakgrund till arbetet i security- och dokumentationsgrenarna.
+> Ånger-/refund-textfixarna finns redan i `main` på `8b579e6`; withdrawal-grenens återstående
+> ändring är detta dokument. Security-grenen har därefter ombasats, migreringarna har
+> omnumrerats till `0011`–`0013`, och dokumentationspaketet har skrivits. Uppgifterna nedan
+> om saknade dokument, branchavstånd och opushade kodfixar beskriver alltså det tidigare läget.
+> Använd `docs/launch-handoff.md` i `docs/launch-readiness-pack` för överlämningen och
+> `docs/security-branch-premerge.md` i `fix/security-compliance-hardening` inför en produktionsmerge.
+> Denna historiska plan ger inget godkännande att öppna registrering, betalningar eller legal-grindar.
+
 ## Context
 
 Syncmemos väntar på Paddles tredje svar om den lagstadgade ångerfunktionen. Den frågan
