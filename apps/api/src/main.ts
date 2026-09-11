@@ -13,6 +13,7 @@ import { DrizzleSessionRepository } from './adapters/db/repositories/session.rep
 import { DrizzleEmailSendLedgerRepository } from './adapters/db/repositories/email-send-ledger.repository';
 import { DrizzleVerificationTokenRepository } from './adapters/db/repositories/verification-token.repository';
 import { DrizzlePaddleBillingRepository } from './adapters/db/repositories/paddle-billing.repository';
+import { DrizzleWaitlistRepository } from './adapters/db/repositories/waitlist.repository';
 import { createEmailVerificationMailer } from './adapters/email/email-verification-mailer.factory';
 import { FakeBotAdapter } from './adapters/fake/fake-bot.adapter';
 import { UsageMeterService } from './application/usage-meter.service';
@@ -48,6 +49,7 @@ import { createUploadRoutes } from './adapters/http/routes/upload.routes';
 import { createAuthRoutes } from './adapters/http/routes/auth.routes';
 import { createMeRoutes } from './adapters/http/routes/me.routes';
 import { createBillingRoutes } from './adapters/http/routes/billing.routes';
+import { createWaitlistRoutes } from './adapters/http/routes/waitlist.routes';
 import { PaddleCustomerPortalAdapter } from './adapters/paddle/paddle-customer-portal.adapter';
 import { PaddleCheckoutAdapter } from './adapters/paddle/paddle-checkout.adapter';
 import { PaddleSubscriptionUpdateAdapter } from './adapters/paddle/paddle-subscription-update.adapter';
@@ -107,6 +109,7 @@ async function bootstrap() {
   const documentRepo = new DrizzleDocumentRepository();
   const chatRepo = new DrizzleChatMessageRepository();
   const paddleBillingRepo = new DrizzlePaddleBillingRepository();
+  const waitlistRepo = new DrizzleWaitlistRepository();
 
   // 2. Select Bot Adapter
   let botAdapter: MeetingBotPort;
@@ -227,6 +230,7 @@ async function bootstrap() {
   // 5. Server Routes
   const routes = [
     createHealthRoutes(),
+    createWaitlistRoutes(waitlistRepo),
     createAuthRoutes(authService),
     createMeRoutes(usageRepo, billingAccess, config.IN_ROOM_RECORDING_ENABLED),
     createBillingRoutes(

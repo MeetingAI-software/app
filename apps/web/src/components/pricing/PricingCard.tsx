@@ -6,6 +6,8 @@ import { PricingPlan, getAnnualTotalEur, getEffectiveMonthlyRateEur } from '@/li
 import { getPaddle, getPaddlePriceId } from '@/lib/paddle';
 import { ApiError, createCheckoutTransaction } from '@/lib/api';
 import { CheckoutConfirmationDialog } from './CheckoutConfirmationDialog';
+import { LAUNCH_PAUSED, type ComingSoonVariant } from '@/lib/launch';
+import { ComingSoonDialog } from '@/components/ComingSoonDialog';
 
 interface PricingCardProps {
   plan: PricingPlan;
@@ -22,6 +24,8 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
   const [showCheckoutConfirmation, setShowCheckoutConfirmation] = useState(false);
   const [checkoutAccepted, setCheckoutAccepted] = useState(false);
   const [seatQuantity, setSeatQuantity] = useState(1);
+  // Pre-launch gate: paid plans explain the wait instead of opening Paddle.
+  const [comingSoon, setComingSoon] = useState<ComingSoonVariant | null>(null);
   const opensCheckout = plan.id === 'solo' || plan.id === 'team';
 
   const displayedPrice = isAnnual
@@ -75,6 +79,10 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
   };
 
   const openCheckoutConfirmation = () => {
+    if (LAUNCH_PAUSED) {
+      setComingSoon('upgrade');
+      return;
+    }
     setCheckoutError(null);
     setCheckoutAccepted(false);
     setShowCheckoutConfirmation(true);
@@ -259,6 +267,12 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
         ) : (
           <a
             href={plan.ctaHref}
+            onClick={(event) => {
+              // The Business plan points at a mailto: link, which stays open pre-launch.
+              if (!LAUNCH_PAUSED || plan.id === 'business') return;
+              event.preventDefault();
+              setComingSoon('signin');
+            }}
             onMouseMove={handleMagneticMouseMove}
             onMouseLeave={handleMagneticMouseLeave}
             className={`w-full py-3 px-6 rounded-xl font-semibold text-center text-sm transition-colors duration-200 inline-flex items-center justify-center gap-2 shadow-sm ${
@@ -276,6 +290,9 @@ export function PricingCard({ plan, isAnnual }: PricingCardProps) {
         {checkoutError && <p className="mt-2 text-xs text-red-500" role="alert">{checkoutError}</p>}
       </div>
     </div>
+      {comingSoon && (
+        <ComingSoonDialog variant={comingSoon} onClose={() => setComingSoon(null)} />
+      )}
       {showCheckoutConfirmation && (
         <CheckoutConfirmationDialog
           plan={plan}

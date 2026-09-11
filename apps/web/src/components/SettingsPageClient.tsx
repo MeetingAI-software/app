@@ -181,8 +181,9 @@ function SubscriptionCard({ legalPublished }: { legalPublished: boolean }) {
       {legalPublished && (
         <div className="mt-4 border-t border-slate-200 pt-4 text-sm text-slate-600">
           <p>
-            To exercise a statutory withdrawal right, open Paddle Buyer Support, select
-            {' '}<strong>Request refund</strong>, and use the purchase details from your Paddle receipt.
+            A statutory withdrawal is not the same as a voluntary refund. Open Paddle Buyer Support,
+            identify yourself with the email address used for the purchase, and choose the option for
+            withdrawing from the purchase rather than a general refund request.
           </p>
           <a
             href={PADDLE_BUYER_SUPPORT_URL}

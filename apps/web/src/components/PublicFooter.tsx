@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { BRAND_NAME, PADDLE_BUYER_SUPPORT_URL, SUPPORT_EMAIL } from '@/lib/brand';
+import { LogoMark } from '@/components/Logo';
 
 interface PublicFooterProps {
   legalPublished?: boolean;
@@ -14,7 +15,7 @@ export function PublicFooter({ legalPublished = false, compact = false }: Public
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter px-margin-page max-w-container-max mx-auto text-left">
         <div className="col-span-1 md:col-span-2 lg:col-span-1 flex flex-col gap-4">
           <Link href="/" className="font-headline-md text-2xl font-bold text-slate-900 flex items-center gap-2 hover:text-secondary transition-colors duration-200">
-            <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
+            <LogoMark />
             {BRAND_NAME}
           </Link>
           <p className="text-on-surface text-sm mt-2">

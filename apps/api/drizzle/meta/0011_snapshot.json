@@ -1,6 +1,6 @@
 {
-  "id": "be8b230f-522a-4203-a698-5bca57a24e3d",
-  "prevId": "b8e897da-f81e-48fb-8502-c8da05fcf54a",
+  "id": "f5a72c2b-cd39-4560-bf24-bb1541f751d1",
+  "prevId": "be8b230f-522a-4203-a698-5bca57a24e3d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -497,6 +497,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "share_enabled": {
+          "name": "share_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "participant_names": {
           "name": "participant_names",
