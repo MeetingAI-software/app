@@ -237,43 +237,63 @@ describe('DrizzleMeetingRepository', () => {
     it('enables and disables sharing without changing the token', async () => {
       const m = await insertMeeting({ shareToken: 'stable-tok' });
 
-      const enabled = await repo.setShareEnabled(m.id, true);
-      expect(enabled.shareEnabled).toBe(true);
-      expect(enabled.shareToken).toBe('stable-tok');
+      const enabled = await repo.setShareEnabled(m.id, alice, true);
+      expect(enabled?.shareEnabled).toBe(true);
+      expect(enabled?.shareToken).toBe('stable-tok');
 
-      const disabled = await repo.setShareEnabled(m.id, false);
-      expect(disabled.shareEnabled).toBe(false);
+      const disabled = await repo.setShareEnabled(m.id, alice, false);
+      expect(disabled?.shareEnabled).toBe(false);
       // Re-enabling has to restore the URL people already have, so the token must survive.
-      expect(disabled.shareToken).toBe('stable-tok');
+      expect(disabled?.shareToken).toBe('stable-tok');
     });
 
     it('rotating mints a new token and strands the old one', async () => {
       const m = await insertMeeting({ shareToken: 'leaked-tok', shareEnabled: true });
 
-      const rotated = await repo.rotateShareToken(m.id);
+      const rotated = await repo.rotateShareToken(m.id, alice);
 
-      expect(rotated.shareToken).not.toBe('leaked-tok');
-      expect(rotated.shareToken.length).toBeGreaterThan(0);
+      expect(rotated!.shareToken).not.toBe('leaked-tok');
+      expect(rotated!.shareToken.length).toBeGreaterThan(0);
       expect(await repo.findByShareToken('leaked-tok')).toBeNull();
-      expect((await repo.findByShareToken(rotated.shareToken))?.id).toBe(m.id);
+      expect((await repo.findByShareToken(rotated!.shareToken))?.id).toBe(m.id);
     });
 
     it('rotating leaves the enabled flag alone', async () => {
       const on = await insertMeeting({ shareEnabled: true });
       const off = await insertMeeting({ shareEnabled: false });
 
-      expect((await repo.rotateShareToken(on.id)).shareEnabled).toBe(true);
-      expect((await repo.rotateShareToken(off.id)).shareEnabled).toBe(false);
+      expect((await repo.rotateShareToken(on.id, alice))?.shareEnabled).toBe(true);
+      expect((await repo.rotateShareToken(off.id, alice))?.shareEnabled).toBe(false);
     });
 
     it('advances updatedAt on both operations', async () => {
       const m = await insertMeeting({ updatedAt: new Date(Date.now() - HOUR) });
 
-      const enabled = await repo.setShareEnabled(m.id, true);
-      expect(enabled.updatedAt.getTime()).toBeGreaterThan(m.updatedAt.getTime());
+      const enabled = await repo.setShareEnabled(m.id, alice, true);
+      expect(enabled!.updatedAt.getTime()).toBeGreaterThan(m.updatedAt.getTime());
 
-      const rotated = await repo.rotateShareToken(m.id);
-      expect(rotated.updatedAt.getTime()).toBeGreaterThanOrEqual(enabled.updatedAt.getTime());
+      const rotated = await repo.rotateShareToken(m.id, alice);
+      expect(rotated!.updatedAt.getTime()).toBeGreaterThanOrEqual(enabled!.updatedAt.getTime());
+    });
+
+    // The ownership test lives in the UPDATE's WHERE, not in a check the route runs first, so a
+    // caller who forgets to look the meeting up still cannot touch someone else's link.
+    it("refuses to touch another owner's share settings", async () => {
+      const theirs = await insertMeeting({ ownerUserId: bob, shareToken: 'bob-tok', shareEnabled: true });
+
+      expect(await repo.setShareEnabled(theirs.id, alice, false)).toBeNull();
+      expect(await repo.rotateShareToken(theirs.id, alice)).toBeNull();
+
+      // Nothing moved: Bob's link is still on and still the same URL.
+      const after = await repo.findByIdForUser(theirs.id, bob);
+      expect(after?.shareEnabled).toBe(true);
+      expect(after?.shareToken).toBe('bob-tok');
+    });
+
+    it('returns null for a meeting that does not exist', async () => {
+      const ghost = '00000000-0000-0000-0000-000000000000';
+      expect(await repo.setShareEnabled(ghost, alice, true)).toBeNull();
+      expect(await repo.rotateShareToken(ghost, alice)).toBeNull();
     });
   });
 

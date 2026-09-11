@@ -1,5 +1,7 @@
 import { Router } from 'express';
+import type { Response } from 'express';
 import { z } from 'zod';
+import type { Meeting } from '../../../domain/types';
 import type {
   MeetingRepository,
   TranscriptRepository,
@@ -14,6 +16,20 @@ import { MeetingNotReadyError, DocumentGenerationError } from '../../../domain/e
 import { detectPlatform, SUPPORTED_PLATFORMS_MESSAGE } from '../../../domain/meeting-platform';
 import { toShareResponse } from './share-response';
 import { perUserRouteLimiter, SPEND_LIMITS } from '../middleware/rate-limit';
+
+/**
+ * Both columns these guard are typed, and Postgres refuses a value it cannot cast rather than
+ * returning no rows: a `:id` that is not a UUID raises 22P02, and a `:token` carrying a NUL byte
+ * (`GET /api/share/%00`, which Express happily decodes) raises 22021. Either one turns a request
+ * that is plainly a miss into a 500 and a Sentry event — and the share route is public, so that
+ * one is reachable with no session and no rate limit at all.
+ *
+ * A value failing these cannot name a row, so it takes the ordinary 404 path and stays
+ * indistinguishable from any other miss.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Tokens are base64url out of randomBytes, so nothing outside that alphabet was ever issued. */
+const SHARE_TOKEN_RE = /^[A-Za-z0-9_-]+$/;
 
 export function createMeetingRoutes(
   meetingRepo: MeetingRepository,
@@ -278,29 +294,30 @@ export function createMeetingRoutes(
   });
 
   /**
-   * Share controls. All three are owner-scoped through findByIdForUser, so a miss is a 404 for the
-   * same reason every other meeting route returns one: a meeting you do not own does not exist.
+   * Share controls. All three are owner-scoped, so a miss is a 404 for the same reason every other
+   * meeting route returns one: a meeting you do not own does not exist.
+   *
+   * The ownership test lives in the UPDATE's own WHERE rather than in a findByIdForUser call ahead
+   * of it. One statement instead of two, and nothing can change hands in the gap between a check
+   * and the write it was meant to guard.
    *
    * enable/disable and rotate are separate on purpose. Disabling parks a link and keeps the token,
    * so re-enabling restores the URL people already have. Rotating throws the token away, which is
    * the only answer when a link has leaked. Collapsing them into one control would mean you cannot
    * pause sharing without also breaking every bookmark.
    */
-  async function ownedMeetingOr404(req: any, res: any) {
-    const meeting = await meetingRepo.findByIdForUser(req.params.id, req.userId!);
-    if (!meeting) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
-      return null;
+  function shareState(res: Response, updated: Meeting | null) {
+    if (!updated) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
     }
-    return meeting;
+    return res.status(200).json({ shareToken: updated.shareToken, shareEnabled: updated.shareEnabled });
   }
 
   for (const [path, enabled] of [['enable', true], ['disable', false]] as const) {
     router.post(`/api/meetings/:id/share/${path}`, async (req, res, next) => {
       try {
-        if (!(await ownedMeetingOr404(req, res))) return;
-        const updated = await meetingRepo.setShareEnabled(req.params.id, enabled);
-        return res.status(200).json({ shareToken: updated.shareToken, shareEnabled: updated.shareEnabled });
+        if (!UUID_RE.test(req.params.id)) return shareState(res, null);
+        return shareState(res, await meetingRepo.setShareEnabled(req.params.id, req.userId!, enabled));
       } catch (err) {
         return next(err);
       }
@@ -310,9 +327,8 @@ export function createMeetingRoutes(
   // POST /api/meetings/:id/share/rotate — the old link 404s from the next request onward.
   router.post('/api/meetings/:id/share/rotate', async (req, res, next) => {
     try {
-      if (!(await ownedMeetingOr404(req, res))) return;
-      const updated = await meetingRepo.rotateShareToken(req.params.id);
-      return res.status(200).json({ shareToken: updated.shareToken, shareEnabled: updated.shareEnabled });
+      if (!UUID_RE.test(req.params.id)) return shareState(res, null);
+      return shareState(res, await meetingRepo.rotateShareToken(req.params.id, req.userId!));
     } catch (err) {
       return next(err);
     }
@@ -321,9 +337,17 @@ export function createMeetingRoutes(
   // GET /api/share/:token (PUBLIC, no auth)
   router.get('/api/share/:token', async (req, res, next) => {
     try {
-      const meeting = await meetingRepo.findByShareToken(req.params.token);
-      // Same 404 for "no such token" and "sharing is off", so the response cannot be used to probe
-      // whether a token was ever real.
+      // A share link is revocable now, so its response must never outlive the revocation in a cache
+      // the owner cannot reach. Express otherwise sends this with an ETag and no Cache-Control,
+      // which leaves a shared cache free to keep answering with a meeting that has been switched
+      // off. Set before the branch so the 404 is uncacheable too.
+      res.setHeader('Cache-Control', 'no-store');
+
+      const meeting = SHARE_TOKEN_RE.test(req.params.token)
+        ? await meetingRepo.findByShareToken(req.params.token)
+        : null;
+      // Same 404 for "no such token", "malformed token" and "sharing is off", so the response
+      // cannot be used to probe whether a token was ever real.
       if (!meeting || !meeting.shareEnabled) {
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown share token' } });
       }
