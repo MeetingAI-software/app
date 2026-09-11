@@ -30,18 +30,39 @@ export default function ShareControl({
   const [copied, setCopied] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const shareUrl =
     typeof window === 'undefined' ? '' : `${window.location.origin}/s/${meeting.shareToken}`;
 
   /**
    * Every close goes through here, so a half-finished reset can never survive to the next open —
-   * re-opening the panel already primed to destroy the link would be a nasty surprise.
+   * re-opening the panel already primed to destroy the link would be a nasty surprise. Note that
+   * closing is not the only way to leave the reset button armed; `run` disarms too, for the paths
+   * that never close the panel at all.
    */
   const closePanel = useCallback(() => {
     setOpen(false);
     setConfirmingReset(false);
     setError(null);
+    setCopied(false);
+  }, []);
+
+  /**
+   * Opening clears too, not just closing. closePanel runs synchronously, but a request already in
+   * flight resolves afterwards and writes its failure into a panel nobody is looking at — which
+   * then surfaces, unexplained and attached to nothing, the next time Share is clicked.
+   */
+  const openPanel = useCallback(() => {
+    setError(null);
+    setConfirmingReset(false);
+    setOpen(true);
+  }, []);
+
+  // Nothing should still be counting down once this unmounts.
+  useEffect(() => () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
   }, []);
 
   // A popover with no way out is worse than no popover.
@@ -51,7 +72,11 @@ export default function ShareControl({
       if (!rootRef.current?.contains(e.target as Node)) closePanel();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closePanel();
+      if (e.key !== 'Escape') return;
+      closePanel();
+      // The panel is gone; without this the focus ring goes with it and the next Tab restarts from
+      // the top of the document. A pointer close is left alone — the user is already somewhere else.
+      triggerRef.current?.focus();
     };
     document.addEventListener('mousedown', onPointer);
     document.addEventListener('keydown', onKey);
@@ -65,6 +90,13 @@ export default function ShareControl({
     async (action: () => Promise<{ shareToken: string; shareEnabled: boolean }>) => {
       setBusy(true);
       setError(null);
+      // Any action against the link disarms the reset gate and retires the "Copied ✓" flash.
+      // Switching sharing off unmounts the reset button but not its state, so without this it
+      // comes back still armed when sharing is switched on again and the next single click
+      // destroys a link the owner has only just restored. The flash goes for the same reason:
+      // after a rotate it would be vouching for a URL that no longer works.
+      setConfirmingReset(false);
+      setCopied(false);
       try {
         onChange(await action());
       } catch (err) {
@@ -83,15 +115,17 @@ export default function ShareControl({
       setConfirmingReset(true);
       return;
     }
-    setConfirmingReset(false);
-    void run(() => rotateShare(meeting.id));
+    void run(() => rotateShare(meeting.id));   // run() does the disarming
   };
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      // Restart the countdown rather than stacking one per click, or a second copy flips the label
+      // back while the first timer is still running.
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       setError('Could not copy. Select the link and copy it manually.');
     }
@@ -100,7 +134,9 @@ export default function ShareControl({
   return (
     <div className="relative" ref={rootRef}>
       <button
-        onClick={() => (open ? closePanel() : setOpen(true))}
+        type="button"
+        ref={triggerRef}
+        onClick={() => (open ? closePanel() : openPanel())}
         aria-expanded={open}
         aria-haspopup="dialog"
         className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-lg font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
@@ -128,6 +164,7 @@ export default function ShareControl({
               </p>
             </div>
             <button
+              type="button"
               role="switch"
               aria-checked={meeting.shareEnabled}
               aria-label="Share this meeting"
@@ -150,14 +187,19 @@ export default function ShareControl({
               <div className="mt-4 flex gap-2">
                 <input
                   readOnly
+                  disabled={busy}
                   value={shareUrl}
                   onFocus={(e) => e.currentTarget.select()}
                   aria-label="Share link"
-                  className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 font-mono focus:outline-none focus:border-slate-400"
+                  className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 font-mono focus:outline-none focus:border-slate-400 disabled:opacity-50"
                 />
+                {/* Both go dead while a write is in flight: mid-rotate this box still shows the
+                    outgoing token, and a copy landing then hands someone a link about to 404. */}
                 <button
+                  type="button"
                   onClick={handleCopy}
-                  className="shrink-0 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                  disabled={busy}
+                  className="shrink-0 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   {copied ? 'Copied ✓' : 'Copy'}
                 </button>
@@ -165,6 +207,7 @@ export default function ShareControl({
 
               <div className="mt-3 pt-3 border-t border-slate-100">
                 <button
+                  type="button"
                   onClick={handleReset}
                   disabled={busy}
                   className={`text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer ${
