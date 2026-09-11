@@ -1,156 +1,110 @@
 # Personal data breach procedure (draft)
 
-**Status: draft for the adviser. Not approved, and not exercised. Owner: `Unassigned`.**
+**Draft, updated 2026-09-11. Not approved or exercised. Incident lead and deputy: Unassigned.**
+This is a proposed process, not evidence of staffed coverage, tested alerts or provider contracts.
 
-Article 33 gives the controller 72 hours from becoming aware of a personal data breach to notify the
-supervisory authority. Seventy-two hours is not long enough to decide who is in charge, find the
-supervisory authority's form, and work out whether a deleted file counts. That is the whole reason
-this document exists before we have users.
+## 1. Scope and historical claims
 
-## 1. What counts as a breach
+A personal data breach can affect confidentiality, integrity or availability. Loss of audio may
+qualify even without disclosure; a delivery outage does not automatically qualify. Establish which
+personal data was compromised and its consequences in each case.
 
-Article 4(12): a breach of security leading to accidental or unlawful destruction, loss, alteration,
-unauthorised disclosure of, or access to personal data. Three kinds, and only one of them is what
-people picture:
+The previous draft reported that a retention sweep on 2026-08-08 destroyed audio for seven meetings
+from an unmanaged laptop. This review did not reverify the incident records, affected content or
+recovery. It cannot conclude either that notification was required or that there were no affected
+people. Pre-launch processing can concern developers, test participants, waitlist subscribers and
+visitors. Lack of paying users does not establish absence of data subjects or an accountable
+controller. Review the actual facts privately, including the processing purpose and who determined
+it; a seller field left blank does not suspend legal duties.
 
-- **Confidentiality** — someone saw data they should not have. A share link indexed, a transcript
-  returned to the wrong account, a leaked key, a provider incident.
-- **Integrity** — data altered without authorisation.
-- **Availability** — data destroyed or lost, including by us, including accidentally.
+The remote-database boot guard is a technical measure. Its presence is not proof that every
+incident is prevented or every administrative path is controlled.
 
-That last one is not hypothetical here. On **2026-08-08** the retention sweep was run against
-production from an unmanaged laptop and destroyed seven meetings' audio. That is a personal data
-breach of the availability type. It happened before we had users, so there were no data subjects to
-notify and no controller to notify from — but the same command run after Live would have started the
-72-hour clock, and the honest read is that we would not have recognised it as a breach at the time.
-The boot guard that now refuses a remote database from a terminal is the fix; this document is the
-part of the fix that is not code.
+## 2. Responsibilities to assign
 
-The 2026-08-06 Actions outage, by contrast, was not a breach: a merge produced no CI run, which is a
-delivery failure with no effect on personal data. Keeping the distinction sharp matters in both
-directions — under-reporting is a violation, and reflexively reporting every outage burns the
-authority's attention and our own.
-
-## 2. Roles
-
-| Role | Who | Does what |
+| Role | Responsibility | Status |
 |---|---|---|
-| Incident lead | `Unassigned` | Owns the incident end to end, makes the notify/do-not-notify call, keeps the log |
-| Technical responder | `Unassigned` | Contains, investigates, preserves evidence |
-| Communications | `Unassigned` | Writes to data subjects and answers what comes back |
-| Adviser | `Unassigned` | Consulted on notification and on wording before anything is sent |
+| Accountable controller / authorized decision maker | Assess risk, required notifications and rationale for decisions | Identity and scope require factual confirmation |
+| Incident lead and deputy | Timeline, coordination, coverage and escalation | Unassigned |
+| Technical responder | Authorized containment, evidence preservation, remediation and verification | Unassigned |
+| Communications / support | Controlled contact with affected people and handling replies | Unassigned |
+| Privacy adviser / DPO where applicable | Advise on risk, duties and communication | Unassigned; DPO requirement not determined |
 
-At current size these collapse to one person. That is acceptable only if the person is named. An
-unassigned incident lead means the 72 hours are spent deciding who decides.
+If we process meeting content on another controller's behalf, follow the agreed assistance and
+notification arrangements without treating those arrangements as a waiver of statutory duties.
+Different purposes may have different roles: [provider inventory](data-processors.md),
+[DPIA §7](dpia.md).
 
-## 3. When the clock starts
+## 3. Awareness and notification timing
 
-At **awareness** — the moment there is a reasonable degree of certainty that a security incident
-occurred that compromised personal data. Not at the moment the investigation finishes. A credible
-report from a user or a researcher starts it; so does a provider telling us they were breached.
+Record initial detection and when there is a reasonable degree of certainty that personal data
+has been compromised. Investigation must proceed promptly; waiting for a complete forensic report
+does not postpone established awareness. A provider message is evidence to assess, not an
+automatic substitute for our own awareness timeline.
 
-A short verification period is allowed before awareness is established, but it must be short, and
-it must be logged. "We were still looking into it" is not a defence for day four.
+For a controller, notification to the competent supervisory authority is required without undue
+delay and, where feasible, within 72 hours of awareness, unless risk to people's rights and
+freedoms is unlikely. Record reasons for delay and supply missing information in phases where
+needed. A processor must notify the controller without undue delay. This Article 33(2) duty
+comes from GDPR itself; contracts and operational contacts make it workable and may add terms.
+[IMY: handling breaches](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/personuppgiftsincidenter/hantering-av-personuppgiftsincidenter/),
+[IMY: processor incidents](https://www.imy.se/pui).
 
-## 4. Steps
+## 4. Proposed response steps
 
-### Step 1 — Contain (immediately)
+1. **Triage and contain under the responder's authority.** Assess the exposed route/data and
+   proportionate measures such as revoking a share link or credential, pausing processing or
+   restricting access. Preserve necessary evidence while preventing further harm. This document
+   does not authorize production mutations during a code review.
+2. **Preserve a minimal private record.** Record timestamps, deployment identity, affected systems,
+   evidence references and known scope. Do not copy transcript content, secrets or request payloads
+   into Git or general chat. Existing logs are a possible source, not a guaranteed complete audit
+   trail; Recall sanitization deliberately omits sensitive bodies.
+3. **Assess the effects on people.** Determine categories and approximate counts of people and
+   records, identifiability, sensitivity, exposure, recipients, recoverability, duration and
+   likely harm. Include participants without accounts and anyone represented in test data.
+   A transcript can carry very high risk, but the conclusion must follow its actual context.
+4. **Decide and document authority notification.** Identify the competent authority from the
+   actual controller, establishments, cross-border processing and applicable competence rules.
+   IMY is not established merely by a Swedish developer or website language. Notify when required;
+   document the facts and reasoning if notification is not required.
+5. **Assess communication to affected people separately.** Article 34 uses the higher threshold
+   of likely high risk and requires communication without undue delay when applicable. Explain
+   the incident, contact point, likely consequences and measures clearly. Assess each exception
+   against evidence. Missing participant email addresses do not automatically establish
+   disproportionate effort or authorize a public notice; evaluate safe contact through the
+   organizer and alternatives that effectively inform people without further disclosure.
+6. **Record and remediate.** Keep breach facts, effects, actions and decisions in a restricted
+   register, including events not notified. Assign corrective actions, verify containment and
+   remediation, and review whether the procedure and risk assessment need updating.
 
-Stop the bleeding before understanding it. Depending on the kind: revoke the exposed credential and
-rotate it in the platform environment; disable the affected share links; take the affected route out
-of service; revoke sessions. Containment beats diagnosis — a leaked key is rotated first and
-understood second.
+## 5. Provider and recipient coordination
 
-### Step 2 — Preserve evidence
+Use the purpose-specific [DPA/evidence checklist](dpa-checklist.md). A processor/subprocessor
+arrangement needs the applicable Article 28 terms and effective assistance/incident contacts.
+Paddle's merchant-of-record records and Google's identity services can involve separate
+controller purposes; do not label every vendor a processor.
 
-Do not clean up before capturing state. Logs, timestamps, the deploy SHA, the affected row ids, the
-provider's own incident reference. The retention sweep and the erasure path both log every step
-specifically so that after-the-fact reconstruction is possible; that only works if nobody rotates
-the logs away first.
+Obtain the provider's affected-service scope, dates, data categories, mitigation and evidence
+without waiting to start our assessment. Track our first awareness independently and supplement
+notifications as facts develop. No contract or provider status page establishes that we have
+received all relevant information.
 
-### Step 3 — Assess (Art. 33(3))
+## 6. Readiness before relying on this procedure
 
-Establish and write down:
-
-- **Nature** of the breach and which of the three kinds it is.
-- **Categories and approximate number of data subjects** — account holders only, or meeting
-  participants who never chose us? The second is materially more serious.
-- **Categories and approximate number of records** — transcripts and audio are the crown jewels
-  here; a leaked verification-send ledger is not in the same class.
-- **Likely consequences** for the subjects.
-- **Measures taken or proposed**, including mitigation.
-
-Assess risk from the **subject's** side. The severity question for a transcript leak is not what it
-costs us; it is that the content of someone's meeting — which may include health, employment, or
-legal matters nobody chose to disclose to us — is now outside our control, and the person affected
-may not even be our user.
-
-### Step 4 — Notify the supervisory authority (Art. 33)
-
-Notify **IMY within 72 hours** unless the breach is unlikely to result in a risk to rights and
-freedoms. If the conclusion is not to notify, **write down the reasoning at the time** — Article
-33(5) requires the documentation regardless of the outcome, and a decision reconstructed later is
-worth much less than one recorded on the day.
-
-If not all facts are available, notify anyway and supplement in phases. Article 33(4) expressly
-allows it. Late and complete is worse than prompt and partial.
-
-Which authority is IMY depends on the controller being established in Sweden, which is
-`Unassigned` — see [legal seller readiness](legal-seller-readiness.md). If the seller ends up
-established elsewhere, the lead authority changes with it, and so does the form on Step 4. That is
-another reason the seller decision blocks more than the invoice footer.
-
-### Step 5 — Notify the data subjects (Art. 34)
-
-Required without undue delay where the breach is likely to result in a **high** risk to their rights
-and freedoms. A transcript disclosure would plainly qualify. Article 34(3) exemptions — strong
-encryption, subsequent measures making the risk unlikely, or disproportionate effort permitting a
-public communication instead — are narrow, and the burden is ours.
-
-The communication must be in clear plain language and must state the nature of the breach, a contact
-point, likely consequences, and the measures taken. Not a legal notice, not a marketing apology.
-
-**For meeting participants we cannot do this.** We have their names inside a transcript and no
-contact details, no account, and no relationship. The only route to them is the account holder who
-recorded them. This is the same wall as risk R6 in the [DPIA](dpia.md) and the participant path in
-the [DSR procedure](data-subject-requests.md), and it will have to be answered as a public
-communication under Article 34(3)(c) plus notification to affected account holders.
-
-### Step 6 — Record it (Art. 33(5))
-
-Every breach goes in the register, notified or not: facts, effects, remedial action, and the
-reasoning behind the notification decision. The register holds personal data, so it lives outside
-this repository. `Unassigned`.
-
-### Step 7 — Learn
-
-A written post-incident note: what happened, what made it possible, what change prevents a repeat,
-and who owns that change. The 2026-08-08 sweep produced exactly that outcome — a boot guard — but
-produced it informally. Next time it is written down.
-
-## 5. If a processor is breached
-
-Article 33(2) requires the processor to notify us without undue delay; our 72 hours then start at
-their notification. That obligation only exists if the contract says so — and DPA status is
-`Not verified` for all ten providers ([processor map](data-processors.md)). Today, if a provider
-were breached, we would most likely find out from their status page.
-
-Establishing the notification obligation, and a contact for it, is part of the
-[DPA checklist](dpa-checklist.md).
-
-## 6. Before Live
-
-| # | Item | Blocking? |
+| Item | Responsible role | Acceptance evidence |
 |---|---|---|
-| 1 | Name the incident lead and a deputy | Yes |
-| 2 | Confirm which supervisory authority applies, once the seller is chosen | Yes |
-| 3 | A breach register outside this repository | Yes |
-| 4 | Processor breach-notification obligations and contacts confirmed | Yes |
-| 5 | Know before the day where IMY's notification form is and what it asks | No |
-| 6 | Walk one tabletop scenario — the leaked share link is the cheapest realistic one | No |
+| Named lead, deputy and decision authority | Owner / accountable controller | Current contact and coverage record |
+| Correct authority and role mapping | Adviser + controller | Written factual assessment and notification route |
+| Private incident register and access | Operations | Restricted storage, retention and approved access |
+| Provider incident channels and assistance | Owner + providers | Tested contacts and reviewed purpose-specific terms |
+| Participant contact approach | Adviser + support | Reviewed method with identity and third-party safeguards |
+| Synthetic tabletop | Incident lead + engineering | Timed share-disclosure/availability exercise and closed action items |
+
+Nothing in this draft establishes that these acceptance criteria have been met.
 
 ## References
 
-- [GDPR Articles 33 and 34](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32016R0679)
-- [IMY: anmäl en personuppgiftsincident](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/anmal-personuppgiftsincident/)
-- [EDPB guidelines 9/2022 on personal data breach notification](https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-92022-personal-data-breach-notification-under_en)
+- [GDPR full text, Articles 4(12), 33 and 34 (IMY)](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/introduktion-till-gdpr/dataskyddsforordningen-i-fulltext/)
+- [EDPB Guidelines 9/2022 on breach notification](https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-92022-personal-data-breach-notification-under_en)
+- [Separate launch backlog](launch-handoff.md)

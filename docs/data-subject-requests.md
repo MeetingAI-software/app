@@ -1,165 +1,125 @@
 # Handling data subject requests (draft)
 
-**Status: draft for the adviser. Not approved, and not yet operable — no owner is assigned and the
-support address is not verified as monitored ([support email](support-email.md)).**
+**Draft, updated 2026-09-11. Not approved or exercised. Owner and deputy: Unassigned.**
+A monitored support address and restricted request record are not verified. This is a proposed
+process and inventory of code capabilities, not a claim that all rights are currently operable.
 
-A data subject request is not a support ticket with a nicer name. Article 12(3) puts a one-month
-clock on it that starts when the request arrives, wherever it arrives, however it is worded. This
-document exists so the first one does not arrive to an empty chair.
+## 1. Account holders and other affected people
 
-Owner: `Unassigned`. Deputy: `Unassigned`. Until both are named, the process below is a plan, not a
-control.
+An account can help locate data but is not a prerequisite for GDPR rights. Meeting participants,
+waitlist subscribers and visitors may be affected without ever registering or paying. Determine
+our role for the relevant purpose, using the factual assessment in [DPIA §7](dpia.md):
 
-## 1. Two populations, one of which has no door
+- As controller, assess and respond to the request and protect other people's rights.
+- As processor, promptly assist the responsible controller under applicable instructions and
+  Article 28 arrangements. Explain the route to the requester where appropriate; do not
+  automatically disclose the request or other personal data to an unverified organizer.
+- Joint-controller arrangements do not prevent a person exercising rights against either
+  controller under Article 26(3).
 
-**Account holders** can be identified: they have an email address, a password, and a session. Most
-of what they can ask for, they can already do themselves in settings.
+The role question needs resolution, but existing requests must be handled promptly while facts
+are established. A missing seller field or pre-launch status does not suspend duties.
 
-**Meeting participants** cannot. They have no account, no login, and usually no idea that their
-words are in our database. If one of them writes to us, we hold their speech and their name inside a
-meeting owned by someone else, and every route we have for finding it starts from that owner.
+## 2. Intake, ownership and deadlines
 
-This asymmetry is the hardest part of the whole procedure, and it is not solved by writing a nicer
-process. It is a design consequence, recorded as risk R6 in the [DPIA](dpia.md). What the adviser
-answers in DPIA §7 decides which of the following we owe:
+Accept requests through available channels; a particular form or citation of GDPR is not required.
+Record receipt, claimed identity, scope, responsible role, verification steps, deadlines, actions
+and response in restricted storage outside Git. Route ambiguous requests for clarification without
+using that as an excuse to stall.
 
-- If the **organiser is the controller** and we are a processor: Article 28(3)(e) says we assist
-  them; we do not answer the participant directly. We forward the request to the account holder and
-  tell the participant we have done so. That answer needs to be honest about what it means — that
-  their data sits with a customer of ours whom we will not name without a basis to.
-- If **we are the controller**: we owe the participant a direct answer under Articles 15 and 17, and
-  we need a way to find their data that does not require them to know which account holds it.
-- If **joint controllers**: Article 26(3) lets the subject exercise rights against either of us
-  regardless of what the arrangement says, so we must be able to answer either way.
+Respond without undue delay and ordinarily within one month of receipt. Where the permitted
+complexity/number-of-requests extension is needed, explain it and the reasons within the first
+month; the extension can be up to two additional months. Fees/refusals require the applicable
+grounds and evidence. A refusal must explain the decision and complaint/judicial-remedy options,
+identifying the competent authority rather than assuming IMY in all cases.
+[IMY: rights and deadlines](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/de-registrerades-rattigheter/).
 
-Nothing below is safe to publish until that is settled.
+## 3. Proportionate identity verification
 
-## 2. Intake
+A registered email or authenticated session is useful evidence, not invariably sufficient for
+every sensitive disclosure or destructive operation. Assess reasonable doubt, the data requested
+and the consequences. Prefer established secure channels and the least additional information
+necessary. Approximate date/platform/speaker context may help locate a participant's data but
+does not by itself prove entitlement to the whole meeting.
 
-| Channel | Status |
+Do not routinely solicit ID scans, bank details or home addresses, and never put identity evidence
+in this repository. Article 12(6) permits necessary supplementary information where there are
+reasonable doubts; it is not a general document requirement. Any exceptional verification method
+needs a justified, secure, proportionate process. If identification remains impossible, assess
+the applicable Article 11/12 conditions, explain the limitation and consider further information
+the person supplies. [IMY: identification](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/de-registrerades-rattigheter/identifiering/).
+
+### Implemented self-service deletion identity check after PR75
+
+Password accounts reconfirm their password. Google-only accounts start a separate OIDC round
+through an authenticated, Origin-protected POST from Settings. The server verifies Google's signed
+identity response against the existing Google subject, nonce, audience, issuer and time bounds,
+then returns to Settings for a separate final confirmation. A challenge lasts at most ten minutes;
+a user/session-bound one-use grant lasts at most five minutes. PostgreSQL stores hashes, and the
+raw grant uses an HttpOnly/Secure/SameSite cookie. It is consumed atomically before deletion.
+A provider failure requires a new round for a retry.
+
+A session plus `DELETE`, an email match, a UI flag or selecting an account is insufficient.
+This does not force Google to ask for its password again.
+[Implementation and provider limitation](google-account-deletion.md).
+The automated flow supplements, rather than replaces, a workable rights process for people who
+cannot sign in.
+
+## 4. Rights and current capability
+
+| Right | Proposed handling and actual gap |
 |---|---|
-| Support address | `Unassigned` — the address exists in the plan but is not confirmed as monitored ([support email](support-email.md)) |
-| In-product | Settings covers deletion; there is no "request my data" route |
-| Postal | `Unassigned` |
+| Access, Art. 15 | Locate the person's data and provide the applicable processing information and a copy, protecting others' rights. No general export endpoint is implemented. A secure manual process still needs authorization, review, delivery controls and a synthetic exercise; direct production database access is not authorized by this draft. |
+| Portability, Art. 20 | Assess automated processing based on consent/contract and data provided by the person. Do not assume every inferred summary or every other participant's speech is portable. Use an appropriate structured, commonly used machine-readable format for qualifying data. No complete workflow is implemented. |
+| Rectification, Art. 16 | Assess incorrect attribution or generated statements, preserving needed context without silently presenting inaccurate content as corrected truth. No dedicated correction/annotation workflow exists; a manual change would need a separately approved process. |
+| Erasure, Art. 17 | Apply grounds and exceptions by data purpose. Account deletion has the scoped implementation below. Participant-specific and waitlist deletion workflows remain gaps. |
+| Objection, Art. 21 | Assess the actual basis and grounds. An objection is distinct from erasure; relevant processing may need to stop, and direct-marketing objections have their own rule. No participant objection workflow is implemented. |
+| Restriction, Art. 18 | Assess when continued storage with restricted use is required. A note in a request log alone does not prevent application/provider processing. No enforced restriction mechanism is implemented. |
 
-Requests do not have to use a form, cite an article, or say "GDPR". A message that says *take my
-stuff off your site* is an erasure request and the clock starts on it. Whoever monitors the inbox
-needs to know that, which is a training item, not a code change.
+## 5. What account deletion actually reaches
 
-**Log every request** — date received, channel, claimed identity, right invoked, action taken, date
-answered. Article 5(2) accountability means the register is the evidence that the process ran. It
-must live somewhere that is not this repository, because it contains personal data by definition.
+After PR75, deletion of known Storage audio and Recall recordings must succeed before local account
+erasure proceeds. The local path removes associated meeting content and account/session data
+and clears the local Paddle email/user link with a persistent marker, so late customer upserts
+cannot restore it. The grant is not reusable after failure.
 
-## 3. Identity verification
+This is not a global transaction or proof of complete erasure. Earlier remote deletions may
+already have succeeded when a later one fails; a local database failure can also leave partial
+work requiring a controlled retry. Provider responses are the adapter's success evidence, not
+independent confirmation of every provider backup or retained record.
 
-Article 12(6) allows asking for more information where there is reasonable doubt, but it is not a
-licence to demand documents. Asking a participant for an ID scan to prove they were in a meeting
-would collect far more sensitive data than the request concerns, and would be a breach of
-minimisation in its own right.
+Known limitations include independent Paddle records, retained provider/subscription identifiers,
+failed webhook payloads, waitlist addresses, unknown orphan audio, telemetry and provider backups.
+The verification-send ledger retains events with a nullable user reference until pruning; that
+alone is not proof of anonymization. Expiring database/backup records must not silently recreate
+erased links after restore. See [retention](data-retention.md),
+[billing marker](billing-anonymization.md) and [upload limits](upload-limits.md).
+Do not promise that participant audio is always already gone.
 
-- **Account holder:** answering from the registered address, or acting from an authenticated
-  session, is enough. Deleting the account already re-confirms the password (or, on
-  `fix/security-compliance-hardening`, the account email for OAuth users who have no password).
-- **Meeting participant:** verification is genuinely hard and must not become an excuse to stall.
-  Practical approach — ask only for what narrows the search: an approximate date, the meeting
-  platform, and the name they were labelled with. Never ask for identity documents. If doubt
-  remains, Article 12(2) lets us decline where we genuinely cannot identify the person, but only
-  after saying so and explaining why.
+## 6. Recipient notification
 
-**Never collect an ID document, a bank detail, or a home address to process one of these.** That
-rule holds even when the requester offers.
+Where Article 19 applies, notify recipients of rectification, erasure or restriction unless the
+stated impossibility/disproportionate-effort exception is established; inform the person of those
+recipients on request. Recipients can include processors and independent controllers, not just
+vendors with a DPA. Identify applicable instructions and responsibilities from
+[the role inventory](data-processors.md). A statutory duty does not exist only when a contract
+repeats it. [GDPR Articles 19 and 28 (IMY full text)](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/introduktion-till-gdpr/dataskyddsforordningen-i-fulltext/).
 
-## 4. The rights, and what we can actually do today
+## 7. Acceptance criteria before relying on this procedure
 
-### Access (Art. 15)
-
-The subject may have a copy of their data and the information in Article 15(1) — purposes,
-categories, recipients, retention, and the source. Most of that is answerable straight from
-[the register](ropa.md) and [the processor map](data-processors.md).
-
-**Gap:** there is no export endpoint. A subject access request today is assembled by hand from the
-database, which is slow, error-prone, and requires production access — the very thing the hardening
-work restricts. This is the main argument for building the export in Article 20's shape and using it
-for both rights.
-
-### Portability (Art. 20)
-
-Applies to data the subject provided, processed by consent or contract, by automated means. For an
-account holder that is the account details, meetings, transcripts and chat. Generated summaries and
-documents are arguably not "provided by" them, but including them costs nothing and argues nothing.
-
-**Gap:** not implemented. Format when built: JSON, one archive, machine-readable.
-
-### Rectification (Art. 16)
-
-A transcript is a record of what a provider heard, not a claim about the truth. If a subject says a
-line is wrong, we do not silently rewrite the recording — we note the dispute alongside it and
-correct what is factually correctable, such as a misattributed speaker name. Generated summaries are
-a different matter: an LLM statement about a named person is our output, and if it is inaccurate,
-Article 5(1)(d) means it gets corrected or removed.
-
-**Gap:** no mechanism for either. Today this is a manual database edit.
-
-### Erasure (Art. 17)
-
-- **Account holder:** implemented. Settings deletes the account, and the service purges provider-side
-  media, then chat, documents, transcripts, usage, meetings, sessions, and the user row, logging
-  each step as the audit trail. On `fix/security-compliance-hardening` the Paddle customer identity
-  is anonymised in the same pass, and provider erasure must be confirmed before the local rows go —
-  so a failed remote delete no longer leaves an orphaned recording behind a deleted account.
-- **Meeting participant:** no mechanism. Removing one speaker from a stored transcript is not a
-  supported operation, and the audio it came from is normally gone within hours anyway.
-- **Waitlist subscriber:** no mechanism at all. There is no account to delete, and nothing sweeps
-  the table. Blocking before Live.
-
-What erasure does **not** reach: Paddle's own records, which it keeps as merchant of record under
-its statutory obligations; `email_send_ledger` rows, which survive with the user reference nulled;
-and backups, which age out on their own schedule. All three must be stated in the privacy policy
-rather than discovered by a subject.
-
-### Objection (Art. 21)
-
-Where we rely on legitimate interests — which is the draft basis for processing participants'
-speech — the subject can object, and we must stop unless we show compelling grounds. In practice, a
-participant objection is an erasure request with a different name, and it runs into the same missing
-mechanism.
-
-### Restriction (Art. 18)
-
-No mechanism to mark a meeting as restricted-but-retained. The manual equivalent is to note the
-restriction in the request log and not touch the data.
-
-## 5. Deadlines
-
-- Acknowledge without undue delay; answer within **one month** of receipt.
-- Extendable by **two further months** for complexity, but only if the subject is told of the
-  extension and the reason **within the first month**.
-- Free of charge. A fee or refusal for manifestly unfounded or excessive requests is possible under
-  Article 12(5), and the burden of showing that is ours.
-- Refusals must state the reason, the right to complain to IMY, and the right to a judicial remedy.
-
-## 6. Notifying recipients (Art. 19)
-
-Rectification or erasure must be passed on to each recipient the data went to, unless that proves
-impossible or disproportionate. For us that means the processors in [the register](ropa.md), and
-whether their contracts oblige them to act on such a notice is `Not verified` for all ten. The
-[DPA checklist](dpa-checklist.md) is where that gets established.
-
-## 7. What has to be true before Live
-
-| # | Item | Blocking? |
+| Work | Responsible role | Evidence needed |
 |---|---|---|
-| 1 | Name an owner and a deputy for DSRs | Yes |
-| 2 | Confirm the support address is monitored, and publish it ([support email](support-email.md)) | Yes |
-| 3 | Adviser answers [DPIA](dpia.md) §7, so the participant path can be written down | Yes |
-| 4 | Waitlist deletion and consent withdrawal | Yes |
-| 5 | A request log that lives outside this repository | Yes |
-| 6 | Merge `fix/security-compliance-hardening`, so OAuth-only accounts can be deleted at all and erasure covers billing identity | Yes |
-| 7 | Export endpoint in Article 20 shape, serving both access and portability | No, but it is the difference between a process and a manual reconstruction |
-| 8 | Confirm each processor is contractually obliged to act on an Art. 19 notice | No |
+| Accountable owner/deputy and monitored intake | Owner + support | Named coverage, tested delivery and escalation |
+| Purpose/role and participant path | Adviser + privacy owner | Reviewed identity, search, third-party and response rules |
+| Private request register and delivery | Operations | Access/retention controls and a synthetic end-to-end exercise |
+| Waitlist withdrawal/retention/erasure | Engineering + privacy owner | Implemented and tested paths with matching notice |
+| Access/portability, correction and restriction | Engineering + support + adviser | Exercised scoped manual or product process; a general export platform is outside these PRs |
+| Provider/recipient handling | Owner + providers | Actual contacts, terms and erasure/restriction limitations |
+| Self-service account deletion release | Engineering + operator | Final CI, approved migration and synthetic provider/browser release checks |
 
-## References
+Priorities, dependencies and owners for further launch work are in [launch handoff](launch-handoff.md).
+Nothing here authorizes external messages, collection of real identity documents or production edits.
 
-- [GDPR Chapter III — rights of the data subject](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32016R0679)
-- [IMY: de registrerades rättigheter](https://www.imy.se/privatperson/dataskydd/dina-rattigheter/)
-- [EDPB guidelines 01/2022 on the right of access](https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-012022-data-subject-rights-right-access_en)
+## Additional reference
+
+[EDPB Guidelines 01/2022 on the right of access](https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-012022-data-subject-rights-right-access_en).
