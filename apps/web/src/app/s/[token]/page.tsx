@@ -7,6 +7,14 @@ interface Props {
   params: Promise<{ token: string }>;
 }
 
+/**
+ * A share link is unlisted, not public: it is secret only because the token is. Letting a crawler
+ * index it hands the notes to anyone who searches, no token required — and a search engine's cached
+ * snapshot outlives revocation in a way no Cache-Control header can reach. Applied to both branches
+ * below, so a switched-off link is no more indexable than a live one.
+ */
+const NO_INDEX = { index: false, follow: false } as const;
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { token } = await params;
   try {
@@ -20,6 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return {
       title: `${title} | ${BRAND_NAME}`,
       description,
+      robots: NO_INDEX,
       openGraph: {
         title,
         description,
@@ -37,6 +46,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description: gone
         ? 'This link is no longer available.'
         : 'View shared meeting notes',
+      robots: NO_INDEX,
     };
   }
 }
