@@ -20,7 +20,8 @@ export class DrizzleLiveTranscriptRepository implements LiveTranscriptRepository
     return { seq: Number(row.seq), ...seg };
   }
 
-  async listSince(meetingId: string, afterSeq: number): Promise<LiveTranscriptSegment[]> {
+  async listSince(meetingId: string, afterSeq: number, limit = 500): Promise<LiveTranscriptSegment[]> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new RangeError('Invalid transcript page size');
     const rows = await db
       .select()
       .from(liveTranscriptSegments)
@@ -28,7 +29,8 @@ export class DrizzleLiveTranscriptRepository implements LiveTranscriptRepository
         eq(liveTranscriptSegments.meetingId, meetingId),
         gt(liveTranscriptSegments.seq, afterSeq),
       ))
-      .orderBy(asc(liveTranscriptSegments.seq));
+      .orderBy(asc(liveTranscriptSegments.seq))
+      .limit(limit);
 
     return rows.map(row => ({
       seq: Number(row.seq),

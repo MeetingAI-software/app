@@ -76,3 +76,77 @@ export function perUserRouteLimiter(routeName: string, limit: { max: number; win
     keyOf: (req) => `${req.userId ?? req.ip}:${routeName}`,
   });
 }
+
+export type ConcurrentConnectionLimitScope = 'global' | 'user' | 'resource';
+
+export type ConcurrentConnectionAdmission =
+  | { allowed: false; scope: 'global' | 'user' }
+  | {
+    allowed: true;
+    bindResource: (resourceId: string) =>
+      | { allowed: false; scope: 'resource' }
+      | { allowed: true };
+    release: () => void;
+  };
+
+/**
+ * Process-local occupancy limiter for work that remains allocated until the caller releases it.
+ * Global/user admission happens before resource lookup, then `bindResource` adds the canonical
+ * resource key. Release is idempotent because HTTP lifecycle events commonly overlap.
+ */
+export function createConcurrentConnectionLimiter(limits: {
+  global: number;
+  perUser: number;
+  perResource: number;
+}) {
+  let active = 0;
+  const activeByUser = new Map<string, number>();
+  const activeByResource = new Map<string, number>();
+
+  const count = (entries: Map<string, number>, key: string) => entries.get(key) ?? 0;
+  const decrement = (entries: Map<string, number>, key: string) => {
+    const next = count(entries, key) - 1;
+    if (next <= 0) entries.delete(key);
+    else entries.set(key, next);
+  };
+
+  return {
+    acquire(userId: string): ConcurrentConnectionAdmission {
+      const userActive = count(activeByUser, userId);
+
+      if (userActive >= limits.perUser) return { allowed: false, scope: 'user' };
+      if (active >= limits.global) return { allowed: false, scope: 'global' };
+
+      active += 1;
+      activeByUser.set(userId, userActive + 1);
+
+      let released = false;
+      let boundResource: string | undefined;
+      return {
+        allowed: true,
+        bindResource: (resourceId) => {
+          if (released) throw new Error('Cannot bind a released connection admission');
+          if (boundResource !== undefined) {
+            if (boundResource !== resourceId) {
+              throw new Error('Cannot rebind a connection admission to another resource');
+            }
+            return { allowed: true };
+          }
+
+          const resourceActive = count(activeByResource, resourceId);
+          if (resourceActive >= limits.perResource) return { allowed: false, scope: 'resource' };
+          boundResource = resourceId;
+          activeByResource.set(resourceId, resourceActive + 1);
+          return { allowed: true };
+        },
+        release: () => {
+          if (released) return;
+          released = true;
+          active -= 1;
+          decrement(activeByUser, userId);
+          if (boundResource !== undefined) decrement(activeByResource, boundResource);
+        },
+      };
+    },
+  };
+}

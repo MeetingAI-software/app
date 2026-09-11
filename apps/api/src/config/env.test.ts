@@ -60,6 +60,9 @@ describe('resource limit validation', () => {
     ['MAX_UPLOAD_MB', '101'],
     ['MAX_CONCURRENT_UPLOADS', '0'],
     ['MAX_CONCURRENT_BOTS', '-1'],
+    ['MAX_LIVE_STREAM_CONNECTIONS', '0'],
+    ['MAX_LIVE_STREAM_CONNECTIONS_PER_USER', '51'],
+    ['MAX_LIVE_STREAM_CONNECTIONS_PER_MEETING', '21'],
     ['SESSION_TTL_DAYS', '365'],
     ['CLAUDE_TIMEOUT_MS', '999999'],
   ])('rejects an unsafe %s value', (key, value) => {
@@ -70,6 +73,9 @@ describe('resource limit validation', () => {
     const result = envSchema.parse(productionBase);
     expect(result.MAX_UPLOAD_MB).toBe(50);
     expect(result.MAX_CONCURRENT_UPLOADS).toBe(1);
+    expect(result.MAX_LIVE_STREAM_CONNECTIONS).toBe(50);
+    expect(result.MAX_LIVE_STREAM_CONNECTIONS_PER_USER).toBe(5);
+    expect(result.MAX_LIVE_STREAM_CONNECTIONS_PER_MEETING).toBe(3);
   });
 });
 

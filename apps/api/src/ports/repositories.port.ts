@@ -60,7 +60,7 @@ export interface TranscriptRepository {
 export interface LiveTranscriptRepository {
   append(meetingId: string, seg: TranscriptSegment): Promise<LiveTranscriptSegment>;
   /** Strictly greater than `afterSeq`, oldest first. Pass 0 to read from the start. */
-  listSince(meetingId: string, afterSeq: number): Promise<LiveTranscriptSegment[]>;
+  listSince(meetingId: string, afterSeq: number, limit?: number): Promise<LiveTranscriptSegment[]>;
   deleteByMeeting(meetingId: string): Promise<void>;
 }
 

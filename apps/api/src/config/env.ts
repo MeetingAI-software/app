@@ -23,6 +23,12 @@ export const envSchema = z.object({
   // Not `z.coerce.boolean()` — that maps the string "false" to true, which is the opposite of
   // what anyone setting LIVE_TRANSCRIPT_ENABLED=false intends.
   LIVE_TRANSCRIPT_ENABLED: z.enum(['true', 'false']).default('true').transform(v => v === 'true'),
+  // A stream owns a socket, listener, timer, and recurring database read for its lifetime. These
+  // per-process occupancy caps differ from attempt-rate limits: a slot is returned after the
+  // stream closes and pending database work settles. Caps do not coordinate across API replicas.
+  MAX_LIVE_STREAM_CONNECTIONS: z.coerce.number().int().min(1).max(1000).default(50),
+  MAX_LIVE_STREAM_CONNECTIONS_PER_USER: z.coerce.number().int().min(1).max(50).default(5),
+  MAX_LIVE_STREAM_CONNECTIONS_PER_MEETING: z.coerce.number().int().min(1).max(20).default(3),
   MONTHLY_CAP_SECONDS: z.coerce.number().int().positive().max(31_536_000).default(14400),
   MAX_MEETING_SECONDS: z.coerce.number().int().min(60).max(28_800).default(3600),
   MAX_CONCURRENT_BOTS: z.coerce.number().int().min(1).max(20).default(1),

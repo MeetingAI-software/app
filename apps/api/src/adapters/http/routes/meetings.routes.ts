@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import type { Response } from 'express';
 import { z } from 'zod';
-import type { Meeting } from '../../../domain/types';
 import type {
   MeetingRepository,
   TranscriptRepository,
@@ -11,12 +10,19 @@ import type {
 import type { StartMeetingService } from '../../../application/start-meeting.service';
 import type { LiveTranscriptBus } from '../../realtime/live-transcript.bus';
 import type { DocumentGeneratorPort } from '../../../ports/document-generator.port';
+import type { Meeting, MeetingStatus } from '../../../domain/types';
+import { config } from '../../../config/env';
 import { documentContentSchema } from '../../../domain/document.schema';
 import { MeetingNotReadyError, DocumentGenerationError } from '../../../domain/errors';
 import { detectPlatform, SUPPORTED_PLATFORMS_MESSAGE } from '../../../domain/meeting-platform';
 import { toShareResponse } from './share-response';
-import { perUserRouteLimiter, SPEND_LIMITS } from '../middleware/rate-limit';
+import {
+  createConcurrentConnectionLimiter,
+  perUserRouteLimiter,
+  SPEND_LIMITS,
+} from '../middleware/rate-limit';
 import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
+
 
 /**
  * Both columns these guard are typed, and Postgres refuses a value it cannot cast rather than
@@ -31,6 +37,16 @@ import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Tokens are base64url out of randomBytes, so nothing outside that alphabet was ever issued. */
 const SHARE_TOKEN_RE = /^[A-Za-z0-9_-]+$/;
+
+// Production creates this router once, so this is one atomic occupancy gate for the whole API
+// process. A disconnected stream retains its slot until its pending database work settles.
+const liveStreamConnections = createConcurrentConnectionLimiter({
+  global: config.MAX_LIVE_STREAM_CONNECTIONS,
+  perUser: config.MAX_LIVE_STREAM_CONNECTIONS_PER_USER,
+  perResource: config.MAX_LIVE_STREAM_CONNECTIONS_PER_MEETING,
+});
+const LIVE_REPLAY_PAGE_SIZE = 100;
+
 
 export function createMeetingRoutes(
   meetingRepo: MeetingRepository,
@@ -154,14 +170,88 @@ export function createMeetingRoutes(
   // Registered before the plain /live route only for readability; Express matches on the full
   // path so the order is not load-bearing.
   router.get('/api/meetings/:id/live/stream', async (req, res, next) => {
+    let cleanup: (() => void) | undefined;
+    let workInFlight = 0;
     try {
-      const meeting = await meetingRepo.findByIdForUser(req.params.id, req.userId!);
+      const rejectAdmission = (scope: 'global' | 'user' | 'resource') => {
+        res.setHeader('Retry-After', '5');
+        const globallyFull = scope === 'global';
+        return res.status(globallyFull ? 503 : 429).json({
+          error: globallyFull
+            ? { code: 'LIVE_STREAM_CAPACITY_REACHED', message: 'Live transcript capacity is full; retry shortly' }
+            : { code: 'LIVE_STREAM_LIMIT_REACHED', message: 'Too many concurrent live transcript streams' },
+        });
+      };
+
+      // Reserve global/user capacity before the owner lookup. Otherwise an authenticated caller
+      // can queue unlimited database work while every request waits to discover its meeting key.
+      const admission = liveStreamConnections.acquire(req.userId!);
+      if (!admission.allowed) return rejectAdmission(admission.scope);
+
+      let unsubscribe: (() => void) | undefined;
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      let offShutdown: (() => void) | undefined;
+      let onDrain: (() => void) | undefined;
+      let streamClosed = false;
+      const releaseWhenIdle = () => {
+        // Postgres queries are not cancellable in this repository. Keep the slot occupied after
+        // a disconnect until pending ownership/replay/status work settles, otherwise churn can
+        // accumulate more live queries than the cap it passed through.
+        if (streamClosed && workInFlight === 0) admission.release();
+      };
+      cleanup = () => {
+        if (streamClosed) return;
+        streamClosed = true;
+        req.off('aborted', cleanup!);
+        req.off('close', cleanup!);
+        res.off('error', cleanup!);
+        res.off('finish', cleanup!);
+        res.off('close', cleanup!);
+        if (onDrain) res.off('drain', onDrain);
+        if (heartbeat) clearInterval(heartbeat);
+        unsubscribe?.();
+        offShutdown?.();
+        releaseWhenIdle();
+      };
+
+      // Install lifecycle cleanup before either database lookup. A client can disconnect while
+      // ownership or replay is awaiting the database, before headers, listeners, or timers exist.
+      req.once('aborted', cleanup);
+      req.once('close', cleanup);
+      res.once('error', cleanup);
+      res.once('finish', cleanup);
+      res.once('close', cleanup);
+      // Shutdown must also close clients still waiting for ownership/replay. Keep any database
+      // reservation until its promise settles, even after the socket has been destroyed.
+      offShutdown = liveBus?.onShutdown(() => {
+        cleanup?.();
+        res.destroy();
+      });
+
+      workInFlight += 1;
+      let meeting: Meeting | null;
+      try {
+        meeting = await meetingRepo.findByIdForUser(req.params.id, req.userId!);
+      } finally {
+        workInFlight -= 1;
+        releaseWhenIdle();
+      }
+      if (streamClosed || req.destroyed || res.destroyed || res.writableEnded) return undefined;
       if (!meeting) {
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Meeting not found' } });
       }
       if (!liveRepo || !liveBus) {
         return res.status(503).json({ error: { code: 'LIVE_UNAVAILABLE', message: 'Live transcript is not enabled' } });
       }
+
+      // Bind the canonical, owner-scoped meeting ID before allocating headers or replay state.
+      const resourceAdmission = admission.bindResource(meeting.id);
+      if (!resourceAdmission.allowed) {
+        cleanup();
+        return rejectAdmission(resourceAdmission.scope);
+      }
+
+      const terminal = meeting.status === 'transcribed' || meeting.status === 'failed';
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -175,37 +265,115 @@ export function createMeetingRoutes(
       // Nagle would hold back the small frames that make this feel live.
       res.socket?.setNoDelay(true);
 
-      const send = (event: string, data: unknown, id?: number) => {
-        if (res.writableEnded) return;
-        const idLine = id !== undefined ? `id: ${id}\n` : '';
-        res.write(`${idLine}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      const waitForDrain = () => new Promise<void>((resolve) => {
+        const settled = () => {
+          res.off('drain', settled);
+          res.off('error', settled);
+          res.off('close', settled);
+          resolve();
+        };
+        res.once('drain', settled);
+        res.once('error', settled);
+        res.once('close', settled);
+      });
+      const writeReplayFrame = async (frame: string): Promise<boolean> => {
+        if (streamClosed || res.writableEnded || res.destroyed) return false;
+        if (!res.write(frame)) await waitForDrain();
+        return !streamClosed && !res.writableEnded && !res.destroyed;
       };
+      let liveWriteBackpressured = false;
+      const writeLiveFrame = (frame: string, dropIfBackpressured = false): boolean => {
+        if (streamClosed || res.writableEnded || res.destroyed) return false;
+        if (liveWriteBackpressured) {
+          if (dropIfBackpressured) return true;
+
+          // Final segments are persisted, and terminal state is replayed on reconnect. Closing on
+          // a second durable frame bounds application buffering without losing durable data.
+          res.destroy();
+          cleanup?.();
+          return false;
+        }
+        if (!res.write(frame)) {
+          liveWriteBackpressured = true;
+          onDrain = () => {
+            onDrain = undefined;
+            liveWriteBackpressured = false;
+          };
+          res.once('drain', onDrain);
+        }
+        return true;
+      };
+      const eventFrame = (event: string, data: unknown, id?: number): string => {
+        const idLine = id !== undefined ? `id: ${id}\n` : '';
+        return `${idLine}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+      };
+      const send = (event: string, data: unknown, id?: number, dropIfBackpressured = false): boolean => {
+        return writeLiveFrame(eventFrame(event, data, id), dropIfBackpressured);
+      };
+
+      // Subscribe before replay so a slow/backpressured replay cannot enlarge the database-query
+      // to subscription race. Persisted segments published during replay only mark it dirty; a
+      // follow-up cursor query catches them without growing a per-connection event queue.
+      let replaying = !terminal;
+      let replayDirty = false;
+      let terminalDuringReplay: MeetingStatus | undefined;
+      if (!terminal) {
+        unsubscribe = liveBus.subscribe(meeting.id, (event) => {
+          if (replaying) {
+            if (event.type === 'segment') replayDirty = true;
+            else if (event.type === 'done') terminalDuringReplay = event.status;
+            // Partial hypotheses are replaceable and the latest one will arrive after replay.
+            return;
+          }
+
+          if (event.type === 'segment') {
+            send('segment', event.segment, event.segment.seq);
+          } else if (event.type === 'partial') {
+            // Partial hypotheses are explicitly replaceable, so dropping them under backpressure
+            // is preferable to growing a per-client queue.
+            send('partial', { speaker: event.speaker, text: event.text }, undefined, true);
+          } else {
+            if (send('done', { status: event.status })) res.end();
+          }
+        });
+      }
 
       // Replay anything the client missed. EventSource resends the last id it saw as
       // `Last-Event-ID` on every automatic reconnect, so a dropped connection self-heals with
       // no gap and no duplicates. `?after=` covers the polling client and a fresh page load.
       const lastEventId = Number(req.headers['last-event-id'] ?? req.query.after ?? 0);
-      const after = Number.isFinite(lastEventId) && lastEventId > 0 ? lastEventId : 0;
-      for (const segment of await liveRepo.listSince(meeting.id, after)) {
-        send('segment', segment, segment.seq);
-      }
+      let replayAfter = Number.isFinite(lastEventId) && lastEventId > 0 ? lastEventId : 0;
+      let moreReplay = false;
+      do {
+        replayDirty = false;
+        workInFlight += 1;
+        let replay;
+        try {
+          replay = await liveRepo.listSince(meeting.id, replayAfter, LIVE_REPLAY_PAGE_SIZE);
+        } finally {
+          workInFlight -= 1;
+          releaseWhenIdle();
+        }
+        moreReplay = replay.length === LIVE_REPLAY_PAGE_SIZE;
+        for (const segment of replay) {
+          if (!await writeReplayFrame(eventFrame('segment', segment, segment.seq))) break;
+          replayAfter = Math.max(replayAfter, segment.seq);
+        }
+
+        // Close/abort can fire while listSince() or response drain is pending. Never continue into
+        // heartbeat/shutdown allocation after the request has already released its resources.
+        if (streamClosed || req.destroyed || res.destroyed || res.writableEnded) {
+          cleanup?.();
+          return undefined;
+        }
+      } while (moreReplay || (!terminal && replayDirty));
+      replaying = false;
 
       // The meeting is already over — replay was the whole point of this connection.
-      if (meeting.status === 'transcribed' || meeting.status === 'failed') {
-        send('done', { status: meeting.status });
+      if (terminal || terminalDuringReplay) {
+        if (!send('done', { status: terminalDuringReplay ?? meeting.status })) return undefined;
         return res.end();
       }
-
-      const unsubscribe = liveBus.subscribe(meeting.id, (event) => {
-        if (event.type === 'segment') {
-          send('segment', event.segment, event.segment.seq);
-        } else if (event.type === 'partial') {
-          send('partial', { speaker: event.speaker, text: event.text });
-        } else {
-          send('done', { status: event.status });
-          res.end();
-        }
-      });
 
       // Comment frames keep proxies and load balancers from reaping a silent connection.
       //
@@ -213,35 +381,34 @@ export function createMeetingRoutes(
       // the normal endings, but a meeting can also be failed by the worker giving up after five
       // attempts or by the reconciler — neither holds a reference to the bus. Without this check
       // those connections would be kept alive by their own heartbeat forever.
-      const heartbeat = setInterval(() => {
-        if (res.writableEnded) return;
-        res.write(': ping\n\n');
-        meetingRepo.findById(meeting.id)
+      let statusCheckInFlight = false;
+      heartbeat = setInterval(() => {
+        if (!writeLiveFrame(': ping\n\n', true) || statusCheckInFlight) return;
+        statusCheckInFlight = true;
+        workInFlight += 1;
+        void meetingRepo.findById(meeting.id)
           .then((current) => {
             if (!current || current.status === 'transcribed' || current.status === 'failed') {
-              send('done', { status: current?.status ?? 'failed' });
-              res.end();
+              if (send('done', { status: current?.status ?? 'failed' })) res.end();
             }
           })
-          .catch(() => { /* a transient DB blip must not kill a live transcript */ });
+          .catch(() => { /* a transient DB blip must not kill a live transcript */ })
+          .finally(() => {
+            statusCheckInFlight = false;
+            workInFlight -= 1;
+            releaseWhenIdle();
+          });
       }, 15000);
 
       // On SIGTERM, end the stream instead of letting it hold the server open. The client's
       // EventSource reconnects to the new instance on its own and replays from Last-Event-ID.
-      const offShutdown = liveBus.onShutdown(() => {
-        send('done', { status: meeting.status });
-        res.end();
+      offShutdown?.();
+      offShutdown = liveBus.onShutdown(() => {
+        if (send('done', { status: meeting.status })) res.end();
       });
-
-      const cleanup = () => {
-        clearInterval(heartbeat);
-        unsubscribe();
-        offShutdown();
-      };
-      req.on('close', cleanup);
-      res.on('close', cleanup);
       return undefined;
     } catch (err) {
+      cleanup?.();
       return next(err);
     }
   });
