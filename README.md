@@ -25,6 +25,10 @@ Local development runs against a throwaway Postgres container with fabricated da
 The API refuses to start against a remote database from a terminal — see
 [local development](docs/local-development.md) for the full setup and the guards you will meet.
 
+Every other document lives in [`docs/`](docs/README.md), which indexes them by subject and puts them
+in launch order with an owner per step. Where the launch stands today is in the
+[launch handoff](docs/launch-handoff.md).
+
 ## Email verification
 
 Password signups receive a single-use, 24-hour email verification link. Delivery can use structured
