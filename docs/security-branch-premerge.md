@@ -26,8 +26,11 @@ Owner: `Unassigned` — assign before merging.
 ## 2. Bounded configuration
 
 The branch replaces unbounded coercion with explicit ranges. Read the current production value for
-each variable in Railway and confirm it is inside the range. An empty variable is fine — the
-default applies; a value outside the range is a hard boot failure.
+each variable in Railway and confirm it is inside the range. The schema explicitly normalizes
+empty/whitespace-only optional and defaulted string fields and numeric limits to absence before
+validation. Numeric defaults therefore apply to blanks; raw JavaScript number coercion would have
+produced zero. Nonblank out-of-range values remain boot errors. Required values for enabled
+providers, recording and registration must still be supplied and valid.
 
 | Variable | Allowed | Default |
 |---|---|---|
