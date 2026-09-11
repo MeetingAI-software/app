@@ -264,7 +264,7 @@ describe('live transcript routes', () => {
       }
     });
 
-    it('bounds live backpressure and replays the unsent durable segment after reconnect', async () => {
+    it('bounds live backpressure and replays the unsent durable segment after disconnect', async () => {
       const originalWrite = ServerResponse.prototype.write;
       let blockedResponse: ServerResponse | undefined;
       const write = vi.spyOn(ServerResponse.prototype, 'write').mockImplementation(function (this: ServerResponse, ...args: Parameters<ServerResponse['write']>) {
@@ -285,7 +285,12 @@ describe('live transcript routes', () => {
         expect(new TextDecoder().decode((await reader.read()).value)).toContain('id: 1');
         stored.push(second);
         bus.publish('m1', { type: 'segment', segment: second });
-        await expect(reader.read()).rejects.toThrow();
+        // New publications only dirty the active replay. There is one blocked frame and no
+        // growing application queue or concurrent cursor queries while the client cannot drain.
+        for (let i = 0; i < 100; i++) bus.publish('m1', { type: 'segment', segment: second });
+        expect(liveRepo.listSince).toHaveBeenCalledTimes(2);
+        expect(blockedResponse?.listenerCount('drain')).toBe(1);
+        await reader.cancel();
         await vi.waitFor(() => expect(bus.subscriberCount('m1')).toBe(0));
         expect(blockedResponse?.listenerCount('drain')).toBe(0);
         write.mockRestore();
@@ -324,10 +329,9 @@ describe('live transcript routes', () => {
       expect(buffer).toContain('id: 1');
       expect(buffer).toContain('event: segment');
 
-      bus.publish('m1', {
-        type: 'segment',
-        segment: { seq: 2, startMs: 1000, endMs: 2000, speaker: 'Ada', text: 'streamed' },
-      });
+      const streamed = { seq: 2, startMs: 1000, endMs: 2000, speaker: 'Ada', text: 'streamed' };
+      stored.push(streamed);
+      bus.publish('m1', { type: 'segment', segment: streamed });
       await readUntil('streamed');
 
       bus.publish('m1', { type: 'partial', speaker: 'Ada', text: 'in-fli' });
@@ -349,10 +353,9 @@ describe('live transcript routes', () => {
 
       // Read one broadcast frame first. The handler registers its shutdown hook immediately
       // after subscribing to the bus, so receiving this proves the hook is in place.
-      bus.publish('m1', {
-        type: 'segment',
-        segment: { seq: 1, startMs: 0, endMs: 1, speaker: 'Ada', text: 'talking' },
-      });
+      const talking = { seq: 1, startMs: 0, endMs: 1, speaker: 'Ada', text: 'talking' };
+      stored.push(talking);
+      bus.publish('m1', { type: 'segment', segment: talking });
       await reader.read();
 
       bus.shutdown();
@@ -368,6 +371,20 @@ describe('live transcript routes', () => {
       }
       expect(farewell).toContain('event: done');
       await vi.waitFor(() => expect(bus.subscriberCount('m1')).toBe(0));
+    });
+
+    it('reads commits in cursor order when publications arrive in reverse order', async () => {
+      const response = await asOwner('/api/meetings/m1/live/stream');
+      const first = { seq: 1, startMs: 0, endMs: 1, speaker: 'Test', text: 'lower sequence' };
+      const second = { ...first, seq: 2, text: 'higher sequence' };
+      stored.push(first, second);
+      bus.publish('m1', { type: 'segment', segment: second });
+      bus.publish('m1', { type: 'segment', segment: first });
+      bus.publish('m1', { type: 'done', status: 'transcribed' });
+      const body = await response.text();
+      expect([...body.matchAll(/^id: (\d+)$/gm)].map(match => Number(match[1]))).toEqual([1, 2]);
+      expect(body.match(/lower sequence/g)).toHaveLength(1);
+      expect(body).toContain('event: done');
     });
 
     it('replays only what the client has not seen, from Last-Event-ID', async () => {

@@ -69,6 +69,24 @@ describe('DrizzleLiveTranscriptRepository', () => {
       expect(b.seq).toBeGreaterThan(a.seq);
     });
 
+    it('preserves every concurrent append across bounded cursor pages', async () => {
+      const appended = await Promise.all(Array.from({ length: 20 }, (_, i) =>
+        repo.append(meetingA, segment({ text: `concurrent-${i}` })),
+      ));
+      const seen: string[] = [];
+      let cursor = 0;
+      for (;;) {
+        const page = await repo.listSince(meetingA, cursor, 3);
+        if (!page.length) break;
+        for (const row of page) {
+          expect(row.seq).toBeGreaterThan(cursor);
+          seen.push(row.text);
+          cursor = row.seq;
+        }
+      }
+      expect(seen.sort()).toEqual(appended.map(row => row.text).sort());
+    });
+
     // `seq` is a single global sequence, not per-meeting — that is what lets it double as the SSE
     // `Last-Event-ID` cursor. Pinned because making it per-meeting would look tidier and would
     // quietly break replay across reconnects.

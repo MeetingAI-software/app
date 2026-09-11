@@ -58,6 +58,7 @@ export interface TranscriptRepository {
  * deleted. `seq` is monotonic and global, and is the cursor for both SSE replay and polling.
  */
 export interface LiveTranscriptRepository {
+  /** Commit sequence order per meeting: no lower seq may become visible after a higher one. */
   append(meetingId: string, seg: TranscriptSegment): Promise<LiveTranscriptSegment>;
   /** Strictly greater than `afterSeq`, oldest first. Pass 0 to read from the start. */
   listSince(meetingId: string, afterSeq: number, limit?: number): Promise<LiveTranscriptSegment[]>;

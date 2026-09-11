@@ -311,68 +311,71 @@ export function createMeetingRoutes(
         return writeLiveFrame(eventFrame(event, data, id), dropIfBackpressured);
       };
 
-      // Subscribe before replay so a slow/backpressured replay cannot enlarge the database-query
-      // to subscription race. Persisted segments published during replay only mark it dirty; a
-      // follow-up cursor query catches them without growing a per-connection event queue.
-      let replaying = !terminal;
+      // A notification is only a wake-up: publishes can arrive in a different order from DB
+      // commits. Read both initial replay and live durable segments through one ordered cursor.
+      const lastEventId = Number(req.headers['last-event-id'] ?? req.query.after ?? 0);
+      let replayAfter = Number.isFinite(lastEventId) && lastEventId > 0 ? lastEventId : 0;
+      let replaying = false;
       let replayDirty = false;
       let terminalDuringReplay: MeetingStatus | undefined;
+      const replayPersisted = async (): Promise<void> => {
+        replayDirty = true;
+        if (replaying) return;
+        replaying = true;
+        try {
+          let moreReplay = false;
+          do {
+            replayDirty = false;
+            workInFlight += 1;
+            let replay;
+            try {
+              replay = await liveRepo.listSince(meeting.id, replayAfter, LIVE_REPLAY_PAGE_SIZE);
+            } finally {
+              workInFlight -= 1;
+              releaseWhenIdle();
+            }
+            moreReplay = replay.length === LIVE_REPLAY_PAGE_SIZE;
+            for (const segment of replay) {
+              if (!await writeReplayFrame(eventFrame('segment', segment, segment.seq))) break;
+              replayAfter = Math.max(replayAfter, segment.seq);
+            }
+            if (streamClosed || req.destroyed || res.destroyed || res.writableEnded) {
+              cleanup?.();
+              return;
+            }
+          } while (moreReplay || replayDirty);
+
+          if (terminal || terminalDuringReplay) {
+            if (send('done', { status: terminalDuringReplay ?? meeting.status })) res.end();
+          }
+        } finally {
+          replaying = false;
+        }
+      };
+      const wakeReplay = () => {
+        void replayPersisted().catch(() => {
+          cleanup?.();
+          res.destroy();
+        });
+      };
+
+      // Subscribe before the first query. During a slow query/drain only this dirty bit changes;
+      // there is no per-connection segment queue. The repository commits same-meeting seqs in order.
       if (!terminal) {
         unsubscribe = liveBus.subscribe(meeting.id, (event) => {
-          if (replaying) {
-            if (event.type === 'segment') replayDirty = true;
-            else if (event.type === 'done') terminalDuringReplay = event.status;
-            // Partial hypotheses are replaceable and the latest one will arrive after replay.
-            return;
-          }
-
           if (event.type === 'segment') {
-            send('segment', event.segment, event.segment.seq);
+            wakeReplay();
           } else if (event.type === 'partial') {
-            // Partial hypotheses are explicitly replaceable, so dropping them under backpressure
-            // is preferable to growing a per-client queue.
-            send('partial', { speaker: event.speaker, text: event.text }, undefined, true);
+            if (!replaying) send('partial', { speaker: event.speaker, text: event.text }, undefined, true);
           } else {
-            if (send('done', { status: event.status })) res.end();
+            terminalDuringReplay = event.status;
+            wakeReplay();
           }
         });
       }
-
-      // Replay anything the client missed. EventSource resends the last id it saw as
-      // `Last-Event-ID` on every automatic reconnect, so a dropped connection self-heals with
-      // no gap and no duplicates. `?after=` covers the polling client and a fresh page load.
-      const lastEventId = Number(req.headers['last-event-id'] ?? req.query.after ?? 0);
-      let replayAfter = Number.isFinite(lastEventId) && lastEventId > 0 ? lastEventId : 0;
-      let moreReplay = false;
-      do {
-        replayDirty = false;
-        workInFlight += 1;
-        let replay;
-        try {
-          replay = await liveRepo.listSince(meeting.id, replayAfter, LIVE_REPLAY_PAGE_SIZE);
-        } finally {
-          workInFlight -= 1;
-          releaseWhenIdle();
-        }
-        moreReplay = replay.length === LIVE_REPLAY_PAGE_SIZE;
-        for (const segment of replay) {
-          if (!await writeReplayFrame(eventFrame('segment', segment, segment.seq))) break;
-          replayAfter = Math.max(replayAfter, segment.seq);
-        }
-
-        // Close/abort can fire while listSince() or response drain is pending. Never continue into
-        // heartbeat/shutdown allocation after the request has already released its resources.
-        if (streamClosed || req.destroyed || res.destroyed || res.writableEnded) {
-          cleanup?.();
-          return undefined;
-        }
-      } while (moreReplay || (!terminal && replayDirty));
-      replaying = false;
-
-      // The meeting is already over — replay was the whole point of this connection.
-      if (terminal || terminalDuringReplay) {
-        if (!send('done', { status: terminalDuringReplay ?? meeting.status })) return undefined;
-        return res.end();
+      await replayPersisted();
+      if (terminal || terminalDuringReplay || streamClosed || res.destroyed || res.writableEnded) {
+        return undefined;
       }
 
       // Comment frames keep proxies and load balancers from reaping a silent connection.
@@ -389,7 +392,8 @@ export function createMeetingRoutes(
         void meetingRepo.findById(meeting.id)
           .then((current) => {
             if (!current || current.status === 'transcribed' || current.status === 'failed') {
-              if (send('done', { status: current?.status ?? 'failed' })) res.end();
+              terminalDuringReplay = current?.status ?? 'failed';
+              wakeReplay();
             }
           })
           .catch(() => { /* a transient DB blip must not kill a live transcript */ })
