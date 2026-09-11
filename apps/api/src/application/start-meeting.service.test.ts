@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MeetingRepository } from '../ports/repositories.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import type { Meeting, MeetingStatus } from '../domain/types';
-import { BotProviderError, CapExceededError } from '../domain/errors';
+import { BotProviderError, CapExceededError, BOT_PROVIDER_MESSAGE } from '../domain/errors';
 import { StartMeetingService } from './start-meeting.service';
 import type { UsageMeterService } from './usage-meter.service';
 
@@ -147,15 +147,16 @@ describe('StartMeetingService', () => {
         .rejects.toBeInstanceOf(BotProviderError);
 
       expect(updateStatus).toHaveBeenCalledWith('m1', 'failed', {
-        errorMessage: 'Recall rejected the link',
+        errorMessage: BOT_PROVIDER_MESSAGE,
       });
     });
 
-    it('keeps the provider’s own words in the error, for the console and for Sentry', async () => {
+    it('discards provider words before persistence and monitoring', async () => {
       createBot.mockRejectedValue(new Error('meeting has already ended'));
 
       await expect(service.start('u1', 'https://us02web.zoom.us/j/123'))
-        .rejects.toThrow('meeting has already ended');
+        .rejects.toThrow(BOT_PROVIDER_MESSAGE);
+      expect(JSON.stringify(updateStatus.mock.calls)).not.toContain('meeting has already ended');
     });
 
     // A provider can reject with something that has no `.message` at all. The meeting must still be
@@ -167,7 +168,7 @@ describe('StartMeetingService', () => {
         .rejects.toBeInstanceOf(BotProviderError);
 
       expect(updateStatus).toHaveBeenCalledWith('m1', 'failed', {
-        errorMessage: 'Failed to create bot',
+        errorMessage: BOT_PROVIDER_MESSAGE,
       });
     });
 
@@ -192,7 +193,7 @@ describe('StartMeetingService', () => {
 
     // The guard fires inside the try, so the same catch closes the meeting out.
     expect(updateStatus).toHaveBeenCalledWith('m1', 'failed', expect.objectContaining({
-      errorMessage: expect.stringContaining('Invalid transition'),
+      errorMessage: BOT_PROVIDER_MESSAGE,
     }));
   });
 });

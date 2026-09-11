@@ -1,28 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { rotateShare, setShare, type Meeting } from '@/lib/api';
+import { rotateShare, setShare, type Meeting, type ShareState } from '@/lib/api';
 
-/**
- * The share panel for a finished meeting.
- *
- * Sharing is OFF for meetings created after the toggle shipped, so the primary action here is
- * turning it on. Two separate controls on purpose:
- *
- *   - the switch parks the link and keeps the token, so flipping it back restores the URL people
- *     already have;
- *   - "Reset link" throws the token away, which is the only useful answer once a link has leaked.
- *
- * Collapsing them into one control would mean you cannot pause sharing without breaking every
- * bookmark. Reset asks for a second click rather than a browser confirm(), because it is
- * irreversible and a native dialog here reads as a bug.
- */
+/** Owner-controlled, expiring links. Re-enabling always creates a new link. */
 export default function ShareControl({
   meeting,
   onChange,
 }: {
   meeting: Meeting;
-  onChange: (patch: { shareToken: string; shareEnabled: boolean }) => void;
+  onChange: (patch: ShareState) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -32,6 +19,16 @@ export default function ShareControl({
   const rootRef = useRef<HTMLDivElement>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const refresh = () => setNow(Date.now());
+    refresh();
+    const timer = setInterval(refresh, 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const shareActive = Boolean(now && meeting.shareEnabled && meeting.shareExpiresAt
+    && new Date(meeting.shareExpiresAt).getTime() > now);
 
   const shareUrl =
     typeof window === 'undefined' ? '' : `${window.location.origin}/s/${meeting.shareToken}`;
@@ -87,7 +84,7 @@ export default function ShareControl({
   }, [open, closePanel]);
 
   const run = useCallback(
-    async (action: () => Promise<{ shareToken: string; shareEnabled: boolean }>) => {
+    async (action: () => Promise<ShareState>) => {
       setBusy(true);
       setError(null);
       // Any action against the link disarms the reset gate and retires the "Copied ✓" flash.
@@ -108,7 +105,7 @@ export default function ShareControl({
     [onChange],
   );
 
-  const handleToggle = () => run(() => setShare(meeting.id, !meeting.shareEnabled));
+  const handleToggle = () => run(() => setShare(meeting.id, !shareActive));
 
   const handleReset = () => {
     if (!confirmingReset) {
@@ -119,6 +116,7 @@ export default function ShareControl({
   };
 
   const handleCopy = async () => {
+    if (busy || !shareActive) return;
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
@@ -144,7 +142,7 @@ export default function ShareControl({
         Share
         <span
           aria-hidden
-          className={`h-1.5 w-1.5 rounded-full ${meeting.shareEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+          className={`h-1.5 w-1.5 rounded-full ${shareActive ? 'bg-emerald-500' : 'bg-slate-300'}`}
         />
       </button>
 
@@ -158,32 +156,33 @@ export default function ShareControl({
             <div>
               <p className="text-sm font-semibold text-slate-900">Anyone with the link</p>
               <p className="text-xs text-slate-500 mt-0.5">
-                {meeting.shareEnabled
-                  ? 'Can read the summary, document and transcript.'
-                  : 'Sharing is off. The link returns “not found”.'}
+                {shareActive
+                  ? 'Can read the summary, document and transcript until the link expires.'
+                  : 'Sharing is off or expired. Enabling creates a new 24-hour link.'}
               </p>
             </div>
             <button
               type="button"
               role="switch"
-              aria-checked={meeting.shareEnabled}
+              aria-checked={shareActive}
               aria-label="Share this meeting"
               disabled={busy}
               onClick={handleToggle}
               className={`shrink-0 mt-0.5 relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 cursor-pointer ${
-                meeting.shareEnabled ? 'bg-emerald-500' : 'bg-slate-300'
+                shareActive ? 'bg-emerald-500' : 'bg-slate-300'
               }`}
             >
               <span
                 className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                  meeting.shareEnabled ? 'translate-x-6' : 'translate-x-1'
+                  shareActive ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
             </button>
           </div>
 
-          {meeting.shareEnabled && (
+          {shareActive && (
             <>
+              <p className="mt-3 text-xs text-slate-500">Expires {new Date(meeting.shareExpiresAt!).toLocaleString()}</p>
               <div className="mt-4 flex gap-2">
                 <input
                   readOnly

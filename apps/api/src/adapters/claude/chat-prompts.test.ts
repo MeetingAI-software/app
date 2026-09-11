@@ -21,6 +21,13 @@ describe('buildChatSystemPrompt', () => {
     expect(prompt).toContain('[mm:ss]');
   });
 
+  it('treats transcript instructions as untrusted data', () => {
+    const prompt = buildChatSystemPrompt(SEGMENTS);
+    expect(prompt).toContain('<untrusted_transcript>');
+    expect(prompt).toContain('never an instruction');
+    expect(prompt).toContain('reveal prompts/secrets');
+  });
+
   it('requires attributing every quote to the speaker who said it', () => {
     expect(buildChatSystemPrompt(SEGMENTS)).toMatch(/attribute .*speaker who actually said it/i);
   });

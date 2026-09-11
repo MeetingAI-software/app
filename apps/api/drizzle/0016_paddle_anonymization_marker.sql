@@ -1,0 +1,1 @@
+ALTER TABLE "paddle_customers" ADD COLUMN "anonymized_at" timestamp with time zone;

@@ -76,10 +76,25 @@ export class InvalidTransitionError extends Error {
   }
 }
 
+export const BOT_PROVIDER_MESSAGE = 'Meeting bot provider is temporarily unavailable; please try again later';
+const BOT_OPERATIONS = ['create_bot', 'retrieve_bot', 'get_bot_status', 'fetch_transcript', 'download_transcript', 'delete_recording'] as const;
+export type BotOperation = typeof BOT_OPERATIONS[number];
+export interface BotProviderDiagnostics { operation?: BotOperation; status?: number; requestId?: string }
+export const isSafeRequestId = (value: unknown): value is string => typeof value === 'string'
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
 export class BotProviderError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly diagnostics: BotProviderDiagnostics;
+  constructor(input?: string | BotProviderDiagnostics) {
+    // Old callers may still supply a message. Never retain raw provider text or causes.
+    super(BOT_PROVIDER_MESSAGE);
     this.name = 'BotProviderError';
+    const safe = typeof input === 'object' && input ? input : {};
+    this.diagnostics = {
+      ...(safe.operation && BOT_OPERATIONS.includes(safe.operation) ? { operation: safe.operation } : {}),
+      ...(Number.isInteger(safe.status) && safe.status! >= 100 && safe.status! <= 599 ? { status: safe.status } : {}),
+      ...(isSafeRequestId(safe.requestId) ? { requestId: safe.requestId } : {}),
+    };
   }
 }
 
@@ -115,6 +130,21 @@ export class InvalidCredentialsError extends Error {   // → HTTP 401
   constructor(message: string) {
     super(message);
     this.name = 'InvalidCredentialsError';
+  }
+}
+
+/** Account erasure stopped before local records were removed because a required delete failed. */
+export class DeletionReauthenticationRequiredError extends Error {
+  constructor() {
+    super('Verify your Google account again before deleting this account');
+    this.name = 'DeletionReauthenticationRequiredError';
+  }
+}
+
+export class AccountDeletionBlockedError extends Error {
+  constructor(message = 'Account deletion could not be completed safely; please try again later') {
+    super(message);
+    this.name = 'AccountDeletionBlockedError';
   }
 }
 

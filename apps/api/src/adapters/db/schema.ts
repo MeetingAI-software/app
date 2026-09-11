@@ -12,11 +12,11 @@ export const meetings = pgTable('meetings', {
   errorMessage: text('error_message'),
   summary: text('summary'),
   shareToken: text('share_token').notNull().unique(),
-  // A share link you cannot switch off is not a share link, it is a publication. Defaults to
-  // false so a meeting is private until its owner decides otherwise; the migration backfills
-  // pre-existing rows to true so links already handed out keep working.
   shareEnabled: boolean('share_enabled').notNull().default(false),
+  shareExpiresAt: timestamp('share_expires_at', { withTimezone: true }),
   participantNames: jsonb('participant_names'),                    // Day 3: string[] entered before an in-room recording
+  recordingNoticeConfirmedAt: timestamp('recording_notice_confirmed_at', { withTimezone: true }),
+  recordingNoticeVersion: text('recording_notice_version'),
   audioStoragePath: text('audio_storage_path'),                   // Day 3: Supabase Storage path for uploads
   transcriptionJobId: text('transcription_job_id'),               // Day 3: AssemblyAI job id for uploads
   ownerUserId: uuid('owner_user_id').notNull().references(() => users.id),  // Day 6 §6: the DB is the guard — an ownerless meeting is invisible, so make it impossible
@@ -26,6 +26,7 @@ export const meetings = pgTable('meetings', {
   meetingsStatusIdx: index('meetings_status_idx').on(t.status),
   meetingsBotIdIdx: index('meetings_bot_id_idx').on(t.botId),
   meetingsOwnerUserIdIdx: index('meetings_owner_user_id_idx').on(t.ownerUserId),
+  meetingsShareExpiryIdx: index('meetings_share_expiry_idx').on(t.shareEnabled, t.shareExpiresAt),
 }));
 
 export const transcripts = pgTable('transcripts', {
@@ -103,6 +104,9 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash'),                            // nullable for OAuth users
   googleId: text('google_id').unique(),                           // Google OAuth sub ID
   emailVerified: boolean('email_verified').notNull().default(false), // true for OAuth / verified
+  organizationName: text('organization_name'),
+  businessUseConfirmedAt: timestamp('business_use_confirmed_at', { withTimezone: true }),
+  termsVersionAccepted: text('terms_version_accepted'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -149,12 +153,28 @@ export const sessions = pgTable('sessions', {
   sessionsUserIdIdx: index('sessions_user_id_idx').on(t.userId),
 }));
 
+// Single-use deletion challenges and grants, bounded to one row per live session.
+export const accountDeletionAuthorizations = pgTable('account_deletion_authorizations', {
+  sessionId: uuid('session_id').primaryKey().references(() => sessions.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  googleSub: text('google_sub').notNull(),
+  stateHash: text('state_hash').notNull().unique(),
+  nonceHash: text('nonce_hash').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+  grantHash: text('grant_hash').unique(),
+  grantExpiresAt: timestamp('grant_expires_at', { withTimezone: true }),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+});
+
 // Paddle is the billing source of truth. Customer rows may be created as placeholders when
 // subscription webhooks arrive first; a later customer webhook fills in email/user ownership.
 export const paddleCustomers = pgTable('paddle_customers', {
   customerId: text('customer_id').primaryKey(),
   email: text('email'),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  anonymizedAt: timestamp('anonymized_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

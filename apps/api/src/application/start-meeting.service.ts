@@ -13,14 +13,27 @@ export class StartMeetingService {
     private readonly botAdapter: MeetingBotPort
   ) {}
 
-  async start(userId: string, meetingUrl: string): Promise<Meeting> {
+  async start(
+    userId: string,
+    meetingUrl: string,
+    recordingNotice?: { confirmedAt: Date; version: string },
+  ): Promise<Meeting> {
     // 1. Assert we have budget/quota (per user)
     const entitlements = await this.usageMeter.assertCanStartMeeting(userId);
 
     // 2. Create the pending meeting row, owned by this user.
     // The route already rejected unsupported hosts, so detectPlatform cannot be null here.
     const platform = detectPlatform(meetingUrl) ?? 'zoom';
-    const meeting = await this.meetingRepo.create({ ownerUserId: userId, source: 'bot', meetingUrl, platform });
+    const meeting = await this.meetingRepo.create({
+      ownerUserId: userId,
+      source: 'bot',
+      meetingUrl,
+      platform,
+      ...(recordingNotice ? {
+        recordingNoticeConfirmedAt: recordingNotice.confirmedAt,
+        recordingNoticeVersion: recordingNotice.version,
+      } : {}),
+    });
 
     try {
       // 3. Request the bot join the meeting
@@ -37,12 +50,14 @@ export class StartMeetingService {
       });
 
       return updated;
-    } catch (err: any) {
-      // If bot creation fails, mark meeting as failed
+    } catch (err) {
+      const failure = new BotProviderError(err instanceof BotProviderError ? err.diagnostics : { operation: 'create_bot' });
+      // Persist only the same generic failure returned to the caller, retaining safe diagnostics
+      // in the exception for monitoring rather than storing provider text on the meeting.
       await this.meetingRepo.updateStatus(meeting.id, 'failed', {
-        errorMessage: err?.message || 'Failed to create bot',
+        errorMessage: failure.message,
       });
-      throw new BotProviderError(err?.message || 'Bot provider failed to initialize');
+      throw failure;
     }
   }
 }

@@ -65,6 +65,8 @@ describe('DrizzleMeetingRepository', () => {
       expect(meeting.platform).toBe('zoom');      // default when not supplied
       expect(meeting.meetingUrl).toBeNull();      // uploads have no URL
       expect(meeting.shareToken).toBeTruthy();
+      expect(meeting.shareEnabled).toBe(false);
+      expect(meeting.shareExpiresAt).toBeNull();
       expect(meeting.createdAt).toBeInstanceOf(Date);
     });
 
@@ -75,12 +77,15 @@ describe('DrizzleMeetingRepository', () => {
     });
 
     it('stores the supplied platform, url and participant names', async () => {
+      const confirmedAt = new Date('2026-08-24T12:00:00Z');
       const meeting = await repo.create({
         ownerUserId: alice,
         source: 'upload',
         meetingUrl: 'https://meet.google.com/abc',
         platform: 'google_meet',
         participantNames: ['Ada', 'Grace'],
+        recordingNoticeConfirmedAt: confirmedAt,
+        recordingNoticeVersion: '2026-08-24',
       });
 
       expect(meeting.source).toBe('upload');
@@ -88,6 +93,8 @@ describe('DrizzleMeetingRepository', () => {
       expect(meeting.meetingUrl).toBe('https://meet.google.com/abc');
       // jsonb round-trip: must come back as an array, not a string.
       expect(meeting.participantNames).toEqual(['Ada', 'Grace']);
+      expect(meeting.recordingNoticeConfirmedAt).toEqual(confirmedAt);
+      expect(meeting.recordingNoticeVersion).toBe('2026-08-24');
     });
 
     // Migration 0009 made owner_user_id NOT NULL precisely so an ownerless (and therefore invisible)
@@ -205,12 +212,24 @@ describe('DrizzleMeetingRepository', () => {
       expect(await repo.findByBotId('bot-nope')).toBeNull();
     });
 
-    // The share token is the entire authorisation model for the public share page: whoever holds it
-    // reads the meeting. A lookup that matched on anything else would expose the wrong meeting.
-    it('finds by share token, and returns null for an unknown one', async () => {
-      const m = await insertMeeting({ shareToken: 'share-me' });
+    it('finds only an enabled, unexpired share token', async () => {
+      const m = await insertMeeting({
+        shareToken: 'share-me', shareEnabled: true, shareExpiresAt: new Date(Date.now() + HOUR),
+      });
       expect((await repo.findByShareToken('share-me'))?.id).toBe(m.id);
       expect(await repo.findByShareToken('share-other')).toBeNull();
+    });
+
+    it('rejects disabled and expired share tokens', async () => {
+      await insertMeeting({
+        shareToken: 'disabled', shareEnabled: false, shareExpiresAt: new Date(Date.now() + HOUR),
+      });
+      await insertMeeting({
+        shareToken: 'expired', shareEnabled: true, shareExpiresAt: new Date(Date.now() - HOUR),
+      });
+
+      expect(await repo.findByShareToken('disabled')).toBeNull();
+      expect(await repo.findByShareToken('expired')).toBeNull();
     });
 
     it('does not accept a meeting id in place of a share token', async () => {
@@ -226,29 +245,32 @@ describe('DrizzleMeetingRepository', () => {
   });
 
   describe('share controls', () => {
-    // A link you cannot switch off is a publication, not a share. These two operations answer
-    // different questions — "stop sharing" and "this leaked" — and the split only holds if
-    // disabling preserves the token while rotating destroys it.
+    // All entry points enforce expiry. Disabling retires the link; re-enabling rotates it.
     it('creates a meeting unshared', async () => {
       const m = await repo.create({ ownerUserId: alice, source: 'bot' });
       expect(m.shareEnabled).toBe(false);
     });
 
-    it('enables and disables sharing without changing the token', async () => {
+    it('enables a fresh expiring token and never resurrects a revoked link', async () => {
       const m = await insertMeeting({ shareToken: 'stable-tok' });
 
       const enabled = await repo.setShareEnabled(m.id, alice, true);
       expect(enabled?.shareEnabled).toBe(true);
-      expect(enabled?.shareToken).toBe('stable-tok');
+      expect(enabled?.shareToken).not.toBe('stable-tok');
+      expect(enabled!.shareExpiresAt!.getTime()).toBeGreaterThan(Date.now() + 23 * HOUR);
+      expect(enabled!.shareExpiresAt!.getTime()).toBeLessThanOrEqual(Date.now() + 24 * HOUR);
 
       const disabled = await repo.setShareEnabled(m.id, alice, false);
       expect(disabled?.shareEnabled).toBe(false);
-      // Re-enabling has to restore the URL people already have, so the token must survive.
-      expect(disabled?.shareToken).toBe('stable-tok');
+      expect(disabled?.shareToken).toBe(enabled?.shareToken);
+      expect(disabled?.shareExpiresAt).toBeNull();
+      const reenabled = await repo.setShareEnabled(m.id, alice, true);
+      expect(reenabled?.shareToken).not.toBe(enabled?.shareToken);
+      expect(await repo.findByShareToken(enabled!.shareToken)).toBeNull();
     });
 
     it('rotating mints a new token and strands the old one', async () => {
-      const m = await insertMeeting({ shareToken: 'leaked-tok', shareEnabled: true });
+      const m = await insertMeeting({ shareToken: 'leaked-tok', shareEnabled: true, shareExpiresAt: new Date(Date.now() + HOUR) });
 
       const rotated = await repo.rotateShareToken(m.id, alice);
 
@@ -256,6 +278,7 @@ describe('DrizzleMeetingRepository', () => {
       expect(rotated!.shareToken.length).toBeGreaterThan(0);
       expect(await repo.findByShareToken('leaked-tok')).toBeNull();
       expect((await repo.findByShareToken(rotated!.shareToken))?.id).toBe(m.id);
+      expect(rotated!.shareExpiresAt).toEqual(m.shareExpiresAt);
     });
 
     it('rotating leaves the enabled flag alone', async () => {
@@ -420,6 +443,49 @@ describe('DrizzleMeetingRepository', () => {
         await insertMeeting({ status, updatedAt: stale });
       }
       expect(await repo.findStuckActiveOlderThan(15)).toHaveLength(3);
+    });
+  });
+
+  describe('share lifecycle', () => {
+    it('enables sharing for the owner, rotates the token, and sets an expiry', async () => {
+      const original = await insertMeeting({ ownerUserId: alice });
+      const expiresAt = new Date(Date.now() + HOUR);
+
+      const shared = await repo.enableShare(original.id, alice, expiresAt);
+
+      expect(shared?.shareEnabled).toBe(true);
+      expect(shared?.shareToken).not.toBe(original.shareToken);
+      expect(shared?.shareExpiresAt).toEqual(expiresAt);
+      expect(await repo.findByShareToken(original.shareToken)).toBeNull();
+      expect((await repo.findByShareToken(shared!.shareToken))?.id).toBe(original.id);
+    });
+
+    it('does not enable or revoke another user’s meeting', async () => {
+      const target = await insertMeeting({ ownerUserId: alice });
+      expect(await repo.enableShare(target.id, bob, new Date(Date.now() + HOUR))).toBeNull();
+      expect(await repo.revokeShare(target.id, bob)).toBe(false);
+    });
+
+    it('revokes an active link immediately', async () => {
+      const target = await insertMeeting({ ownerUserId: alice });
+      const shared = await repo.enableShare(target.id, alice, new Date(Date.now() + HOUR));
+
+      expect(await repo.revokeShare(target.id, alice)).toBe(true);
+      expect(await repo.findByShareToken(shared!.shareToken)).toBeNull();
+    });
+  });
+
+  describe('findFailedWithAudioOlderThan', () => {
+    it('returns only old failed meetings that still reference audio', async () => {
+      const now = Date.now();
+      await insertMeeting({ shareToken: 'failed-old', status: 'failed', audioStoragePath: 'a/old', updatedAt: new Date(now - 2 * HOUR) });
+      await insertMeeting({ shareToken: 'failed-new', status: 'failed', audioStoragePath: 'a/new', updatedAt: new Date(now - 5 * MINUTE) });
+      await insertMeeting({ shareToken: 'failed-empty', status: 'failed', audioStoragePath: null, updatedAt: new Date(now - 2 * HOUR) });
+      await insertMeeting({ shareToken: 'done-old', status: 'transcribed', audioStoragePath: 'a/done', updatedAt: new Date(now - 2 * HOUR) });
+
+      const found = await repo.findFailedWithAudioOlderThan(1);
+
+      expect(found.map((m) => m.shareToken)).toEqual(['failed-old']);
     });
   });
 

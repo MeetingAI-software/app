@@ -8,6 +8,7 @@ import {
   getTranscript,
   getDocument,
   generateDocument,
+  type ShareState,
   type Meeting,
   type TranscriptSegment,
   type Document,
@@ -200,7 +201,7 @@ export default function MeetingDetailPage() {
   };
 
   /** Keeps the page's meeting in step with the share panel without a refetch. */
-  const handleShareChange = useCallback((patch: { shareToken: string; shareEnabled: boolean }) => {
+  const handleShareChange = useCallback((patch: ShareState) => {
     setMeeting((prev) => (prev ? { ...prev, ...patch } : prev));
   }, []);
 
@@ -241,7 +242,6 @@ export default function MeetingDetailPage() {
   // Only a bot in a live call produces a live transcript. Uploads are transcribed after the fact.
   const isLiveCapable = meeting.source === 'bot';
   const failure = describeFailure(meeting.errorMessage);
-
   return (
     <main className="min-h-screen bg-transparent text-slate-950 py-10 px-4 md:px-8 print:bg-white print:p-0">
       <div className="max-w-4xl mx-auto">

@@ -9,6 +9,8 @@ import {
   changeSubscription,
   createBillingPortalSession,
   deleteAccount,
+  startGoogleDeletionVerification,
+  getMe,
   getSubscription,
   previewSubscriptionChange,
   ApiError,
@@ -407,9 +409,30 @@ function ChangeEmailCard() {
 function DeleteAccountCard() {
   const router = useRouter();
   const [password, setPassword] = useState('');
+  const [googleOnly, setGoogleOnly] = useState(false);
+  const [googleVerified, setGoogleVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getMe()
+      .then(({ user }) => {
+        if (!active) return;
+        setGoogleOnly(user.hasPassword === false && user.hasGoogleLogin === true);
+        // Presentation only. The API requires its private, single-use grant cookie.
+        const result = new URLSearchParams(window.location.search).get('deletion');
+        if (result) {
+          setConfirming(true);
+          setGoogleVerified(result === 'verified');
+          if (result !== 'verified') setError('Google verification failed. Please try again with the Google account linked here.');
+          window.history.replaceState(null, '', window.location.pathname);
+        }
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   const onDelete = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -417,12 +440,13 @@ function DeleteAccountCard() {
     setLoading(true);
     setError(null);
     try {
-      await deleteAccount(password);
+      await deleteAccount(googleOnly ? undefined : password);
       router.replace('/login'); // cookie already cleared server-side
     } catch (err) {
+      if (googleOnly) setGoogleVerified(false);
       setError(
         err instanceof ApiError && err.status === 401
-          ? 'Incorrect password.'
+          ? googleOnly ? 'Your session expired. Sign in again.' : 'Incorrect password.'
           : err instanceof Error
             ? err.message
             : 'Could not delete account.'
@@ -431,11 +455,26 @@ function DeleteAccountCard() {
     }
   };
 
+  const verifyGoogle = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const { url } = await startGoogleDeletionVerification();
+      window.location.assign(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start Google verification.');
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="bg-white/80 backdrop-blur-sm border border-red-200 rounded-xl p-6 shadow-sm">
       <h2 className="text-red-600 font-bold mb-1">Delete account</h2>
       <p className="text-on-surface-variant text-sm mb-4">
-        Deletes every meeting, document, transcript and recording you own. Your share links stop working.{' '}
+        Deletes your account, meetings and associated documents, transcripts and provider recordings.
+        Required provider deletion must succeed first. Billing retention and backups follow the privacy policy.
+        Your share links stop working.{' '}
         <strong className="text-slate-700">This cannot be undone.</strong>
       </p>
 
@@ -448,8 +487,21 @@ function DeleteAccountCard() {
         </button>
       ) : (
         <form onSubmit={onDelete} className="space-y-3">
-          <label className="block text-sm font-semibold text-slate-700">Confirm your password to continue</label>
+          {googleOnly ? (
+            <div className="space-y-3 text-sm text-slate-700">
+              <p>{googleVerified
+                ? 'Google account verified. Confirm permanent deletion below within five minutes.'
+                : 'Verify the Google account linked to this account. You will return here to confirm deletion.'}</p>
+              {!googleVerified && <button type="button" disabled={loading} onClick={verifyGoogle} className={PRIMARY_BTN}>
+                {loading ? 'Opening Google…' : 'Verify with Google'}
+              </button>}
+            </div>
+          ) : <>
+          <label htmlFor="deletion-password" className="block text-sm font-semibold text-slate-700">
+            Confirm your password to continue
+          </label>
           <input
+            id="deletion-password"
             type="password"
             required
             autoFocus
@@ -460,11 +512,12 @@ function DeleteAccountCard() {
             placeholder="••••••••"
             className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/30 transition-colors disabled:opacity-50"
           />
+          </>}
           {error && <div className={ERR_MSG}>{error}</div>}
           <div className="flex items-center gap-3">
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (googleOnly && !googleVerified)}
               className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors shadow-sm cursor-pointer"
             >
               {loading ? 'Deleting…' : 'Permanently delete'}

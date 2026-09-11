@@ -1,5 +1,5 @@
 {
-  "id": "f5a72c2b-cd39-4560-bf24-bb1541f751d1",
+  "id": "777ec61f-2f30-4e9d-80f0-3f57d04e61a7",
   "prevId": "be8b230f-522a-4203-a698-5bca57a24e3d",
   "version": "7",
   "dialect": "postgresql",
@@ -505,6 +505,12 @@
           "notNull": true,
           "default": false
         },
+        "share_expires_at": {
+          "name": "share_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "participant_names": {
           "name": "participant_names",
           "type": "jsonb",
@@ -580,6 +586,27 @@
           "columns": [
             {
               "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "meetings_share_expiry_idx": {
+          "name": "meetings_share_expiry_idx",
+          "columns": [
+            {
+              "expression": "share_enabled",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "share_expires_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

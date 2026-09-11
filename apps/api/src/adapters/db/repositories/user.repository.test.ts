@@ -43,6 +43,28 @@ describe('DrizzleUserRepository', () => {
       expect(raw.googleId).toBe('sub-1');
     });
 
+    it('persists B2B and versioned legal acceptance evidence', async () => {
+      const confirmedAt = new Date('2026-08-24T12:00:00Z');
+      const user = await repo.create({
+        email: 'buyer@example.com',
+        passwordHash: 'hash',
+        organizationName: 'Example AB',
+        businessUseConfirmedAt: confirmedAt,
+        termsVersionAccepted: '2026-08-24',
+      });
+
+      expect(user).toMatchObject({
+        organizationName: 'Example AB',
+        businessUseConfirmedAt: confirmedAt,
+        termsVersionAccepted: '2026-08-24',
+      });
+      expect(await rawById(user.id)).toMatchObject({
+        organizationName: 'Example AB',
+        businessUseConfirmedAt: confirmedAt,
+        termsVersionAccepted: '2026-08-24',
+      });
+    });
+
     // "A@X.com " and "a@x.com" must be one account, or a user could register twice and lock
     // themselves out of the first one.
     it('lowercases and trims the email on write', async () => {
@@ -89,7 +111,17 @@ describe('DrizzleUserRepository', () => {
       const found = await repo.findById(created.id);
 
       expect(found).not.toBeNull();
-      expect(Object.keys(found as object).sort()).toEqual(['createdAt', 'email', 'emailVerified', 'id']);
+      expect(Object.keys(found as object).sort()).toEqual([
+        'businessUseConfirmedAt',
+        'createdAt',
+        'email',
+        'emailVerified',
+        'hasGoogleLogin',
+        'hasPassword',
+        'id',
+        'organizationName',
+        'termsVersionAccepted',
+      ]);
       expect('passwordHash' in (found as object)).toBe(false);
     });
 

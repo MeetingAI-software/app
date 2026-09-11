@@ -231,7 +231,7 @@ describe('provider webhook routes', () => {
 
       it('accepts a correctly signed delivery', async () => {
         const id = 'msg_signed';
-        const timestamp = '1786600000';
+        const timestamp = Math.floor(Date.now() / 1000).toString();
         const response = await post('/webhooks/recall', body, {
           'webhook-id': id,
           'webhook-timestamp': timestamp,
@@ -254,7 +254,7 @@ describe('provider webhook routes', () => {
 
       it('refuses a delivery whose body was altered after signing', async () => {
         const id = 'msg_tampered';
-        const timestamp = '1786600000';
+        const timestamp = Math.floor(Date.now() / 1000).toString();
         const signature = signRecall(body, id, timestamp);
         const altered = JSON.stringify({ event: 'transcript.done', data: { bot_id: 'bot-999' } });
 

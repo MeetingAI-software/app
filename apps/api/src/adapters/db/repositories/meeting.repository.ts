@@ -1,6 +1,6 @@
 import { db } from '../client';
 import { meetings } from '../schema';
-import { eq, inArray, desc, and, lt } from 'drizzle-orm';
+import { eq, inArray, desc, and, lt, gt, isNotNull } from 'drizzle-orm';
 import type { MeetingRepository } from '../../../ports/repositories.port';
 import type { Meeting, MeetingPlatform, MeetingSource, MeetingStatus } from '../../../domain/types';
 import crypto from 'crypto';
@@ -12,6 +12,8 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     meetingUrl?: string;
     platform?: MeetingPlatform;
     participantNames?: string[];
+    recordingNoticeConfirmedAt?: Date;
+    recordingNoticeVersion?: string;
   }): Promise<Meeting> {
     const shareToken = crypto.randomBytes(16).toString('base64url');
     const [row] = await db
@@ -23,6 +25,8 @@ export class DrizzleMeetingRepository implements MeetingRepository {
         status: 'pending',
         source: input.source,
         participantNames: input.participantNames ?? null,
+        recordingNoticeConfirmedAt: input.recordingNoticeConfirmedAt ?? null,
+        recordingNoticeVersion: input.recordingNoticeVersion ?? null,
         shareToken,
       })
       .returning();
@@ -57,23 +61,41 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     const [row] = await db
       .select()
       .from(meetings)
-      .where(eq(meetings.shareToken, token));
+      .where(and(
+        eq(meetings.shareToken, token),
+        eq(meetings.shareEnabled, true),
+        gt(meetings.shareExpiresAt, new Date()),
+      ));
     return (row as Meeting) || null;
   }
 
-  /**
-   * Turning sharing off leaves the token in place, so re-enabling restores the SAME link. That is
-   * the point of keeping rotate separate: "pause this" and "this leaked" are different problems
-   * and only one of them should invalidate a URL people may have bookmarked.
-   *
-   * Owner-scoped like every other HTTP-reachable meeting query: the requester rides in the WHERE so
-   * the write itself enforces ownership, rather than trusting a check that ran a moment earlier in
-   * the route. Returns null when the row is not this user's, which the caller reports as a 404.
-   */
+  async enableShare(id: string, userId: string, expiresAt: Date): Promise<Meeting | null> {
+    const shareToken = crypto.randomBytes(24).toString('base64url');
+    const [row] = await db.update(meetings).set({
+      shareToken,
+      shareEnabled: true,
+      shareExpiresAt: expiresAt,
+      updatedAt: new Date(),
+    }).where(and(eq(meetings.id, id), eq(meetings.ownerUserId, userId))).returning();
+    return (row as Meeting) || null;
+  }
+
+  async revokeShare(id: string, userId: string): Promise<boolean> {
+    const rows = await db.update(meetings).set({
+      shareEnabled: false,
+      shareExpiresAt: null,
+      updatedAt: new Date(),
+    }).where(and(eq(meetings.id, id), eq(meetings.ownerUserId, userId)))
+      .returning({ id: meetings.id });
+    return rows.length > 0;
+  }
+
+  // The legacy toggle API now has the same expiry and rotation guarantees as POST /share.
   async setShareEnabled(id: string, userId: string, enabled: boolean): Promise<Meeting | null> {
+    if (enabled) return this.enableShare(id, userId, new Date(Date.now() + 24 * 60 * 60 * 1000));
     const [row] = await db
       .update(meetings)
-      .set({ shareEnabled: enabled, updatedAt: new Date() })
+      .set({ shareEnabled: false, shareExpiresAt: null, updatedAt: new Date() })
       .where(and(eq(meetings.id, id), eq(meetings.ownerUserId, userId)))
       .returning();
     return (row as Meeting) || null;
@@ -199,6 +221,18 @@ export class DrizzleMeetingRepository implements MeetingRepository {
           lt(meetings.updatedAt, cutoff)
         )
       )) as Meeting[];
+  }
+
+  async findFailedWithAudioOlderThan(hours: number): Promise<Meeting[]> {
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+    return (await db
+      .select()
+      .from(meetings)
+      .where(and(
+        eq(meetings.status, 'failed'),
+        isNotNull(meetings.audioStoragePath),
+        lt(meetings.updatedAt, cutoff),
+      ))) as Meeting[];
   }
 
   async findStuckActiveOlderThan(minutes: number): Promise<Meeting[]> {

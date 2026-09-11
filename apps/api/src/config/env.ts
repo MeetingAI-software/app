@@ -5,92 +5,125 @@ import { z } from 'zod';
 // platforms and test setup must take precedence over a checked-out or developer-local .env file.
 dotenv.config();
 
+// Optional/defaulted environment fields may be present but blank in checked-in templates.
+// Normalize absence before Zod coercion: Number('') is 0, not a configured numeric value.
+const blankToUndefined = (value: unknown) =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().default(3000),
+  PORT: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(65535).default(3000)),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   DATABASE_URL: z.string().url(),
   BOT_PROVIDER: z.enum(['fake', 'recall']).default('fake'),
-  RECALL_API_KEY: z.string().optional(),
-  RECALL_BASE_URL: z.string().optional(),
-  RECALL_WEBHOOK_SECRET: z.string().optional(),
-  PUBLIC_WEBHOOK_URL: z.string().optional(),
-  // Live transcription. Recall's realtime endpoints are configured per bot and are NOT Svix-signed
-  // like the workspace webhook, so they authenticate with a shared token in the query string.
-  RECALL_LIVE_WEBHOOK_TOKEN: z.string().optional(),
+  RECALL_API_KEY: z.preprocess(blankToUndefined, z.string().optional()),
+  RECALL_BASE_URL: z.preprocess(blankToUndefined, z.string().url().optional()),
+  RECALL_WEBHOOK_SECRET: z.preprocess(blankToUndefined, z.string().optional()),
+  PUBLIC_WEBHOOK_URL: z.preprocess(blankToUndefined, z.string().url().optional()),
+  // Live transcription is signed with Recall's workspace verification secret. Keep this separate
+  // from the dashboard webhook secret for legacy accounts where those values can differ.
+  RECALL_REALTIME_WEBHOOK_SECRET: z.preprocess(blankToUndefined, z.string().optional()),
   // Kill switch: turns off `realtime_endpoints` on newly created bots without a code change.
   // Bots already in a call keep streaming; only new meetings are affected.
   // Not `z.coerce.boolean()` — that maps the string "false" to true, which is the opposite of
   // what anyone setting LIVE_TRANSCRIPT_ENABLED=false intends.
   LIVE_TRANSCRIPT_ENABLED: z.enum(['true', 'false']).default('true').transform(v => v === 'true'),
-  MONTHLY_CAP_SECONDS: z.coerce.number().default(14400),
-  MAX_MEETING_SECONDS: z.coerce.number().default(3600),
-  MAX_CONCURRENT_BOTS: z.coerce.number().default(1),
-  ANTHROPIC_API_KEY: z.string().optional(),
-  CLAUDE_MODEL: z.string().default('claude-sonnet-4-6'),
-  CLAUDE_TIMEOUT_MS: z.coerce.number().default(60000),
-  MAX_TRANSCRIPT_CHARS: z.coerce.number().default(180000),
+  // A stream owns a socket, listener, timer, and recurring database read for its lifetime. These
+  // per-process occupancy caps differ from attempt-rate limits: a slot is returned after the
+  // stream closes and pending database work settles. Caps do not coordinate across API replicas.
+  MAX_LIVE_STREAM_CONNECTIONS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(1000).default(50)),
+  MAX_LIVE_STREAM_CONNECTIONS_PER_USER: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(50).default(5)),
+  MAX_LIVE_STREAM_CONNECTIONS_PER_MEETING: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(20).default(3)),
+  MONTHLY_CAP_SECONDS: z.preprocess(blankToUndefined, z.coerce.number().int().positive().max(31_536_000).default(14400)),
+  MAX_MEETING_SECONDS: z.preprocess(blankToUndefined, z.coerce.number().int().min(60).max(28_800).default(3600)),
+  MAX_CONCURRENT_BOTS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(20).default(1)),
+  ANTHROPIC_API_KEY: z.preprocess(blankToUndefined, z.string().optional()),
+  CLAUDE_MODEL: z.preprocess(blankToUndefined, z.string().default('claude-sonnet-4-6')),
+  CLAUDE_TIMEOUT_MS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1000).max(300_000).default(60000)),
+  MAX_TRANSCRIPT_CHARS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1000).max(1_000_000).default(180000)),
   DOC_PROVIDER: z.enum(['fake', 'claude', 'gemini']).default('fake'),
-  WEB_ORIGIN: z.string().default('http://localhost:3001'),
+  WEB_ORIGIN: z.preprocess(blankToUndefined, z.string().url().default('http://localhost:3001')),
   EMAIL_PROVIDER: z.enum(['log', 'resend']).default('log'),
-  RESEND_API_KEY: z.string().min(1).optional(),
-  RESEND_FROM: z.string().min(1).optional(),
+  RESEND_API_KEY: z.preprocess(blankToUndefined, z.string().min(1).optional()),
+  RESEND_FROM: z.preprocess(blankToUndefined, z.string().min(1).optional()),
   // Global cap on verification emails per rolling 24h — the backstop the in-memory route limiters
   // cannot be: it survives restarts and is indifferent to IP rotation. Sits well below Resend's
   // free-plan hard block of 100/day so a burst can never reach the provider's own wall, and env
   // rather than code (like MONTHLY_CAP_SECONDS) because it is the one number worth raising from
   // the dashboard at 2am without a deploy.
-  EMAIL_DAILY_SEND_BUDGET: z.coerce.number().int().positive().default(30),
+  EMAIL_DAILY_SEND_BUDGET: z.preprocess(blankToUndefined, z.coerce.number().int().positive().max(1000).default(30)),
+  // Fail closed: existing users can log in, but production cannot accidentally reopen account
+  // creation while the required legal publication is unavailable.
+  PUBLIC_REGISTRATION_ENABLED: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
+  LEGAL_POLICIES_PUBLISHED: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
+  LEGAL_POLICIES_VERSION: z.preprocess(blankToUndefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
   // --- Day 3: in-room recording + chat ---
-  ASSEMBLYAI_API_KEY: z.string().optional(),
-  ASSEMBLYAI_BASE_URL: z.string().url().default('https://api.assemblyai.com'),
+  ASSEMBLYAI_API_KEY: z.preprocess(blankToUndefined, z.string().optional()),
+  ASSEMBLYAI_BASE_URL: z.preprocess(blankToUndefined, z.string().url().default('https://api.assemblyai.com')),
   TRANSCRIPTION_PROVIDER: z.enum(['fake', 'assemblyai']).default('fake'),
-  TRANSCRIPTION_WEBHOOK_SECRET: z.string().optional(),
+  TRANSCRIPTION_WEBHOOK_SECRET: z.preprocess(blankToUndefined, z.string().optional()),
   // Fail closed: production in-room recording stays unavailable until an operator explicitly
   // enables it with an EU-provisioned AssemblyAI account and the complete upload pipeline.
   IN_ROOM_RECORDING_ENABLED: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
-  SUPABASE_URL: z.string().optional(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
-  MAX_CHAT_QUESTIONS_PER_MEETING: z.coerce.number().default(20),
-  MAX_UPLOAD_MB: z.coerce.number().default(200),
+  SUPABASE_URL: z.preprocess(blankToUndefined, z.string().optional()),
+  SUPABASE_SERVICE_ROLE_KEY: z.preprocess(blankToUndefined, z.string().optional()),
+  MAX_CHAT_QUESTIONS_PER_MEETING: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(100).default(20)),
+  MAX_UPLOAD_MB: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(100).default(50)),
+  MAX_CONCURRENT_UPLOADS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(4).default(1)),
   CHAT_PROVIDER: z.enum(['fake', 'claude', 'gemini']).default('fake'),
   // Shorter than CLAUDE_TIMEOUT_MS on purpose. A document is generated in the background and can
   // afford a full minute; chat has somebody watching a "Thinking…" spinner, and a minute of that
   // is worse than an honest "the AI is busy, try again" at thirty seconds.
-  CHAT_TIMEOUT_MS: z.coerce.number().default(30000),
+  CHAT_TIMEOUT_MS: z.preprocess(blankToUndefined, z.coerce.number().default(30000)),
   // --- Day 5: accounts + sessions ---
-  SESSION_TTL_DAYS: z.coerce.number().int().default(30),
+  SESSION_TTL_DAYS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(90).default(30)),
   // --- Day 6: observability ---
-  SENTRY_DSN: z.string().optional(),   // optional everywhere; observability is a no-op when unset
+  SENTRY_DSN: z.preprocess(blankToUndefined, z.string().optional()),   // optional everywhere; observability is a no-op when unset
   // Set by the deploy pipeline to the merged commit SHA and echoed by /healthz. `railway up`
   // uploads a directory, not a commit, so without this there is no way to ask production which
   // code it is actually running — the previous answer was to fingerprint an incidental header.
-  GIT_COMMIT: z.string().default('unknown'),
+  GIT_COMMIT: z.preprocess(blankToUndefined, z.string().default('unknown')),
   // --- Day 7: Gemini provider (behind the existing chat/document ports) ---
-  GEMINI_API_KEY: z.string().optional(),       // required at boot IF either provider is 'gemini' (see superRefine)
-  GEMINI_CHAT_MODEL: z.string().default(''),   // set a real id from Google's current docs, e.g. gemini-2.5-flash
-  GEMINI_DOC_MODEL: z.string().default(''),    // e.g. gemini-2.5-pro
+  GEMINI_API_KEY: z.preprocess(blankToUndefined, z.string().optional()),       // required at boot IF either provider is 'gemini' (see superRefine)
+  GEMINI_CHAT_MODEL: z.preprocess(blankToUndefined, z.string().default('')),   // set a real id from Google's current docs, e.g. gemini-2.5-flash
+  GEMINI_DOC_MODEL: z.preprocess(blankToUndefined, z.string().default('')),    // e.g. gemini-2.5-pro
   // --- Google OAuth ---
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_CLIENT_ID: z.preprocess(blankToUndefined, z.string().optional()),
+  GOOGLE_CLIENT_SECRET: z.preprocess(blankToUndefined, z.string().optional()),
   // Must match an Authorized redirect URI in the Google Cloud console exactly, and points at the
   // API host (that is where the callback sets the session cookie). Same shape as WEB_ORIGIN: a
   // localhost default so dev needs no config, rejected in production by superRefine. This used to
   // be a raw process.env read in the route, which silently sent production users to localhost.
-  GOOGLE_REDIRECT_URI: z.string().url().default('http://localhost:3000/api/auth/google/callback'),
+  GOOGLE_REDIRECT_URI: z.preprocess(blankToUndefined, z.string().url().default('http://localhost:3000/api/auth/google/callback')),
   // --- Paddle Billing ---
   PADDLE_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
   // Server-controlled billing kill switch. Safe by default: a missing variable can never open
   // checkout or mutate a subscription during a deploy.
   BILLING_MUTATIONS_ENABLED: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
-  PADDLE_API_KEY: z.string().min(1).optional(),
-  PADDLE_SANDBOX_API_KEY: z.string().min(1).optional(),
-  PADDLE_NOTIFICATION_WEBHOOK_SECRET: z.string().min(1).optional(),
-  NEXT_PUBLIC_PADDLE_SOLO_MONTHLY_PRICE_ID: z.string().optional(),
-  NEXT_PUBLIC_PADDLE_SOLO_ANNUAL_PRICE_ID: z.string().optional(),
-  NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID: z.string().optional(),
-  NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID: z.string().optional(),
+  PADDLE_API_KEY: z.preprocess(blankToUndefined, z.string().min(1).optional()),
+  PADDLE_SANDBOX_API_KEY: z.preprocess(blankToUndefined, z.string().min(1).optional()),
+  PADDLE_NOTIFICATION_WEBHOOK_SECRET: z.preprocess(blankToUndefined, z.string().min(1).optional()),
+  NEXT_PUBLIC_PADDLE_SOLO_MONTHLY_PRICE_ID: z.preprocess(blankToUndefined, z.string().optional()),
+  NEXT_PUBLIC_PADDLE_SOLO_ANNUAL_PRICE_ID: z.preprocess(blankToUndefined, z.string().optional()),
+  NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID: z.preprocess(blankToUndefined, z.string().optional()),
+  NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID: z.preprocess(blankToUndefined, z.string().optional()),
 }).superRefine((cfg, ctx) => {
+  if (cfg.NODE_ENV === 'production' && cfg.PUBLIC_REGISTRATION_ENABLED) {
+    if (!cfg.LEGAL_POLICIES_PUBLISHED) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['LEGAL_POLICIES_PUBLISHED'],
+        message: 'Public registration requires published legal policies in production',
+      });
+    }
+    if (!cfg.LEGAL_POLICIES_VERSION) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['LEGAL_POLICIES_VERSION'],
+        message: 'Public registration requires a versioned legal policy set in production',
+      });
+    }
+  }
   if (cfg.NODE_ENV === 'production' && cfg.IN_ROOM_RECORDING_ENABLED) {
     const required = [
       ['ASSEMBLYAI_API_KEY', cfg.ASSEMBLYAI_API_KEY],
@@ -134,10 +167,10 @@ export const envSchema = z.object({
       ['RECALL_BASE_URL', cfg.RECALL_BASE_URL],
       ['RECALL_WEBHOOK_SECRET', cfg.RECALL_WEBHOOK_SECRET],
       ['PUBLIC_WEBHOOK_URL', cfg.PUBLIC_WEBHOOK_URL],
-      // Without it the live webhook URL we hand Recall would carry an empty token and every
+      // Without a workspace verification secret the endpoint remains fail-closed and every
       // live utterance would be rejected — a silently dead live transcript, not a loud failure.
       ...(cfg.LIVE_TRANSCRIPT_ENABLED
-        ? ([['RECALL_LIVE_WEBHOOK_TOKEN', cfg.RECALL_LIVE_WEBHOOK_TOKEN]] as const)
+        ? ([['RECALL_REALTIME_WEBHOOK_SECRET', cfg.RECALL_REALTIME_WEBHOOK_SECRET]] as const)
         : []),
     ] as const;
     for (const [key, value] of required) {

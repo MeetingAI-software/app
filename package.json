@@ -7,6 +7,9 @@
   "workspaces": [
     "apps/*"
   ],
+  "overrides": {
+    "qs": "6.16.0"
+  },
   "scripts": {
     "dev": "npm run dev -w api",
     "test": "npm run test -w api && npm run test -w web",
@@ -15,6 +18,7 @@
     "build:api": "npm run build -w api",
     "build:web": "npm run build -w web",
     "billing:check": "npm run billing:check -w api",
-    "legal:smoke": "npm run legal:smoke -w web --"
+    "legal:smoke": "npm run legal:smoke -w web --",
+    "security:secrets": "node scripts/secret-scan.mjs"
   }
 }

@@ -7,48 +7,14 @@ interface Props {
   params: Promise<{ token: string }>;
 }
 
-/**
- * A share link is unlisted, not public: it is secret only because the token is. Letting a crawler
- * index it hands the notes to anyone who searches, no token required — and a search engine's cached
- * snapshot outlives revocation in a way no Cache-Control header can reach. Applied to both branches
- * below, so a switched-off link is no more indexable than a live one.
- */
-const NO_INDEX = { index: false, follow: false } as const;
-
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { token } = await params;
-  try {
-    const data = await getShare(token);
-    const title = data.document?.content.title || 'Meeting Notes';
-    const firstMissed = data.document?.content.missed5?.[0] || '';
-    const description = firstMissed
-      ? `1. ${firstMissed}`
-      : data.meeting.summary || 'Catch-up document for this meeting.';
-
-    return {
-      title: `${title} | ${BRAND_NAME}`,
-      description,
-      robots: NO_INDEX,
-      openGraph: {
-        title,
-        description,
-        type: 'website',
-      },
-    };
-  } catch (error: unknown) {
-    // Revocation makes this catch routine rather than rare, and an unfurl is written before anyone
-    // clicks: pasted into Slack, a switched-off link would otherwise show a card promising notes
-    // that the page then refuses to hand over. A 404 says so in the preview. Anything else (API
-    // down, network) keeps the neutral title — that is a failure to load, not a revocation.
-    const gone = error instanceof ApiError && error.status === 404;
-    return {
-      title: gone ? `Link unavailable | ${BRAND_NAME}` : `Meeting Notes | ${BRAND_NAME}`,
-      description: gone
-        ? 'This link is no longer available.'
-        : 'View shared meeting notes',
-      robots: NO_INDEX,
-    };
-  }
+export async function generateMetadata(): Promise<Metadata> {
+  // Never place meeting content in crawler/social-preview metadata: unfurling a copied URL must
+  // not copy transcript-derived text into chat providers, search engines or their caches.
+  return {
+    title: `Shared meeting | ${BRAND_NAME}`,
+    description: 'Private meeting notes shared through a time-limited link.',
+    robots: { index: false, follow: false, noarchive: true, nosnippet: true },
+  };
 }
 
 type SharePageResult =

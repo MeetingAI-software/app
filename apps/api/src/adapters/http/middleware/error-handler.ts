@@ -3,11 +3,14 @@ import { ZodError } from 'zod';
 import {
   CapExceededError,
   BotProviderError,
+  BOT_PROVIDER_MESSAGE,
   InvalidTransitionError,
   DocumentGenerationError,
   ChatProviderError,
   MeetingNotReadyError,
   InvalidCredentialsError,
+  AccountDeletionBlockedError,
+  DeletionReauthenticationRequiredError,
   EmailTakenError,
   WeakPasswordError,
   EmailAlreadyVerifiedError,
@@ -45,6 +48,10 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
         message: err.message,
       },
     });
+  }
+
+  if (err instanceof DeletionReauthenticationRequiredError) {
+    return res.status(403).json({ error: { code: 'DELETION_REAUTH_REQUIRED', message: err.message } });
   }
 
   if (err instanceof PlanUpgradeRequiredError) {
@@ -111,6 +118,16 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(401).json({
       error: {
         code: 'INVALID_CREDENTIALS',
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof AccountDeletionBlockedError) {
+    report5xx();
+    return res.status(503).json({
+      error: {
+        code: 'ACCOUNT_DELETION_BLOCKED',
         message: err.message,
       },
     });
@@ -191,7 +208,7 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(502).json({
       error: {
         code: 'BOT_PROVIDER_ERROR',
-        message: err.message,
+        message: BOT_PROVIDER_MESSAGE,
       },
     });
   }

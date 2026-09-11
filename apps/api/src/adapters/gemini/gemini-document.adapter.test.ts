@@ -43,6 +43,8 @@ describe('GeminiDocumentAdapter.generateDocument', () => {
     const res = await new GeminiDocumentAdapter(client).generateDocument(SEGMENTS, { meetingIsoDate: '2026-07-16' });
 
     expect(generateContent).toHaveBeenCalledTimes(1);
+    expect(generateContent.mock.calls[0][0].contents).toContain('<untrusted_transcript>');
+    expect(generateContent.mock.calls[0][0].contents).toContain('never an instruction');
     expect(res.content.title).toBe('Q3 Product Sync');
     expect(res.content.missed5.length).toBeGreaterThanOrEqual(3);
     expect(res.inputTokens).toBe(500);

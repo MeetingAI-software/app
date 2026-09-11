@@ -16,6 +16,7 @@ import type { Meeting, MeetingStatus, TranscriptSegment, User } from '../../../d
 import { BotProviderError, CapExceededError } from '../../../domain/errors';
 import { createServer } from '../server';
 import { createMeetingRoutes } from './meetings.routes';
+import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
 
 // ---------------------------------------------------------------------------
 // The console's endpoints. Every owner-scoped one asks the same question —
@@ -85,6 +86,8 @@ describe('meeting routes', () => {
   const start = vi.fn();
   const listForUser = vi.fn();
   const findByShareToken = vi.fn();
+  const enableShare = vi.fn();
+  const revokeShare = vi.fn();
   const list = vi.fn();
   const getTranscript = vi.fn();
   const getDocument = vi.fn();
@@ -104,6 +107,8 @@ describe('meeting routes', () => {
       (id === ownMeetingOf(userId) ? meeting({ id, ownerUserId: userId, ...meetingOverrides }) : null)),
     listForUser,
     findByShareToken,
+    enableShare,
+    revokeShare,
     list,
     setShareEnabled,
     rotateShareToken,
@@ -137,7 +142,7 @@ describe('meeting routes', () => {
 
   beforeEach(() => {
     meetingOverrides = {};
-    for (const fn of [start, listForUser, findByShareToken, list, getTranscript, getDocument, upsertForMeeting, generateDocument, setShareEnabled, rotateShareToken]) {
+    for (const fn of [start, listForUser, findByShareToken, enableShare, revokeShare, list, getTranscript, getDocument, upsertForMeeting, generateDocument, setShareEnabled, rotateShareToken]) {
       fn.mockReset();
     }
     // Both share writes are owner-scoped in the real repository — the requester rides in the
@@ -149,6 +154,8 @@ describe('meeting routes', () => {
       (id === ownMeetingOf(userId) ? meeting({ id, ownerUserId: userId, shareToken: 'fresh-tok' }) : null));
     listForUser.mockResolvedValue([]);
     findByShareToken.mockResolvedValue(null);
+    enableShare.mockResolvedValue(null);
+    revokeShare.mockResolvedValue(false);
     getTranscript.mockResolvedValue(SEGMENTS);
     getDocument.mockResolvedValue(null);
     upsertForMeeting.mockResolvedValue({ id: 'doc-1' });
@@ -172,6 +179,10 @@ describe('meeting routes', () => {
         method: 'POST',
         headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN, cookie },
         body: JSON.stringify(body),
+      }),
+      delete: (path: string) => fetch(`${baseUrl}${path}`, {
+        method: 'DELETE',
+        headers: { origin: config.WEB_ORIGIN, cookie },
       }),
     };
   }
@@ -260,10 +271,17 @@ describe('meeting routes', () => {
       ['Microsoft Teams', 'https://teams.microsoft.com/l/meetup-join/xyz'],
     ])('starts a %s meeting', async (_label, meetingUrl) => {
       const user = `starter-${_label}`;
-      const response = await asUser(user).post('/api/meetings', { meetingUrl });
+      const response = await asUser(user).post('/api/meetings', {
+        meetingUrl,
+        recordingNoticeConfirmed: true,
+        recordingNoticeVersion: RECORDING_NOTICE_VERSION,
+      });
 
       expect(response.status).toBe(201);
-      expect(start).toHaveBeenCalledWith(user, meetingUrl);
+      expect(start).toHaveBeenCalledWith(user, meetingUrl, {
+        confirmedAt: expect.any(Date),
+        version: RECORDING_NOTICE_VERSION,
+      });
     });
 
     it.each([
@@ -282,13 +300,31 @@ describe('meeting routes', () => {
     });
 
     it.each([
+      ['missing confirmation', { recordingNoticeVersion: RECORDING_NOTICE_VERSION }],
+      ['false confirmation', { recordingNoticeConfirmed: false, recordingNoticeVersion: RECORDING_NOTICE_VERSION }],
+      ['stale notice', { recordingNoticeConfirmed: true, recordingNoticeVersion: 'old-version' }],
+    ])('rejects a direct caller with %s', async (_label, notice) => {
+      const response = await asUser(`notice-${Math.random()}`).post('/api/meetings', {
+        meetingUrl: 'https://us02web.zoom.us/j/1',
+        ...notice,
+      });
+
+      expect(response.status).toBe(400);
+      expect(start).not.toHaveBeenCalled();
+    });
+
+    it.each([
       [new BotProviderError('Recall refused the link'), 502, 'BOT_PROVIDER_ERROR'],
       [new CapExceededError('Monthly minutes used up'), 429, 'CAP_EXCEEDED'],
     ])('maps %s to HTTP %i', async (error, expectedStatus, expectedCode) => {
       start.mockRejectedValueOnce(error);
 
       const response = await asUser(`mapper-${expectedStatus}`)
-        .post('/api/meetings', { meetingUrl: 'https://us02web.zoom.us/j/1' });
+        .post('/api/meetings', {
+          meetingUrl: 'https://us02web.zoom.us/j/1',
+          recordingNoticeConfirmed: true,
+          recordingNoticeVersion: RECORDING_NOTICE_VERSION,
+        });
       const body = await response.json() as { error: { code: string } };
 
       expect(response.status).toBe(expectedStatus);
@@ -476,18 +512,72 @@ describe('meeting routes', () => {
     });
   });
 
+  describe('owner-managed share lifecycle', () => {
+    it('creates a time-limited link and caps its lifetime at seven days', async () => {
+      const user = 'share-owner';
+      enableShare.mockImplementation(async (id: string, ownerId: string, expiresAt: Date) => meeting({
+        id,
+        ownerUserId: ownerId,
+        shareEnabled: true,
+        shareExpiresAt: expiresAt,
+        shareToken: 'rotated-token',
+      }));
+
+      const response = await asUser(user).post(`/api/meetings/${ownMeetingOf(user)}/share`, { expiresInHours: 24 });
+      const body = await response.json() as Meeting;
+
+      expect(response.status).toBe(200);
+      expect(body.shareEnabled).toBe(true);
+      expect(body.shareToken).toBe('rotated-token');
+      const expiresAt = enableShare.mock.calls[0][2] as Date;
+      expect(expiresAt.getTime()).toBeGreaterThan(Date.now() + 23 * 60 * 60 * 1000);
+
+      const tooLong = await asUser('share-limit').post(`/api/meetings/${ownMeetingOf('share-limit')}/share`, { expiresInHours: 169 });
+      expect(tooLong.status).toBe(400);
+    });
+
+    it('does not let one owner create or revoke a link for another owner', async () => {
+      const create = await asUser('alice').post(`/api/meetings/${ownMeetingOf('bob')}/share`, { expiresInHours: 24 });
+      const revoke = await asUser('alice').delete(`/api/meetings/${ownMeetingOf('bob')}/share`);
+
+      expect(create.status).toBe(404);
+      expect(revoke.status).toBe(404);
+      expect(enableShare).not.toHaveBeenCalled();
+    });
+
+    it('revokes an owned link immediately', async () => {
+      const user = 'revoke-owner';
+      revokeShare.mockResolvedValue(true);
+
+      const response = await asUser(user).delete(`/api/meetings/${ownMeetingOf(user)}/share`);
+
+      expect(response.status).toBe(204);
+      expect(revokeShare).toHaveBeenCalledWith(ownMeetingOf(user), user);
+    });
+  });
+
   describe('share controls', () => {
+    it('rejects enabling an unfinished meeting through either endpoint', async () => {
+      meetingOverrides = { status: 'recording' };
+      for (const suffix of ['share', 'share/enable']) {
+        const response = await asUser('unfinished-share').post(`/api/meetings/${ownMeetingOf('unfinished-share')}/${suffix}`);
+        expect(response.status).toBe(409);
+      }
+      expect(enableShare).not.toHaveBeenCalled();
+      expect(setShareEnabled).not.toHaveBeenCalled();
+    });
+
     it('enable and disable set the flag and echo the current link', async () => {
       const on = await asUser('sharer-a').post(`/api/meetings/${ownMeetingOf('sharer-a')}/share/enable`);
 
       expect(on.status).toBe(200);
-      expect(await on.json()).toEqual({ shareToken: 'share-tok', shareEnabled: true });
+      expect(await on.json()).toEqual({ shareToken: 'share-tok', shareEnabled: true, shareExpiresAt: null });
       expect(setShareEnabled).toHaveBeenCalledWith(ownMeetingOf('sharer-a'), 'sharer-a', true);
 
       const off = await asUser('sharer-b').post(`/api/meetings/${ownMeetingOf('sharer-b')}/share/disable`);
 
       expect(off.status).toBe(200);
-      expect(await off.json()).toEqual({ shareToken: 'share-tok', shareEnabled: false });
+      expect(await off.json()).toEqual({ shareToken: 'share-tok', shareEnabled: false, shareExpiresAt: null });
       expect(setShareEnabled).toHaveBeenLastCalledWith(ownMeetingOf('sharer-b'), 'sharer-b', false);
     });
 
@@ -495,7 +585,7 @@ describe('meeting routes', () => {
       const response = await asUser('sharer-c').post(`/api/meetings/${ownMeetingOf('sharer-c')}/share/rotate`);
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ shareToken: 'fresh-tok', shareEnabled: true });
+      expect(await response.json()).toEqual({ shareToken: 'fresh-tok', shareEnabled: true, shareExpiresAt: null });
       expect(rotateShareToken).toHaveBeenCalledWith(ownMeetingOf('sharer-c'), 'sharer-c');
     });
 
@@ -518,7 +608,7 @@ describe('meeting routes', () => {
       const response = await fetch(`${baseUrl}/api/share/share-tok`);
 
       expect(response.status).toBe(200);
-      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(response.headers.get('cache-control')).toBe('private, no-store');
     });
   });
 
@@ -543,6 +633,8 @@ describe('meeting routes', () => {
 
       expect(response.status).toBe(200);
       expect(findByShareToken).toHaveBeenCalledWith('share-tok');
+      expect(response.headers.get('cache-control')).toContain('no-store');
+      expect(response.headers.get('x-robots-tag')).toContain('noindex');
     });
 
     it('answers 404 for a token nobody issued', async () => {

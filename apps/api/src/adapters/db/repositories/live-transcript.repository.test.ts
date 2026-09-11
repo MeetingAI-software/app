@@ -69,6 +69,24 @@ describe('DrizzleLiveTranscriptRepository', () => {
       expect(b.seq).toBeGreaterThan(a.seq);
     });
 
+    it('preserves every concurrent append across bounded cursor pages', async () => {
+      const appended = await Promise.all(Array.from({ length: 20 }, (_, i) =>
+        repo.append(meetingA, segment({ text: `concurrent-${i}` })),
+      ));
+      const seen: string[] = [];
+      let cursor = 0;
+      for (;;) {
+        const page = await repo.listSince(meetingA, cursor, 3);
+        if (!page.length) break;
+        for (const row of page) {
+          expect(row.seq).toBeGreaterThan(cursor);
+          seen.push(row.text);
+          cursor = row.seq;
+        }
+      }
+      expect(seen.sort()).toEqual(appended.map(row => row.text).sort());
+    });
+
     // `seq` is a single global sequence, not per-meeting — that is what lets it double as the SSE
     // `Last-Event-ID` cursor. Pinned because making it per-meeting would look tidier and would
     // quietly break replay across reconnects.
@@ -88,6 +106,17 @@ describe('DrizzleLiveTranscriptRepository', () => {
   // utterance on screen or drops one entirely.
   // ---------------------------------------------------------------------------
   describe('listSince', () => {
+    it('pages durable rows without gaps or changing the owner scope', async () => {
+      for (let i = 0; i < 5; i++) await repo.append(meetingA, segment({ text: `page-${i}` }));
+      await repo.append(meetingB, segment({ text: 'other owner' }));
+      const first = await repo.listSince(meetingA, 0, 2);
+      const second = await repo.listSince(meetingA, first[1].seq, 2);
+      const third = await repo.listSince(meetingA, second[1].seq, 2);
+      expect([...first, ...second, ...third].map(row => row.text)).toEqual(['page-0', 'page-1', 'page-2', 'page-3', 'page-4']);
+      await expect(repo.listSince(meetingA, 0, 0)).rejects.toThrow(RangeError);
+      await expect(repo.listSince(meetingA, 0, 501)).rejects.toThrow(RangeError);
+    });
+
     it('returns everything, oldest first, when asked from 0', async () => {
       await repo.append(meetingA, segment({ text: 'one', startMs: 0 }));
       await repo.append(meetingA, segment({ text: 'two', startMs: 1000 }));

@@ -31,6 +31,11 @@ describe('hasVerifiedGoogleEmail', () => {
 });
 
 describe('auth routes', () => {
+  const registrationEvidence = {
+    organizationName: 'Example AB',
+    businessUseConfirmed: true,
+    termsVersion: '2026-08-24',
+  } as const;
   const signup = vi.fn();
   const login = vi.fn();
   const getUserForToken = vi.fn();
@@ -107,7 +112,7 @@ describe('auth routes', () => {
     const response = await fetch(`${baseUrl}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN },
-      body: JSON.stringify({ email: unverifiedUser.email, password: 'a-good-password' }),
+      body: JSON.stringify({ email: unverifiedUser.email, password: 'a-good-password', ...registrationEvidence }),
     });
     const body = await response.json() as {
       user: { emailVerified: boolean };
@@ -136,6 +141,51 @@ describe('auth routes', () => {
       user: { emailVerified: false },
       emailVerificationRequired: true,
     });
+  });
+
+  it('binds Google OAuth to a single-use browser state cookie', async () => {
+    const previous = {
+      clientId: config.GOOGLE_CLIENT_ID,
+      clientSecret: config.GOOGLE_CLIENT_SECRET,
+      redirectUri: config.GOOGLE_REDIRECT_URI,
+    };
+    config.GOOGLE_CLIENT_ID = 'google-client-id';
+    config.GOOGLE_CLIENT_SECRET = 'google-client-secret';
+    config.GOOGLE_REDIRECT_URI = `${baseUrl}/api/auth/google/callback`;
+
+    try {
+      const start = await fetch(`${baseUrl}/api/auth/google`, { redirect: 'manual' });
+      expect(start.status).toBe(302);
+      const location = new URL(start.headers.get('location') as string);
+      const state = location.searchParams.get('state');
+      expect(state).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+
+      const setCookie = start.headers.get('set-cookie') as string;
+      expect(setCookie).toContain(`oauth_state=${state}`);
+      expect(setCookie).toContain('HttpOnly');
+      expect(setCookie).toContain('SameSite=Lax');
+
+      const missing = await fetch(`${baseUrl}/api/auth/google/callback?code=unused`, { redirect: 'manual' });
+      expect(missing.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_state_invalid`);
+
+      const mismatch = await fetch(`${baseUrl}/api/auth/google/callback?code=unused&state=attacker`, {
+        redirect: 'manual',
+        headers: { cookie: `oauth_state=${state}` },
+      });
+      expect(mismatch.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_state_invalid`);
+
+      // A correct state reaches ordinary callback validation and is consumed even though code is absent.
+      const validState = await fetch(`${baseUrl}/api/auth/google/callback?state=${state}`, {
+        redirect: 'manual',
+        headers: { cookie: `oauth_state=${state}` },
+      });
+      expect(validState.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_failed`);
+      expect(validState.headers.get('set-cookie')).toContain('oauth_state=;');
+    } finally {
+      config.GOOGLE_CLIENT_ID = previous.clientId;
+      config.GOOGLE_CLIENT_SECRET = previous.clientSecret;
+      config.GOOGLE_REDIRECT_URI = previous.redirectUri;
+    }
   });
 
   it('returns the verified user for a valid token', async () => {
@@ -173,7 +223,7 @@ describe('auth routes', () => {
     const signupResponse = await fetch(`${baseUrl}/api/auth/signup`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN },
-      body: JSON.stringify({ email: unverifiedUser.email, password: 'a-good-password' }),
+      body: JSON.stringify({ email: unverifiedUser.email, password: 'a-good-password', ...registrationEvidence }),
     });
     const sessionCookie = signupResponse.headers.get('set-cookie')?.split(';')[0];
     const pendingResponse = await fetch(`${baseUrl}/api/auth/me`, {
@@ -293,9 +343,40 @@ describe('auth routes', () => {
         origin: config.WEB_ORIGIN,
         'x-forwarded-for': `${clientIp}, 10.0.0.1`,
       },
-      body: JSON.stringify({ email, password: 'a-good-password' }),
+      body: JSON.stringify({ email, password: 'a-good-password', ...registrationEvidence }),
     });
   }
+
+  it('fails closed when public registration is disabled', async () => {
+    const previous = config.PUBLIC_REGISTRATION_ENABLED;
+    config.PUBLIC_REGISTRATION_ENABLED = false;
+    try {
+      const response = await requestSignup('closed@example.com', '203.0.113.30');
+      const body = await response.json() as { error: { code: string } };
+      expect(response.status).toBe(503);
+      expect(body.error.code).toBe('REGISTRATION_DISABLED');
+      expect(signup).not.toHaveBeenCalled();
+    } finally {
+      config.PUBLIC_REGISTRATION_ENABLED = previous;
+    }
+  });
+
+  it('rejects stale legal acceptance without creating an account', async () => {
+    const response = await fetch(`${baseUrl}/api/auth/signup`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json', origin: config.WEB_ORIGIN,
+        'x-forwarded-for': '203.0.113.31, 10.0.0.1',
+      },
+      body: JSON.stringify({
+        email: 'stale-policy@example.com', password: 'a-good-password',
+        ...registrationEvidence, termsVersion: '2026-01-01',
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(signup).not.toHaveBeenCalled();
+  });
 
   // The regression test for the hole this limiter exists to close: the older signup limiter keyed
   // on ip+email, so six different addresses meant six untouched buckets and all six went through —

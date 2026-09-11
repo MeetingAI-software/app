@@ -46,15 +46,20 @@ async function main() {
 
   const email = `day5.http.${crypto.randomBytes(3).toString('hex')}@example.test`;
   const password = 'a-strong-enough-password';
+  const registration = {
+    organizationName: 'Syncmemos Smoke Test',
+    businessUseConfirmed: true,
+    termsVersion: config.LEGAL_POLICIES_VERSION,
+  };
   let userId: string | null = null;
 
   try {
     // 1. mutating request without Origin → 403 (CSRF)
-    const noOrigin = await fetch(`${base}/api/auth/signup`, { method: 'POST', headers: J, body: JSON.stringify({ email, password }) });
+    const noOrigin = await fetch(`${base}/api/auth/signup`, { method: 'POST', headers: J, body: JSON.stringify({ email, password, ...registration }) });
     assert(noOrigin.status === 403, `signup without Origin → 403 (got ${noOrigin.status})`);
 
     // 2. signup with Origin → 201 + session cookie
-    const signup = await fetch(`${base}/api/auth/signup`, { method: 'POST', headers: { ...J, origin: ORIGIN }, body: JSON.stringify({ email, password }) });
+    const signup = await fetch(`${base}/api/auth/signup`, { method: 'POST', headers: { ...J, origin: ORIGIN }, body: JSON.stringify({ email, password, ...registration }) });
     assert(signup.status === 201, `signup → 201 (got ${signup.status})`);
     const setCookie = signup.headers.get('set-cookie') ?? '';
     const token = /session=([^;]+)/.exec(setCookie)?.[1];
@@ -76,7 +81,7 @@ async function main() {
 
     // 5. login wrong password → 401; duplicate signup → 409
     assert((await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { ...J, origin: ORIGIN }, body: JSON.stringify({ email, password: 'wrong-one' }) })).status === 401, 'wrong password → 401');
-    assert((await fetch(`${base}/api/auth/signup`, { method: 'POST', headers: { ...J, origin: ORIGIN }, body: JSON.stringify({ email, password }) })).status === 409, 'duplicate email → 409');
+    assert((await fetch(`${base}/api/auth/signup`, { method: 'POST', headers: { ...J, origin: ORIGIN }, body: JSON.stringify({ email, password, ...registration }) })).status === 409, 'duplicate email → 409');
 
     // 6. logout clears the session
     assert((await fetch(`${base}/api/auth/logout`, { method: 'POST', headers: { origin: ORIGIN, cookie } })).status === 204, 'logout → 204');

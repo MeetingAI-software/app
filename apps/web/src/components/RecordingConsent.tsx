@@ -1,3 +1,5 @@
+import { RECORDING_NOTICE_VERSION } from '@/lib/recording-notice';
+
 interface RecordingConsentProps {
   id: string;
   checked: boolean;
@@ -7,7 +9,10 @@ interface RecordingConsentProps {
 
 export default function RecordingConsent({ id, checked, disabled = false, onChange }: RecordingConsentProps) {
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+    <div
+      className="rounded-lg border border-amber-200 bg-amber-50 p-4"
+      data-recording-notice-version={RECORDING_NOTICE_VERSION}
+    >
       <label htmlFor={id} className="flex cursor-pointer items-start gap-3 text-sm text-slate-700">
         <input
           id={id}

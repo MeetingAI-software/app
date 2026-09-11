@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fixedWindowLimiter, perUserRouteLimiter, SPEND_LIMITS } from './rate-limit';
+import {
+  createConcurrentConnectionLimiter,
+  fixedWindowLimiter,
+  perUserRouteLimiter,
+  SPEND_LIMITS,
+} from './rate-limit';
 
 function mkReq(userId: string) {
   return { userId, ip: '10.0.0.1' } as any;
@@ -104,5 +109,56 @@ describe('fixedWindowLimiter', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('createConcurrentConnectionLimiter', () => {
+  it('atomically enforces resource, user, and global occupancy limits', () => {
+    const limiter = createConcurrentConnectionLimiter({ global: 3, perUser: 2, perResource: 1 });
+    const first = limiter.acquire('user-a');
+    expect(first.allowed).toBe(true);
+    if (!first.allowed) throw new Error('expected the first connection to be admitted');
+    expect(first.bindResource('meeting-a')).toEqual({ allowed: true });
+
+    const resourceBlocked = limiter.acquire('user-b');
+    expect(resourceBlocked.allowed).toBe(true);
+    if (!resourceBlocked.allowed) throw new Error('expected pre-resource admission');
+    expect(resourceBlocked.bindResource('meeting-a')).toEqual({ allowed: false, scope: 'resource' });
+    resourceBlocked.release();
+
+    const second = limiter.acquire('user-a');
+    expect(second.allowed).toBe(true);
+    if (!second.allowed) throw new Error('expected the second connection to be admitted');
+    expect(second.bindResource('meeting-b')).toEqual({ allowed: true });
+    expect(limiter.acquire('user-a')).toEqual({ allowed: false, scope: 'user' });
+
+    const third = limiter.acquire('user-b');
+    expect(third.allowed).toBe(true);
+    if (!third.allowed) throw new Error('expected the third connection to be admitted');
+    expect(third.bindResource('meeting-c')).toEqual({ allowed: true });
+    expect(limiter.acquire('user-c')).toEqual({ allowed: false, scope: 'global' });
+  });
+
+  it('releases every counter exactly once and removes empty keys', () => {
+    const limiter = createConcurrentConnectionLimiter({ global: 1, perUser: 1, perResource: 1 });
+    const first = limiter.acquire('user-a');
+    expect(first.allowed).toBe(true);
+    if (!first.allowed) throw new Error('expected the first connection to be admitted');
+    expect(first.bindResource('meeting-a')).toEqual({ allowed: true });
+
+    first.release();
+    first.release();
+
+    const replacement = limiter.acquire('user-b');
+    expect(replacement.allowed).toBe(true);
+    if (replacement.allowed) {
+      expect(replacement.bindResource('meeting-b')).toEqual({ allowed: true });
+      replacement.release();
+    }
+
+    // Empty user/resource buckets were deleted, so the original keys can be admitted normally.
+    const originalKeys = limiter.acquire('user-a');
+    expect(originalKeys.allowed).toBe(true);
+    if (originalKeys.allowed) expect(originalKeys.bindResource('meeting-a')).toEqual({ allowed: true });
   });
 });
