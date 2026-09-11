@@ -1,4 +1,4 @@
-import { and, desc, eq, lte } from 'drizzle-orm';
+import { and, desc, eq, lte, isNull } from 'drizzle-orm';
 import { db } from '../client';
 import { paddleCustomers, paddleSubscriptions, users } from '../schema';
 import type { PaddleBillingRepository } from '../../../ports/repositories.port';
@@ -6,7 +6,7 @@ import type { PaddleBillingRepository } from '../../../ports/repositories.port';
 export class DrizzlePaddleBillingRepository implements PaddleBillingRepository {
   async anonymizeCustomerForUser(userId: string): Promise<void> {
     await db.update(paddleCustomers)
-      .set({ email: null, userId: null, updatedAt: new Date() })
+      .set({ email: null, userId: null, anonymizedAt: new Date(), updatedAt: new Date() })
       .where(eq(paddleCustomers.userId, userId));
   }
 
@@ -75,6 +75,9 @@ export class DrizzlePaddleBillingRepository implements PaddleBillingRepository {
     }).onConflictDoUpdate({
       target: paddleCustomers.customerId,
       set: { email, userId: user?.id ?? null, updatedAt: new Date() },
+      // Enforced in the same write, so a delayed webhook or checkout upsert cannot race a
+      // read-before-write check and restore identity after account erasure.
+      setWhere: isNull(paddleCustomers.anonymizedAt),
     });
   }
 

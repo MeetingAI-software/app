@@ -85,5 +85,35 @@ describe('DrizzlePaddleBillingRepository delivery convergence', () => {
     const [customer] = await db.select().from(paddleCustomers)
       .where(eq(paddleCustomers.customerId, 'ctm_erase'));
     expect(customer).toMatchObject({ email: null, userId: null });
+    expect(customer.anonymizedAt).toBeInstanceOf(Date);
+  });
+
+  it('does not reidentify an anonymized customer through late, repeated or concurrent customer events', async () => {
+    const [user] = await db.insert(users).values({ email: 'erased@example.test' }).returning();
+    await repository.upsertCustomer({ customerId: 'ctm_1', email: user.email });
+    await processPaddleEvent(subscriptionEvent('active', '2026-09-11T10:00:00Z'), repository);
+    const event = { eventType: 'customer.updated', occurredAt: '2026-09-11T10:01:00Z',
+      data: { id: 'ctm_1', email: user.email } } as EventEntity;
+    await Promise.all([repository.anonymizeCustomerForUser(user.id), processPaddleEvent(event, repository)]);
+    await db.delete(users).where(eq(users.id, user.id));
+    // A future account with the same email must not acquire the old billing identity.
+    await db.insert(users).values({ email: user.email });
+    await Promise.all(Array.from({ length: 6 }, () => processPaddleEvent(event, repository)));
+    await repository.upsertCustomer({ customerId: 'ctm_1', email: user.email }); // checkout's shared boundary
+    await processPaddleEvent(subscriptionEvent('canceled', '2026-09-11T11:00:00Z'), repository);
+    const [customer] = await db.select().from(paddleCustomers);
+    expect(customer).toMatchObject({ customerId: 'ctm_1', email: null, userId: null });
+    expect(customer.anonymizedAt).toBeInstanceOf(Date);
+    expect(await repository.findCustomerByEmail(user.email)).toBeNull();
+    expect(await db.select().from(paddleSubscriptions)).toMatchObject([{ subscriptionId: 'sub_1', customerId: 'ctm_1', status: 'canceled' }]);
+  });
+
+  it('continues enriching an ordinary placeholder when the customer event arrives later', async () => {
+    await processPaddleEvent(subscriptionEvent('active', '2026-09-11T10:00:00Z'), repository);
+    const [user] = await db.insert(users).values({ email: 'placeholder@example.test' }).returning();
+    await repository.upsertCustomer({ customerId: 'ctm_1', email: user.email });
+    expect(await db.select().from(paddleCustomers)).toMatchObject([
+      { customerId: 'ctm_1', email: user.email, userId: user.id, anonymizedAt: null },
+    ]);
   });
 });

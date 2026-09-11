@@ -174,6 +174,7 @@ export const paddleCustomers = pgTable('paddle_customers', {
   customerId: text('customer_id').primaryKey(),
   email: text('email'),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  anonymizedAt: timestamp('anonymized_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
