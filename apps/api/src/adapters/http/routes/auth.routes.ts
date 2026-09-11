@@ -8,11 +8,16 @@ import {
   setOAuthStateCookie,
   clearOAuthStateCookie,
   matchesOAuthState,
+  setDeletionGrantCookie,
+  clearDeletionGrantCookie,
+  readDeletionGrantCookie,
 } from '../cookies';
 import { fixedWindowLimiter } from '../middleware/rate-limit';
 import { OAuth2Client } from 'google-auth-library';
 import { config } from '../../../config/env';
 import type { User } from '../../../domain/types';
+import { DELETION_STATE_PREFIX, type DeletionAuthorizationService } from '../../../application/deletion-authorization.service';
+import { DeletionReauthenticationRequiredError } from '../../../domain/errors';
 
 function authUserResponse(user: User) {
   return { user, emailVerificationRequired: !user.emailVerified };
@@ -26,7 +31,7 @@ export function hasVerifiedGoogleEmail(payload: {
   return Boolean(payload?.email && payload.sub && payload.email_verified === true);
 }
 
-export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
+export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: DeletionAuthorizationService): Router {
   const router = Router();
 
   const signupSchema = z.object({
@@ -38,7 +43,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
   });
   // Login stays lenient on password shape so every mismatch is a uniform 401 (no length leak).
   const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
-  const deleteSchema = z.object({ password: z.string().min(1) });
+  const deleteSchema = z.object({ password: z.string().min(1).optional() });
   const changePasswordSchema = z.object({
     currentPassword: z.string().min(1),
     newPassword: z.string().min(10), // §2 policy: length ≥ 10
@@ -184,10 +189,22 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
   });
 
   // Protected by requireUser (mounted globally), so req.userId is present. Password re-confirmed.
-  router.delete('/api/auth/account', async (req, res, next) => {
+  router.post('/api/auth/account/deletion/google', accountLimiter, async (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    clearDeletionGrantCookie(res);
     try {
-      const { password } = deleteSchema.parse(req.body);
-      await auth.deleteAccount(req.userId as string, password);
+      if (!deletion) throw new DeletionReauthenticationRequiredError();
+      const url = await deletion.start(req.userId!, readSessionCookie(req) ?? '');
+      return res.json({ url });
+    } catch (err) { return next(err); }
+  });
+
+  router.delete('/api/auth/account', accountLimiter, async (req, res, next) => {
+    const grantToken = readDeletionGrantCookie(req) ?? '';
+    clearDeletionGrantCookie(res);
+    try {
+      const { password } = deleteSchema.parse(req.body ?? {});
+      await auth.deleteAccount(req.userId as string, password, { sessionToken: readSessionCookie(req) ?? '', grantToken });
       clearSessionCookie(res);
       return res.status(204).end();
     } catch (err) {
@@ -211,6 +228,19 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi): Router {
   });
 
   router.get('/api/auth/google/callback', async (req, res, next) => {
+    // Separate purpose before any login/link code. No account creation or session rotation here.
+    if (typeof req.query.state === 'string' && req.query.state.startsWith(DELETION_STATE_PREFIX)) {
+      res.setHeader('Cache-Control', 'no-store');
+      clearDeletionGrantCookie(res);
+      try {
+        if (!deletion || typeof req.query.code !== 'string' || req.query.error) throw new DeletionReauthenticationRequiredError();
+        const grant = await deletion.complete(readSessionCookie(req) ?? '', req.query.state, req.query.code);
+        setDeletionGrantCookie(res, grant.token, grant.expiresAt);
+        return res.redirect(`${config.WEB_ORIGIN}/settings?deletion=verified`);
+      } catch {
+        return res.redirect(`${config.WEB_ORIGIN}/settings?deletion=failed`);
+      }
+    }
     try {
       const validState = matchesOAuthState(req, req.query.state);
       clearOAuthStateCookie(res);

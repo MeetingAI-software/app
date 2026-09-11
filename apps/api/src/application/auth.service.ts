@@ -15,6 +15,7 @@ import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import {
   AccountDeletionBlockedError,
+  DeletionReauthenticationRequiredError,
   EmailAlreadyVerifiedError,
   EmailSendBudgetExhaustedError,
   ExpiredVerificationTokenError,
@@ -29,6 +30,9 @@ import { logger } from '../config/logger';
 import type { EmailSendBudget } from './email-send-budget.service';
 import type { EmailVerificationTokenService } from './email-verification-token.service';
 import type { EmailVerificationDelivery } from './email-verification-delivery.service';
+import type { DeletionAuthorizationService } from './deletion-authorization.service';
+
+export interface DeletionCredentials { sessionToken: string; grantToken: string }
 
 export interface AuthResult {
   user: User;
@@ -50,7 +54,7 @@ export interface AuthServiceApi {
   changePassword(userId: string, currentPassword: string, newPassword: string): Promise<AuthResult>;
   /** Verify current password, then change the (unverified) email. EmailTakenError on collision. */
   changeEmail(userId: string, currentPassword: string, newEmail: string): Promise<User>;
-  deleteAccount(userId: string, currentPassword: string): Promise<void>;
+  deleteAccount(userId: string, currentPassword?: string, credentials?: DeletionCredentials): Promise<void>;
 }
 
 const MIN_PASSWORD_LENGTH = 10; // §2 policy: length ≥ 10, no composition theater
@@ -90,6 +94,7 @@ export class AuthService implements AuthServiceApi {
     private readonly verificationDelivery: EmailVerificationDelivery,
     private readonly sendBudget: EmailSendBudget,
     private readonly billing?: PaddleBillingRepository,
+    private readonly deletionAuthorization?: Pick<DeletionAuthorizationService, 'consume'>,
   ) {}
 
   async signup(email: string, password: string, registration?: {
@@ -253,10 +258,9 @@ export class AuthService implements AuthServiceApi {
     return updated;
   }
 
-  async deleteAccount(userId: string, confirmation: string): Promise<void> {
-    // Password accounts re-authenticate. Google-only accounts already have a server-side session
-    // and must enter an explicit destructive-action phrase instead of a password they do not own.
-    await this.requireDeletionConfirmation(userId, confirmation);
+  async deleteAccount(userId: string, confirmation?: string, credentials?: DeletionCredentials): Promise<void> {
+    // The shared boundary consumes Google grants before any provider or local deletion starts.
+    await this.requireDeletionConfirmation(userId, confirmation, credentials);
 
     // Delete external media first. Calls are idempotent, so a partial provider-side success can be
     // retried. No local reference or account row is removed unless every provider delete succeeds.
@@ -305,20 +309,20 @@ export class AuthService implements AuthServiceApi {
     logger.info({ userId }, 'Account erasure: complete');
   }
 
-  private async requireDeletionConfirmation(userId: string, confirmation: string): Promise<void> {
+  private async requireDeletionConfirmation(userId: string, confirmation?: string, credentials?: DeletionCredentials): Promise<void> {
     const user = await this.users.findById(userId);
     const record = user ? await this.users.findByEmailWithHash(user.email) : null;
     if (!record) throw new InvalidCredentialsError('Invalid account confirmation');
 
     if (record.passwordHash) {
-      if (!(await this.hasher.verify(confirmation, record.passwordHash))) {
+      if (!confirmation || !(await this.hasher.verify(confirmation, record.passwordHash))) {
         throw new InvalidCredentialsError('Invalid password');
       }
       return;
     }
 
-    if (record.googleId && confirmation === 'DELETE') return;
-    throw new InvalidCredentialsError('Invalid account confirmation');
+    if (!record.googleId || !credentials || !this.deletionAuthorization) throw new DeletionReauthenticationRequiredError();
+    await this.deletionAuthorization.consume(userId, credentials.sessionToken, credentials.grantToken);
   }
 
   /** Load a user + verify a plaintext password against their hash, or throw InvalidCredentialsError. */

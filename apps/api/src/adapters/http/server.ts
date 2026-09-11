@@ -49,6 +49,7 @@ function isPublicApi(method: string, path: string): boolean {
  * you can't verify has to be one you can still leave. Paths are relative to the '/api' mount.
  */
 function isVerificationExempt(method: string, path: string): boolean {
+  if (method === 'POST' && path === '/auth/account/deletion/google') return true;
   if (method === 'POST' && (path === '/auth/change-email' || path === '/auth/change-password')) return true;
   if (method === 'DELETE' && path === '/auth/account') return true;
   return false;

@@ -314,7 +314,11 @@ export async function changeEmail(currentPassword: string, newEmail: string): Pr
   return handleResponseQuiet<AuthUserResponse>(res);
 }
 
-export async function deleteAccount(password: string): Promise<void> {
+export async function startGoogleDeletionVerification(): Promise<{ url: string }> {
+  return handleResponseQuiet<{ url: string }>(await api('/api/auth/account/deletion/google', { method: 'POST' }));
+}
+
+export async function deleteAccount(password?: string): Promise<void> {
   return handleVoid(await api('/api/auth/account', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },

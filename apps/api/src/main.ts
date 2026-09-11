@@ -35,6 +35,9 @@ import {
   paddleTeamPriceIds,
 } from './config/billing-catalog';
 import { AuthService } from './application/auth.service';
+import { DeletionAuthorizationService } from './application/deletion-authorization.service';
+import { DrizzleDeletionAuthorizationRepository } from './adapters/db/repositories/deletion-authorization.repository';
+import { GoogleDeletionIdentityAdapter } from './adapters/http/google-deletion-identity';
 import { EmailVerificationTokenService } from './application/email-verification-token.service';
 import { EmailVerificationDeliveryService } from './application/email-verification-delivery.service';
 import { EmailSendBudgetService } from './application/email-send-budget.service';
@@ -206,10 +209,13 @@ async function bootstrap() {
     emailSendBudget,
   );
   const passwordHasher = new Argon2Hasher();
+  const deletionAuthorization = new DeletionAuthorizationService(
+    new DrizzleDeletionAuthorizationRepository(), sessionRepo, userRepo, new GoogleDeletionIdentityAdapter(),
+  );
   const authService = new AuthService(
     userRepo, sessionRepo, passwordHasher, config.SESSION_TTL_DAYS,
     meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter,
-    emailVerificationTokens, emailVerificationDelivery, emailSendBudget, paddleBillingRepo,
+    emailVerificationTokens, emailVerificationDelivery, emailSendBudget, paddleBillingRepo, deletionAuthorization,
   );
 
   // 4. Web Worker
@@ -231,7 +237,7 @@ async function bootstrap() {
   const routes = [
     createHealthRoutes(),
     createWaitlistRoutes(waitlistRepo),
-    createAuthRoutes(authService),
+    createAuthRoutes(authService, deletionAuthorization),
     createMeRoutes(usageRepo, billingAccess, config.IN_ROOM_RECORDING_ENABLED),
     createBillingRoutes(
       customerPortal,

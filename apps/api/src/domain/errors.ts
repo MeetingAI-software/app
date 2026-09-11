@@ -119,6 +119,13 @@ export class InvalidCredentialsError extends Error {   // → HTTP 401
 }
 
 /** Account erasure stopped before local records were removed because a required delete failed. */
+export class DeletionReauthenticationRequiredError extends Error {
+  constructor() {
+    super('Verify your Google account again before deleting this account');
+    this.name = 'DeletionReauthenticationRequiredError';
+  }
+}
+
 export class AccountDeletionBlockedError extends Error {
   constructor(message = 'Account deletion could not be completed safely; please try again later') {
     super(message);

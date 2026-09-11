@@ -4,6 +4,7 @@ import { config } from '../../config/env';
 
 export const SESSION_COOKIE = 'session';
 export const OAUTH_STATE_COOKIE = 'oauth_state';
+export const DELETION_GRANT_COOKIE = '__Secure-deletion_grant';
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 // §2 cookie strategy: HttpOnly; Secure; SameSite=Lax; Path=/; expiry = the session's own expiry.
@@ -47,6 +48,20 @@ function readCookie(req: Request, name: string): string | null {
 
 export function readSessionCookie(req: Request): string | null {
   return readCookie(req, SESSION_COOKIE);
+}
+
+const deletionCookieOptions = { httpOnly: true, secure: true, sameSite: 'lax' as const, path: '/api/auth/account' };
+
+export function setDeletionGrantCookie(res: Response, token: string, expiresAt: Date): void {
+  res.cookie(DELETION_GRANT_COOKIE, token, { ...deletionCookieOptions, expires: expiresAt });
+}
+
+export function clearDeletionGrantCookie(res: Response): void {
+  res.clearCookie(DELETION_GRANT_COOKIE, deletionCookieOptions);
+}
+
+export function readDeletionGrantCookie(req: Request): string | null {
+  return readCookie(req, DELETION_GRANT_COOKIE);
 }
 
 function oauthStateCookieOptions(includeMaxAge = true) {

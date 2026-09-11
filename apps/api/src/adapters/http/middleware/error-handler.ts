@@ -9,6 +9,7 @@ import {
   MeetingNotReadyError,
   InvalidCredentialsError,
   AccountDeletionBlockedError,
+  DeletionReauthenticationRequiredError,
   EmailTakenError,
   WeakPasswordError,
   EmailAlreadyVerifiedError,
@@ -46,6 +47,10 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
         message: err.message,
       },
     });
+  }
+
+  if (err instanceof DeletionReauthenticationRequiredError) {
+    return res.status(403).json({ error: { code: 'DELETION_REAUTH_REQUIRED', message: err.message } });
   }
 
   if (err instanceof PlanUpgradeRequiredError) {

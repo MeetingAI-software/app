@@ -710,14 +710,14 @@ describe('AuthService', () => {
       expect(await c.service.getUserForToken(sessionToken)).toBeNull();
     });
 
-    it('lets a Google-only account confirm deletion without an impossible password', async () => {
+    it('does not accept a public phrase as Google-only deletion authority', async () => {
       const { user } = await ctx.service.loginOrCreateGoogleUser('oauth@example.com', 'google-1');
 
-      await expect(ctx.service.deleteAccount(user.id, 'wrong')).rejects.toBeInstanceOf(InvalidCredentialsError);
+      await expect(ctx.service.deleteAccount(user.id, 'wrong')).rejects.toMatchObject({ name: 'DeletionReauthenticationRequiredError' });
       expect(ctx.users.size()).toBe(1);
 
-      await ctx.service.deleteAccount(user.id, 'DELETE');
-      expect(ctx.users.size()).toBe(0);
+      await expect(ctx.service.deleteAccount(user.id, 'DELETE')).rejects.toMatchObject({ name: 'DeletionReauthenticationRequiredError' });
+      expect(ctx.users.size()).toBe(1);
     });
 
     it('keeps local account data when an external media delete fails', async () => {

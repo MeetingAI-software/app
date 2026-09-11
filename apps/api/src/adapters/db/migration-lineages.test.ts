@@ -42,6 +42,8 @@ describe('immutable migration lineages', () => {
         'meetings.share_enabled', 'meetings.share_expires_at',
         'meetings.recording_notice_confirmed_at', 'meetings.recording_notice_version',
         'users.organization_name', 'users.business_use_confirmed_at', 'users.terms_version_accepted',
+        'account_deletion_authorizations.session_id', 'account_deletion_authorizations.state_hash',
+        'account_deletion_authorizations.nonce_hash', 'account_deletion_authorizations.grant_hash',
       ]));
       const indexes = await client.query<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE tablename='meetings'");
       expect(indexes.rows.map(row => row.indexname)).toContain('meetings_share_expiry_idx');

@@ -153,6 +153,21 @@ export const sessions = pgTable('sessions', {
   sessionsUserIdIdx: index('sessions_user_id_idx').on(t.userId),
 }));
 
+// Single-use deletion challenges and grants, bounded to one row per live session.
+export const accountDeletionAuthorizations = pgTable('account_deletion_authorizations', {
+  sessionId: uuid('session_id').primaryKey().references(() => sessions.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  googleSub: text('google_sub').notNull(),
+  stateHash: text('state_hash').notNull().unique(),
+  nonceHash: text('nonce_hash').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+  grantHash: text('grant_hash').unique(),
+  grantExpiresAt: timestamp('grant_expires_at', { withTimezone: true }),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+});
+
 // Paddle is the billing source of truth. Customer rows may be created as placeholders when
 // subscription webhooks arrive first; a later customer webhook fills in email/user ownership.
 export const paddleCustomers = pgTable('paddle_customers', {
