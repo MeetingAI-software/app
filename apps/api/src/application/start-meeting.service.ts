@@ -50,12 +50,14 @@ export class StartMeetingService {
       });
 
       return updated;
-    } catch (err: any) {
-      // If bot creation fails, mark meeting as failed
+    } catch (err) {
+      const failure = new BotProviderError(err instanceof BotProviderError ? err.diagnostics : { operation: 'create_bot' });
+      // Persist only the same generic failure returned to the caller, retaining safe diagnostics
+      // in the exception for monitoring rather than storing provider text on the meeting.
       await this.meetingRepo.updateStatus(meeting.id, 'failed', {
-        errorMessage: err?.message || 'Failed to create bot',
+        errorMessage: failure.message,
       });
-      throw new BotProviderError(err?.message || 'Bot provider failed to initialize');
+      throw failure;
     }
   }
 }

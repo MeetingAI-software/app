@@ -1,5 +1,7 @@
 import { config } from '../../config/env';
-import { BotProviderError } from '../../domain/errors';
+import { BotProviderError, type BotOperation } from '../../domain/errors';
+import { logger } from '../../config/logger';
+import { requestRecall } from './recall-request';
 import type { MeetingBotPort } from '../../ports/meeting-bot.port';
 import type { TranscriptSegment } from '../../domain/types';
 import { normalizeTranscript } from './transcript.normalizer';
@@ -32,103 +34,33 @@ function mapRecallStatus(status: string): 'joining' | 'in_call' | 'done' | 'fata
   }
 }
 
-async function fetchWithRetry(url: string, options: RequestInit = {}): Promise<Response> {
-  const apiKey = config.RECALL_API_KEY;
-  if (!apiKey) {
-    throw new Error('RECALL_API_KEY is not configured');
-  }
-
-  const headers = {
-    'Authorization': `Token ${apiKey}`,
-    'Content-Type': 'application/json',
-    'accept': 'application/json',
-    ...options.headers,
-  } as Record<string, string>;
-
-  const makeRequest = async () => {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 15000);
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-        signal: controller.signal,
-      });
-      return response;
-    } finally {
-      clearTimeout(id);
-    }
-  };
-
-  try {
-    let response = await makeRequest();
-    if (response.status >= 500) {
-      console.warn(`⚠️ Recall API returned ${response.status}. Retrying in 2s...`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      response = await makeRequest();
-    }
-    return response;
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
-      throw new BotProviderError('Recall API request timed out (15s limit reached)');
-    }
-    console.warn(`⚠️ Recall API request failed: ${error.message}. Retrying in 2s...`);
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    try {
-      return await makeRequest();
-    } catch (retryError: any) {
-      if (retryError.name === 'AbortError') {
-        throw new BotProviderError('Recall API request timed out on retry (15s limit reached)');
-      }
-      throw new BotProviderError(`Recall API network error: ${retryError.message}`);
-    }
-  }
-}
-
-/**
- * Fetch a presigned media URL. Sending our `Authorization: Token ...` header to S3 makes it
- * reject the request, so this cannot reuse fetchWithRetry — but it keeps the same
- * 15s timeout + single retry contract.
- */
-async function fetchPresigned(url: string): Promise<any> {
-  const makeRequest = async () => {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 15000);
-    try {
-      return await fetch(url, { signal: controller.signal });
-    } finally {
-      clearTimeout(id);
-    }
-  };
-
-  let response: Response;
-  try {
-    response = await makeRequest();
-    if (response.status >= 500) {
-      console.warn(`⚠️ Transcript download returned ${response.status}. Retrying in 2s...`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      response = await makeRequest();
-    }
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
-      throw new BotProviderError('Transcript download timed out (15s limit reached)');
-    }
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    try {
-      response = await makeRequest();
-    } catch (retryError: any) {
-      throw new BotProviderError(`Transcript download failed: ${retryError.message}`);
-    }
-  }
-
-  if (!response.ok) {
-    throw new BotProviderError(`Transcript download failed: ${response.status} ${response.statusText}`);
-  }
-
-  return await response.json();
-}
-
 export class RecallAdapter implements MeetingBotPort {
+  private async guarded<T>(operation: BotOperation, work: () => Promise<T>): Promise<T> {
+    try { return await work(); }
+    catch (err) {
+      const safe = err instanceof BotProviderError ? err : new BotProviderError({ operation });
+      logger.warn(safe.diagnostics, 'Meeting bot provider operation failed');
+      throw safe;
+    }
+  }
+
+  createBot(input: { meetingUrl: string; meetingId: string; maxMeetingSeconds?: number }) {
+    return this.guarded('create_bot', () => this.createBotRequest(input));
+  }
+
+  getBotStatus(botId: string) {
+    return this.guarded('get_bot_status', () => this.getBotStatusRequest(botId));
+  }
+
+  fetchTranscript(botId: string) {
+    return this.guarded('fetch_transcript', () => this.fetchTranscriptRequest(botId));
+  }
+
+  deleteRecording(botId: string): Promise<void> {
+    return this.guarded('delete_recording', () => requestRecall('delete_recording',
+      `${this.getBaseUrl()}/api/v1/bot/${botId}/delete_media/`, { method: 'POST' }, false, true));
+  }
+
   private getBaseUrl(): string {
     const baseUrl = config.RECALL_BASE_URL;
     if (!baseUrl) {
@@ -138,7 +70,7 @@ export class RecallAdapter implements MeetingBotPort {
     return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   }
 
-  async createBot(input: { meetingUrl: string; meetingId: string; maxMeetingSeconds?: number }): Promise<{ botId: string }> {
+  private async createBotRequest(input: { meetingUrl: string; meetingId: string; maxMeetingSeconds?: number }): Promise<{ botId: string }> {
     const url = `${this.getBaseUrl()}/api/v1/bot/`;
     
     // `recording_config` replaced the old `transcription_options` field, which the API no
@@ -196,20 +128,10 @@ export class RecallAdapter implements MeetingBotPort {
       },
     };
 
-    const response = await fetchWithRetry(url, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      throw new BotProviderError(`Failed to create bot: ${response.status} ${response.statusText}. Response: ${errorText}`);
-    }
-
-    const data = await response.json() as any;
+    const data = await requestRecall('create_bot', url, { method: 'POST', body: JSON.stringify(body) });
     const botId = data.id || data.bot_id;
-    if (!botId) {
-      throw new BotProviderError('Recall API response did not contain bot ID');
+    if (typeof botId !== 'string' || !botId) {
+      throw new BotProviderError({ operation: 'create_bot' });
     }
 
     return { botId };
@@ -219,19 +141,10 @@ export class RecallAdapter implements MeetingBotPort {
   private async retrieveBot(botId: string): Promise<any> {
     const url = `${this.getBaseUrl()}/api/v1/bot/${botId}/`;
 
-    const response = await fetchWithRetry(url, {
-      method: 'GET',
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      throw new BotProviderError(`Failed to retrieve bot: ${response.status} ${response.statusText}. Response: ${errorText}`);
-    }
-
-    return await response.json() as any;
+    return requestRecall('retrieve_bot', url, { method: 'GET' });
   }
 
-  async getBotStatus(botId: string): Promise<'joining' | 'in_call' | 'done' | 'fatal'> {
+  private async getBotStatusRequest(botId: string): Promise<'joining' | 'in_call' | 'done' | 'fatal'> {
     const data = await this.retrieveBot(botId);
 
     // The bot no longer carries a top-level `status`; it carries the full `status_changes`
@@ -242,13 +155,13 @@ export class RecallAdapter implements MeetingBotPort {
     const rawStatus = data.status?.code || data.status || latest?.code;
 
     if (!rawStatus) {
-      throw new BotProviderError('Recall API response did not contain bot status');
+      throw new BotProviderError({ operation: 'get_bot_status' });
     }
 
     return mapRecallStatus(String(rawStatus));
   }
 
-  async fetchTranscript(botId: string): Promise<TranscriptSegment[]> {
+  private async fetchTranscriptRequest(botId: string): Promise<TranscriptSegment[]> {
     // Two hops now. The old /bot/{id}/transcript/ endpoint is gone: retrieve the bot, then
     // follow the transcript shortcut to a presigned download URL.
     const data = await this.retrieveBot(botId);
@@ -261,34 +174,13 @@ export class RecallAdapter implements MeetingBotPort {
     if (!downloadUrl) {
       // Recall is most likely still processing. Throwing puts the job back on the worker's
       // exponential backoff, which is the behaviour we want.
-      throw new BotProviderError(`Transcript is not ready for bot ${botId}: no download_url on any recording`);
+      throw new BotProviderError({ operation: 'fetch_transcript' });
     }
 
     // Presigned S3 link — it must be fetched WITHOUT our Authorization header, so this
-    // deliberately does not go through fetchWithRetry.
-    const payload = await fetchPresigned(downloadUrl);
+    // deliberately does not go through the authenticated request path.
+    const payload = await requestRecall('download_transcript', downloadUrl, {}, true);
     return normalizeTranscript(payload);
   }
 
-  async deleteRecording(botId: string): Promise<void> {
-    // POST /api/v1/bot/{id}/delete_media/ — irreversible at the provider.
-    const url = `${this.getBaseUrl()}/api/v1/bot/${botId}/delete_media/`;
-
-    const response = await fetchWithRetry(url, {
-      method: 'POST',
-    });
-
-    // Idempotent per the port contract: media that is already gone is a success,
-    // not an error. 404 = unknown bot/media, 409 = conflict (already deleted).
-    if (response.ok || response.status === 404 || response.status === 409) {
-      return;
-    }
-
-    const errorText = await response.text().catch(() => '');
-    throw new BotProviderError(
-      `Failed to delete recording: ${response.status} ${response.statusText}. Response: ${errorText}`
-    );
-  }
 }
-
-

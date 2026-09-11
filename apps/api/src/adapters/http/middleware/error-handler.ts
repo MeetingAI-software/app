@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import {
   CapExceededError,
   BotProviderError,
+  BOT_PROVIDER_MESSAGE,
   InvalidTransitionError,
   DocumentGenerationError,
   ChatProviderError,
@@ -207,7 +208,7 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(502).json({
       error: {
         code: 'BOT_PROVIDER_ERROR',
-        message: err.message,
+        message: BOT_PROVIDER_MESSAGE,
       },
     });
   }
