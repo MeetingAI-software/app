@@ -1,243 +1,167 @@
 # Data protection impact assessment (draft)
 
-**Status: draft for the adviser. Not approved, not signed, not a completed DPIA.**
+**Engineering draft updated 2026-09-11. Not approved, signed or a completed DPIA.**
+Owner, accountable decision maker and review date: **Unassigned**.
+It describes the ordered PR75 → PR76 code result. Local tests do not establish production
+configuration, contracts, participant notice or accepted residual risk.
 
-This is an engineering-authored first draft of the Article 35 assessment for Syncmemos. It exists so
-that the adviser meeting starts from written facts about the system instead of a whiteboard. Every
-statement about our own code is verifiable in this repository; every statement about a provider's
-configuration is marked `Not verified` and must be established from the provider dashboard or
-contract before Live.
+The identity/roles of the people or entities actually determining processing must be established.
+A future seller decision or an empty controller field does not mean that current processing has
+no controller. No current user/data-volume measurement was performed for this draft.
 
-Two things this draft cannot settle, and deliberately does not pretend to:
+## 1. Need for a DPIA
 
-- **Who the controller is.** No legal seller has been selected yet
-  ([legal seller readiness](legal-seller-readiness.md)). Until one is, the controller entry below is
-  a placeholder.
-- **The controller/processor split for meeting content.** The organiser chooses to record a meeting
-  with people who are not our users. Whether Syncmemos is a controller, a joint controller, or a
-  processor for that content is the single most consequential legal question in this document, and
-  it is the adviser's to answer. Section 7 sets out what changes under each answer.
+The threshold is likely high risk to people's rights and freedoms. Assess the actual nature,
+scope, context and purposes against Article 35 and the applicable supervisory-authority list.
+IMY generally calls for a DPIA when at least two of its listed criteria apply, and some cases
+can require one on a single criterion. Which criteria apply needs evidence:
+[IMY guidance](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/konsekvensbedomning/nar-ska-en-konsekvensbedomning-genomforas/).
 
-Owner: `Unassigned`. Review date: `Unassigned`.
+| Factor to assess | Evidence or question for this service |
+|---|---|
+| Sensitive/highly personal content | Unfiltered meetings can contain health, union, employment or other private information; characterize actual intended use and exclusions |
+| Vulnerable people | Employment, education or healthcare use may involve dependency; simply being a non-user does not establish vulnerability |
+| Monitoring/evaluation | Recording and model-generated statements may affect people; a summary alone does not establish systematic scoring or significant-effect automated decisions |
+| Scale | Number of people/records, duration and geographic extent Not verified; pre-launch or no paying accounts is not a measurement of personal-data processing |
+| New technology | Diarized transcription and generative processing require a contextual assessment of novelty and risks |
+| Rights/access effects | Participant rights gaps are real; they are not automatically the distinct criterion of processing to deny a service or contract |
 
-## 1. Is a DPIA required?
+**Working decision: prepare and complete this assessment before expanding the affected processing,
+and obtain a qualified determination of the mandatory DPIA scope.** The prior mechanical
+“five criteria” conclusion and “biometric-adjacent” label were not adequate evidence.
 
-Article 35(1) requires one where processing is "likely to result in a high risk". Article 35(3)(b)
-names large-scale processing of special-category data, and (a) names systematic evaluation. Neither
-subparagraph is a clean fit — the scale is currently zero users, and we do not process special
-categories deliberately.
+Speech recordings are not automatically special-category biometric data. The Article 9 biometric
+rule concerns processing for unique identification; the reviewed application does not intentionally
+build cross-meeting voiceprints. Verify provider behavior. Separately, transcript content itself
+may contain Article 9 categories or Article 10 data; absence of voice identification does not
+remove those questions.
 
-The trigger here is the combination the EDPB criteria describe rather than any single item:
+## 2. Description of processing
 
-| Criterion (WP248 rev.01) | Present | Why |
-|---|---|---|
-| Evaluation or scoring | Partly | LLMs generate summaries and documents *about* named participants from what they said. |
-| Data processed on a large scale | Not yet | Pre-launch. Re-assess at launch and at each order of magnitude. |
-| Data concerning vulnerable data subjects | Yes | Meeting participants are not our users, have no account, and did not choose the tool. |
-| Innovative use of technology | Yes | Automated diarised transcription plus generative summarisation of speech. |
-| Data preventing subjects from exercising a right | Yes | A participant with no account has no route to their own data — see [DSR procedure](data-subject-requests.md). |
-| Sensitive or highly personal data | Yes, in effect | We do not select for it, but what people say in meetings is not filtered. Health, union, and legal matters arrive in transcripts because that is what meetings are about. |
+An organizer connects a bot meeting or uploads an in-room recording. Recall or, when enabled,
+AssemblyAI produces speaker-labelled transcripts. Gemini or optional Anthropic generates documents,
+summaries or transcript-grounded chat. Owners can enable a time-limited bearer share link.
 
-Five criteria met. Our own retention policy already states the conclusion in its own words:
-[data retention](data-retention.md) describes meeting audio as "a biometric-adjacent recording of
-identifiable people who did not all individually consent to us holding it". That sentence is a DPIA
-trigger written down before anyone called it one.
+Affected people include account holders, participants without accounts, people mentioned in
+content, waitlist subscribers and web/share visitors. Development/test participants can also be
+identifiable. Email registration and login through an existing linked Google identity are separate;
+the new deletion round neither creates accounts nor links a new identity.
 
-**Draft conclusion: a DPIA is required.** The adviser should confirm, and should confirm whether
-IMY's list of processing requiring a DPIA adds anything specific here.
+[RoPA](ropa.md) lists accounts/session and deletion-authorization hashes, audio, meeting metadata,
+transcripts/raw payloads/live segments, generated content/chat, usage, webhook payloads, waitlist,
+billing mirror and telemetry. [Provider inventory](data-processors.md) includes Cloudflare and
+distinguishes Google Gemini from OAuth and Paddle's own merchant records.
 
-A note on "biometric-adjacent": speech recordings are not automatically Article 9 biometric data.
-They become biometric data when processed *for the purpose of* uniquely identifying a person.
-Recall's diarisation labels speakers within one meeting; it does not build a cross-meeting
-voiceprint, and we do not ask it to. The adviser should confirm that reading, because it decides
-whether Article 9 applies at all.
+Legal bases are proposals to review purpose by purpose. Necessary account service may rely on
+contract; this does not supply a basis for every participant's speech or every model use.
+Legitimate interests requires its own necessity/balancing assessment; special-category processing
+needs a relevant additional condition. Waitlist consent needs a workable withdrawal path. Paddle's
+statutory basis is not automatically the basis for our local mirror.
 
-## 2. Description of the processing
+Processing countries, transfers, provider input use/retention, subprocessors and actual terms remain
+Not verified. An AssemblyAI EU-origin startup guard and Recall base URL are limited code evidence.
+Do not turn these into a residency or no-training claim.
 
-### What the product does
-
-A user connects a meeting (a bot joins the call) or uploads an in-room recording. The audio is
-transcribed with speaker labels, an LLM produces a summary and a structured document, and the user
-can ask questions about the meeting in a chat grounded in the transcript. A meeting can optionally
-be shared through an expiring public link.
-
-### Data subjects
-
-1. **Account holders** — the paying user. Registers with an email address or Google OAuth.
-2. **Meeting participants** — everyone else in the call or the room. No account, no relationship
-   with us, often no awareness of us. This is the group the assessment is really about.
-3. **Waitlist subscribers** — pre-launch visitors who left an email address.
-4. **Recipients of a share link** — anyone the account holder sends a transcript to.
-
-### Categories of personal data
-
-| Category | Where | Source |
-|---|---|---|
-| Email address, password hash, Google `sub`, verification state | `users` | Account holder |
-| Session token hashes, expiry | `sessions` | Derived |
-| Meeting URL, platform, timing, participant names, share token | `meetings` | Account holder + provider |
-| Speech content with speaker labels and timestamps | `transcripts`, `live_transcript_segments` | All participants |
-| Raw provider response for the transcript | `transcripts.raw_payload` | Provider |
-| LLM-generated summaries and documents about what people said | `documents`, `meetings.summary` | Derived from the above |
-| Questions and answers about a meeting's content | `chat_messages` | Account holder + derived |
-| Recorded seconds per meeting | `usage_ledger` | Derived |
-| Billing customer id, email, subscription state | `paddle_customers`, `paddle_subscriptions` | Paddle |
-| Verification-email send events | `email_send_ledger` | Derived |
-| Raw provider webhook payloads, including transcript content | `webhook_events` | Provider |
-| Waitlist email address and which dialog it came from | `waitlist_signups` | Visitor |
-| Meeting audio (temporary) | Supabase Storage | Account holder / provider |
-
-Special categories are not collected by design but are not excluded in practice: a recorded meeting
-can contain anything the participants say. The mitigation is not filtering — it is the short audio
-life, the deletion path, and the access controls in section 6.
-
-### Purposes and legal bases (draft — adviser to confirm)
-
-| Purpose | Data | Draft legal basis | Note |
-|---|---|---|---|
-| Provide the account | `users`, `sessions` | Art. 6(1)(b) contract | Straightforward. |
-| Transcribe, summarise and answer questions about a meeting | audio, transcripts, documents, chat | 6(1)(b) toward the account holder; **6(1)(f) toward other participants** | The balancing test for the second half is the core of section 7. |
-| Bill the subscription | Paddle mirror | 6(1)(b), plus 6(1)(c) for the statutory records Paddle keeps as merchant of record | Paddle's own retention is outside our erasure. |
-| Prevent verification-email abuse | `email_send_ledger` | 6(1)(f) | Detached from the user on erasure. |
-| Security and error telemetry | Sentry events | 6(1)(f) | |
-| Waitlist | `waitlist_signups` | 6(1)(a) consent | **Gap: no withdrawal mechanism, no retention period, no deletion path.** See section 8. |
-
-### Recipients
-
-Railway, Vercel, Supabase, Recall, AssemblyAI, Google (Gemini and OAuth), Anthropic, Resend, Sentry,
-Paddle. Purpose, data, region, retention and DPA status per provider are in the
-[processor map](data-processors.md). Ten of ten are `Not verified` on both region and DPA today —
-that is itself a finding of this assessment, not a footnote.
-
-### Transfers outside the EU/EEA
-
-`Not verified` for every provider. Anthropic and Google are US-headquartered; AssemblyAI is
-configured so that production refuses in-room recording enablement without the exact EU API origin,
-but account provisioning is a dashboard fact we cannot prove from code. Until each provider's region
-and transfer mechanism is documented, **the privacy policy cannot state a residency claim** — that
-rule is already written into the processor map and must survive into the published text.
-
-### Retention
-
-Documented in [data retention](data-retention.md), enforced by the sweep job, evidenced by its logs.
-Audio is deleted 1 hour after transcription (in practice within roughly 7 hours, because the sweep
-runs every 6). Everything else meeting-related lives until account deletion.
+Audio/Recall records become eligible for cleanup after one hour with sweep attempts at boot and
+six-hour intervals; outages and failures can extend retention. Raw/failed/orphan copies have known
+gaps. [Retention inventory](data-retention.md) distinguishes use expiry, cleanup and provider records.
 
 ## 3. Necessity and proportionality
 
-**Is the processing necessary for the purpose?** Yes for the transcript, which is the product.
-Less obviously so for everything derived from it: the audio, the raw provider payload, and the
-generative output all exist for convenience or reprocessing rather than for the stated service.
+Assess which data and generated features are necessary for each agreed purpose, and whether less
+intrusive input, shorter retention or an alternative recording workflow can achieve it. Do not
+assume that every raw provider field is necessary because it can help debugging or reprocessing.
 
-The design already reflects that:
+Determine how participants receive information, what choice or objection they have, and the safe
+response when recording is inappropriate. The organizer's versioned confirmation is evidence of
+their assertion, not individual notice, freely given consent or a lawful basis.
 
-- Audio is deleted an hour after it has served its only purpose, on both recording paths, and the
-  reason is written down: the transcript is the source of truth from the moment it exists.
-- Live transcript segments are deleted when the final transcript lands.
-- Processed webhook payloads are replaced with a redaction marker once the worker no longer needs
-  them (on `fix/security-compliance-hardening`, not yet on `main`).
-- Production data is never copied into development, and the API refuses to start against a remote
-  database from a terminal.
+Evaluate accuracy safeguards and correction of speaker attribution/generated assertions. Bearer
+sharing requires a deliberate audience decision: expiry cannot revoke saved copies. Assess access
+and erasure for non-users, and whether claimed operational safeguards actually execute.
 
-**What is not minimised:** `transcripts.raw_payload` keeps the provider's complete response
-indefinitely alongside the parsed `segments`. Its purpose is reprocessing. That is a real purpose,
-but it means a second full copy of everything said in the meeting persists for the life of the
-account. The adviser should be told this plainly; the engineering options are to drop it after a
-bounded period or to store only the fields reprocessing actually needs.
+## 4. Consultation and evidence
 
-## 4. Consultation
+No consultation/approval is established by this draft. The owner must arrange qualified review,
+record the accountable controller's decisions and assess the DPO requirement under the actual
+processing. Consider participants' views where appropriate and record reasons for any exception.
 
-- Data subjects: not consulted. For meeting participants there is no channel to consult them
-  through, which is itself the point section 7 makes.
-- Adviser: pending — this document is the input to that meeting.
-- Supervisory authority (IMY, Art. 36 prior consultation): only required if high residual risk
-  cannot be mitigated. Draft view: not required, on the assumption that section 6 and section 8's
-  measures are accepted. The adviser decides.
-- DPO: none appointed. Article 37 does not obviously require one at this scale, but "regular and
-  systematic monitoring on a large scale" is a judgement the adviser should make explicitly rather
-  than by default.
+Article 36 prior-consultation applicability remains open until the assessment and effective
+mitigations establish residual risk. Do not decide it from a list of planned actions or a merge.
+[GDPR Articles 35–37 (IMY full text)](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/introduktion-till-gdpr/dataskyddsforordningen-i-fulltext/).
 
-## 5. Risks to data subjects
+## 5. Risks to people
 
-Scored as likelihood times severity for the *data subject*, not for the business.
+The ratings below are **initial qualitative hypotheses**, not measured probability or accepted
+residual risk. Reassess them for the actual processing and affected population.
 
-| # | Risk | Likelihood | Severity | Inherent |
-|---|---|---|---|---|
-| R1 | A participant's speech is recorded, transcribed and stored without them knowing or being able to object | High | High | **Critical** |
-| R2 | A share link is forwarded beyond its intended recipient | Medium | High | **High** |
-| R3 | A provider retains audio or transcript longer than we believe, or in an undocumented region | Medium | High | **High** |
-| R4 | An LLM summary states something inaccurate about an identified person and is acted on | Medium | Medium | Medium |
-| R5 | Transcript content leaks through raw provider payloads that outlive their purpose | Medium | High | **High** |
-| R6 | A participant cannot exercise access or erasure because they have no account and no route in | High | Medium | **High** |
-| R7 | Prompt injection from meeting speech steers the model into disclosing other content | Low | Medium | Medium |
-| R8 | Waitlist addresses are kept indefinitely with no withdrawal path | High | Low | Medium |
-| R9 | Account holder credentials are compromised, exposing every meeting they hold | Low | High | Medium |
+| Risk | Potential harm | Initial concern |
+|---|---|---|
+| R1 Uninformed/inappropriate recording | Exposure of private speech; employment or personal consequences; loss of choice | High |
+| R2 Forwarded or compromised share link | Content disclosed beyond the intended audience | High |
+| R3 Unknown provider retention/locations/use | Uncontrolled copies, transfers or secondary processing | High |
+| R4 Incorrect transcript/generated assertions | Misattribution, reputational harm or decisions based on false text | Material |
+| R5 Raw, failed or orphan content persists | Unnecessary exposure and incomplete erasure | High |
+| R6 Participant rights cannot be exercised effectively | Inability to find, correct, restrict or erase personal data | High |
+| R7 Prompt injection through speech/content | Misleading output or unintended disclosure in the model path | Material; validate actual scope |
+| R8 Waitlist retained without withdrawal/deletion | Continued unwanted contact and loss of control | Material |
+| R9 Account/session compromise | Access to private meetings or destructive account operations | High |
 
-## 6. Measures already implemented
+## 6. Implemented controls and their limits after PR75
 
-Verifiable in the repository today. A flagged row (⚑) is implemented on
-`fix/security-compliance-hardening` and is **not yet in production**.
+| Risk | Code measure | Limit requiring evidence or more work |
+|---|---|---|
+| R1 | Versioned, server-stamped organizer notice acknowledgement before recording/upload processing | Does not prove participant notice/consent or an adequate lawful basis |
+| R2 | Opt-in sharing, owner disable/rotate, 24-hour expiry on enable; SQL expiry and generic noindex/no-store share metadata | Forwarded/downloaded copies remain; live release not verified by code |
+| R3 | Configuration guards and provider inventory | Actual service regions, terms, transfers and retention unverified |
+| R4 | Grounded generation and presentation of generated content | No complete correction/participant remedy process |
+| R5 | Successful webhook payload redaction, eligible transcribed/failed-audio cleanup, fail-closed known-media account erasure | Failed payloads, raw transcripts, orphan objects and external retention remain gaps |
+| R6 | Owner self-service account deletion | Not a participant access/export/erasure system |
+| R7 | Separation of untrusted transcript content from instructions | Mitigation, not proof of full injection resistance |
+| R8 | Waitlist uniqueness prevents duplicate rows | No retention/unsubscribe/erasure mechanism |
+| R9 | Hash-based sessions, password checks, Origin/auth/ownership/rate limits and new Google deletion proof | A compromised session still grants its ordinary access; Google can use its existing login session |
 
-| Risk | Measure |
+Google-only deletion requires a verified identity round bound to the current account/session and
+a one-use server grant, then separate Settings confirmation. Raw grants are cookie-only; retry after
+failure needs new authorization. [Detailed guarantees](google-account-deletion.md).
+Recall errors are sanitized within the [documented boundary](recall-error-boundary.md), not across
+all historic telemetry. [Upload](upload-limits.md) and [SSE](live-stream-limits.md) admission are
+process-local; neither is a production capacity benchmark.
+
+## 7. Controller/processor assessment for meeting content
+
+Establish who determines each purpose and essential means from the actual organizer use, contracts
+and service behavior. Roles can differ across meeting processing, account administration,
+analytics and merchant records; do not choose one label for everything.
+
+| Possible relationship | Implication to review |
 |---|---|
-| R1 | ⚑ Server-stamped recording-notice confirmation per meeting, versioned, required as a header before any upload is buffered. It evidences that the organiser affirmed the notice — not that participants were actually told. |
-| R2 | ⚑ Sharing is opt-in, time-boxed and revocable; the share page is `no-store` and `noindex`; the database, not the route, enforces expiry. |
-| R3 | Documented processor map; production refuses in-room recording enablement without the exact AssemblyAI EU origin. Region and DPA remain `Not verified`. |
-| R4 | Generated documents are presented as meeting output, not as fact about a person. No automated decision with legal effect is taken. |
-| R5 | ⚑ Processed webhook payloads are redacted to a marker; audio is deleted an hour after transcription on both paths; ⚑ failed meetings' audio is swept rather than kept forever. |
-| R6 | Nothing implemented. See section 8. |
-| R7 | ⚑ Untrusted transcript content is isolated from instructions at the prompt boundary. |
-| R8 | Nothing implemented. See section 8. |
-| R9 | Hashed sessions with a 30-day TTL, hashed passwords, ⚑ OAuth `state`, email verification, per-route rate limits, ownership enforced in the database. |
+| Service processes on organizer/controller instructions | Article 28 terms, authorized subprocessing, assistance and operational rights/incident channels |
+| Service determines its own content-processing purposes | Own lawful basis, transparency under applicable Articles 13/14, rights handling and accountability |
+| Joint determination of relevant purposes/means | Article 26 arrangement with transparent responsibilities; rights can be exercised against either controller |
 
-Organisational measures that exist as documents rather than code: the retention schedule and its
-log-based evidence, the fail-closed legal publication gate, the production-hardening runbook, and
-the rule that no personal data enters this repository.
+The organizer is not automatically the appropriate controller for every scenario. Household,
+employment and organizational use may differ. Non-users are not outside GDPR protection.
+Missing contact details do not automatically create Article 14 disproportionate-effort relief.
+This assessment may require code, notice-flow, support or contract changes.
 
-## 7. The unresolved question, stated for the adviser
+## 8. Required work and decision ownership
 
-The organiser presses record. The other four people in the call are recorded, transcribed, labelled
-by speaker, summarised by a language model, and stored on our infrastructure until the organiser
-deletes their account. They were told by the organiser — or they were not; we cannot know. They have
-no account, no notice from us, and no way to ask us anything.
+Use the priority/role/dependency/definition-of-done table in [launch handoff](launch-handoff.md).
+It includes participant DSR/access/export, waitlist retention/withdrawal/erasure, failed webhook and
+orphan audio cleanup, raw transcript minimization, provider roles/agreements/regions/transfers,
+seller/support facts and future CSP enforcement.
 
-Three readings, each with a different bill:
+Assign named owners privately. Validate controls and recovery with synthetic scenarios, establish
+actual provider evidence and review the lawfulness/necessity analysis before approving affected use.
+A controlled closed-mode security merge and commercial launch approval are separate decisions.
+Review this DPIA when processing, scale, providers, models or risk changes.
 
-1. **Syncmemos is a processor for the organiser as controller.** Then the organiser owes the
-   participants notice and rights, and we owe the organiser an Article 28 processor agreement, which
-   we do not have and do not currently offer. Our terms would need to carry one.
-2. **Syncmemos is a controller for meeting content.** Then we owe the participants Article 14
-   information — from a party they have never heard of — and a rights channel. Article 14(5)(b)
-   disproportionate-effort relief is arguable; it is not automatic, and it comes with conditions.
-3. **Joint controllership.** Then Article 26 requires a transparent allocation of responsibilities
-   and a public essence of the arrangement.
+## 9. Residual risk decision
 
-Our recording-notice mechanism affirms that the organiser confirmed a notice. It does not evidence
-that participants were informed, and the security audit says so in as many words. Whatever the
-adviser answers, the answer changes product text, the terms, and possibly the notice flow — which is
-why it belongs at the top of the agenda, not at the end.
+**Not assessed or accepted by this draft.** Planned actions and merged code do not establish the
+remaining risk or remove an Article 36 obligation. The accountable controller must review actual
+control effectiveness, unresolved harms and consultation requirements, taking qualified advice.
+Record the rationale, scope, evidence and date; do not infer approval from unchecked tasks.
 
-## 8. Actions required before Live
-
-| # | Action | Owner | Blocking? |
-|---|---|---|---|
-| A1 | Adviser answers section 7 and confirms section 1's Article 9 reading | `Unassigned` | Yes |
-| A2 | Region, transfer mechanism and DPA for all ten providers ([DPA checklist](dpa-checklist.md)) | `Unassigned` | Yes |
-| A3 | A route for a participant with no account to reach us ([DSR procedure](data-subject-requests.md)) | `Unassigned` | Yes |
-| A4 | Waitlist: retention period, deletion path, and a withdrawal mechanism for the consent | `Unassigned` | Yes |
-| A5 | Decide the fate of `transcripts.raw_payload` — bounded retention or reduced fields | `Unassigned` | No |
-| A6 | Retention and erasure for `webhook_events` rows that never process successfully | `Unassigned` | No |
-| A7 | Merge `fix/security-compliance-hardening`, so the flagged measures above are real in production | `Unassigned` | Yes |
-| A8 | Re-assess this DPIA at launch and whenever a provider, model, or recording path changes | `Unassigned` | — |
-
-## 9. Draft residual risk
-
-With A1–A4 and A7 complete, the draft view is that residual risk is acceptable and Article 36 prior
-consultation is not required. Without them — in particular with R1 and R6 unmitigated — it is not,
-and no amount of code closes that gap. The adviser owns this conclusion; we own the evidence for it.
-
-## References
-
-- [GDPR Article 35](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32016R0679)
-- [WP248 rev.01 — DPIA guidelines](https://ec.europa.eu/newsroom/article29/items/611236)
-- [IMY: konsekvensbedömning och förhandssamråd](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/konsekvensbedomning-och-forhandssamrad/)
+Additional reference: [EDPB DPIA guidance WP248 rev.01](https://ec.europa.eu/newsroom/article29/items/611236).

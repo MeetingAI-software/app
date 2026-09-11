@@ -1,178 +1,139 @@
 # Record of processing activities (draft)
 
-**Status: draft for the adviser. Not approved. Not yet the register that Article 30 requires us to
-keep current — that one starts the day a controller is named.**
+**Engineering draft updated 2026-09-11. Not approved or a completed Article 30 register.**
+It describes the ordered PR75 → PR76 result. Missing controller details are an evidence gap:
+responsibility arises from actual purposes and means of processing, not from naming a future seller.
+Pre-launch use can still process personal data. Do not infer absence of duties from no paying users.
 
-Article 30(1) requires the controller to keep a written record of its processing activities. The
-Article 30(5) exemption for organisations under 250 people does not apply here: the processing is
-not occasional, and the adviser may conclude it touches special categories (see [DPIA](dpia.md) §1).
-So a register is required regardless of headcount.
+Maintain a current record for the actual controller activities and, where applicable, a processor
+record under Article 30(2). Routine service processing cannot rely simply on the under-250-person
+exception: its conditions, including non-occasional processing, must be assessed.
+[GDPR Article 30 (IMY full text)](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/introduktion-till-gdpr/dataskyddsforordningen-i-fulltext/).
 
-This draft records what the system actually does, table by table and provider by provider, so the
-register can be adopted rather than researched. Where a field depends on a decision nobody has made
-yet, it says `Unassigned`; where it depends on provider evidence we do not hold, it says
-`Not verified`. Neither is a formatting placeholder — each one is an open item.
+## Accountability details to verify
 
-## Controller
-
-| Field | Value |
+| Field | Status |
 |---|---|
-| Name of controller | `Unassigned` — no legal seller selected ([legal seller readiness](legal-seller-readiness.md)) |
-| Contact details | `Unassigned` |
-| Representative (Art. 27) | Not applicable if established in the EU; `Unassigned` otherwise |
-| Data protection officer | None appointed. The Art. 37 assessment is open ([DPIA](dpia.md) §4) |
-| Joint controllers (Art. 26) | **Open.** Depends on the controller/processor question in [DPIA](dpia.md) §7 |
+| Controller identity/contact for each purpose | Not verified; owner to identify actual decision makers, including existing processing |
+| Legal seller and public contact | Not verified; [seller readiness](legal-seller-readiness.md) |
+| Joint-controller arrangement, if applicable | Open factual assessment, [DPIA §7](dpia.md) |
+| EU representative, where required | Applicability not determined |
+| DPO and contact, where required | Applicability/appointment not verified |
+| Record owner and review date | Unassigned |
+| Processor activities on behalf of customers | Determine categories/controllers and complete the Article 30(2) record if applicable |
 
-If the adviser concludes we are a *processor* for meeting content, a second register under
-Article 30(2) is required as well, listing the categories of processing carried out on behalf of
-each controller. That register does not exist yet.
+## A1 — Accounts, authentication and deletion authorization
 
-## A1 — Account management
-
-| Field | Value |
+| Field | Draft record |
 |---|---|
-| Purpose | Create and authenticate an account, verify the email address, keep the user signed in |
-| Categories of data subject | Account holders |
-| Categories of personal data | Email address, password hash, Google OAuth subject id, verification state, session token hashes and expiry, verification token hashes |
-| Legal basis (draft) | Art. 6(1)(b) — necessary to provide the service the user asked for |
-| Where it lives | `users`, `sessions`, `email_verification_tokens` |
-| Recipients | Supabase (database hosting), Railway (API hosting), Google (OAuth sign-in), Resend (verification email) |
-| Third-country transfer | `Not verified` for all four |
-| Retention | Until account deletion. Sessions expire after 30 days; verification tokens are single-use and short-lived, and the sweep prunes them |
-| Security measures | Password hashing; session tokens stored only as SHA-256 hashes, with the raw token existing solely in the cookie; OAuth `state` parameter; per-route rate limits; email verification required |
+| Purpose | Account access, email verification and protection of account deletion |
+| People | Account holders and signup attempts |
+| Data | Email, password hash, linked Google subject, verification status, hashed session/verification tokens and expiry; deletion state/nonce/grant hashes, user/session binding, Google subject and authorization timestamps |
+| Storage | users, sessions, email_verification_tokens, account_deletion_authorizations |
+| Recipients | Supabase/Railway; Google for existing linked-account login/deletion identity; Resend for verification mail; web/edge request metadata as A8 |
+| Proposed basis | Article 6(1)(b) for necessary account service; assess security purposes separately under the actual role/basis |
+| Retention | Account rows until erasure; session default 30-day use expiry then sweep; verification tokens 24-hour use expiry then sweep. Deletion challenges at most 10 minutes, grants at most 5 minutes and no longer than session; one row per session, replaced on new flow and cascaded with session/user deletion. Expiry is not immediate physical deletion. |
+| Controls | Password hashing, hashed bearer secrets, cookie/Origin controls, rate limits, email-verification boundaries; atomically consumed Google deletion grant or current password before erasure |
+| Open evidence | Actual deployed session/Google settings and successful synthetic provider round; no new Google account creation in this deletion flow |
 
-## A2 — Meeting recording and transcription
+See [Google account deletion](google-account-deletion.md). A public DELETE string, email match or
+account-selection prompt is not the authorization. Existing linked Google login is distinct from
+email registration; the flow does not silently create or link accounts.
 
-The core activity, and the one the DPIA is about.
+## A2 — Recording and transcription
 
-| Field | Value |
+| Field | Draft record |
 |---|---|
-| Purpose | Record or ingest a meeting, transcribe it with speaker labels, and make the transcript available to the account holder |
-| Categories of data subject | Account holders; **meeting participants who are not our users** |
-| Categories of personal data | Meeting URL, platform, timing, participant names; audio recording; speech content with speaker labels and timestamps; the raw provider transcript response; recorded seconds |
-| Special categories | Not collected by design, not excluded in practice — participants say what they say. See [DPIA](dpia.md) §1 |
-| Legal basis (draft) | Art. 6(1)(b) toward the account holder; Art. 6(1)(f) toward other participants, subject to the balancing test the adviser owns |
-| Where it lives | `meetings`, `transcripts`, `live_transcript_segments`, `usage_ledger`, `webhook_events`; audio in Supabase Storage |
-| Recipients | Recall (bot capture and diarisation), AssemblyAI (in-room transcription), Supabase, Railway |
-| Third-country transfer | `Not verified`. Production refuses in-room recording enablement unless the AssemblyAI origin is the EU one, but the account region itself is a dashboard fact we cannot prove from code |
-| Retention | Audio deleted 1 hour after transcription, in practice within roughly 7 hours because the sweep runs every 6. Live segments deleted when the final transcript lands. Transcripts until account deletion. See [data retention](data-retention.md) |
-| Security measures | Ownership enforced in the database rather than in the route; recording-notice confirmation required before an upload is buffered (branch); processed webhook payloads redacted (branch); no production data in development |
-| Open items | `transcripts.raw_payload` is a second full copy of the meeting content, kept indefinitely for reprocessing. `webhook_events` rows that never process successfully keep their payloads with no row-level retention |
+| Purpose | Capture/upload and transcribe a meeting with speaker labels |
+| People/data | Organizers and participants, including non-users; meeting URL, timing, names, audio, speech, provider IDs/raw responses and usage |
+| Storage | meetings, transcripts including raw_payload, live_transcript_segments, usage_ledger, webhook_events; uploaded audio in Supabase Storage |
+| Recipients | Recall for bot content; AssemblyAI for enabled in-room transcription; Railway/Supabase; web/edge paths as applicable |
+| Proposed basis/role | Account contract alone does not establish a basis for every participant's data. Determine organizer/service roles, Article 6 basis and any Article 9/10 conditions from actual use; legitimate interests is a proposal requiring assessment, not an approved default. |
+| Retention | Eligible audio/Recall cleanup after one hour, attempted by boot/six-hour sweep; no guaranteed completion maximum. Live segments removed on successful final transcript persistence or meeting deletion. Other meeting data follows account erasure; failed/raw copies have gaps below. |
+| Controls | Authenticated owner-scoped queries and service/route checks; organizer notice acknowledgement recorded before recording/upload work; signed callbacks; bounded upload/SSE work |
+| Limits | Notice evidence proves the organizer's acknowledgement, not participant notice/consent. Failed payloads, live pipeline failures, raw transcript retention and orphan audio require further controls. |
 
-## A3 — Summaries, documents and meeting chat
+Special-category content can appear in speech even if speaker diarization is not biometric
+identification. An EU API-origin guard is code evidence, not provider-region/contract evidence.
 
-| Field | Value |
+## A3 — Generated summaries, documents and meeting chat
+
+| Field | Draft record |
 |---|---|
-| Purpose | Generate a summary and a structured document from the transcript, and answer the account holder's questions about the meeting |
-| Categories of data subject | Account holders; meeting participants, as the subjects the output is about |
-| Categories of personal data | Transcript content sent as model input; generated summaries and documents describing what named people said; chat questions and answers; token counts |
-| Legal basis (draft) | As A2 |
-| Where it lives | `documents`, `chat_messages`, `meetings.summary` |
-| Recipients | Google (Gemini), Anthropic |
-| Third-country transfer | `Not verified`. Both are US-headquartered |
-| Retention | Until account deletion |
-| Security measures | Untrusted transcript content isolated from instructions at the prompt boundary (branch). No automated decision producing legal effects is taken |
-| Note | The output is generated text about identifiable people and can be wrong. Art. 5(1)(d) accuracy applies to it |
+| Purpose / data | Produce requested summaries/documents and transcript-grounded answers; transcript-derived prompts, output about participants, chat and token counts |
+| People | Organizers and people described in content |
+| Storage / recipients | documents, chat_messages, meetings.summary; Gemini or optional Anthropic according to actual provider configuration |
+| Proposed basis | Depends on A2 purpose/role assessment and necessity of each generated use |
+| Retention | Local output until account erasure; provider retention/training and logs Not verified |
+| Controls / limits | Prompt separation of untrusted content is a mitigation, not proof against all injection. Generated assertions can be inaccurate. No verified correction/participant-rights workflow. No automated legal-effect decision is implemented by these PRs. |
 
-## A4 — Sharing a meeting by link
+## A4 — Sharing by bearer link
 
-| Field | Value |
+| Field | Draft record |
 |---|---|
-| Purpose | Let an account holder give someone outside the account read access to one meeting |
-| Categories of data subject | Meeting participants, as content; link recipients, as visitors |
-| Categories of personal data | Share token, expiry, and everything the shared meeting contains |
-| Legal basis (draft) | Art. 6(1)(b) toward the account holder; Art. 6(1)(f) toward participants |
-| Where it lives | `meetings.share_token`, `share_enabled`, `share_expires_at` (branch) |
-| Recipients | Anyone holding the link |
-| Retention | Access ends at expiry; the underlying meeting follows A2 |
-| Security measures | Sharing is off by default, time-boxed and revocable; expiry enforced in the database; the share page is `no-store` and `noindex` |
-| Residual risk | A link can be forwarded. That is inherent to link sharing, and is disclosed rather than solved |
+| Purpose / people | Organizer shares a selected completed meeting; participants as content and visitors as recipients |
+| Data/storage | Share token, enabled state, expiry on meetings; intended public projection of meeting/transcript/document content |
+| Recipients / basis | Anyone holding the enabled, unexpired token plus web/edge providers; assess lawful disclosure and participant interests under the actual role |
+| Retention / controls | Sharing off by default; owner enable/disable/rotate, 24-hour expiry on enable, SQL expiry checks and generic noindex/no-store share metadata. Legacy links without expiry are disabled by migration. |
+| Limit | Revocation cannot retrieve copies already downloaded/forwarded; expiry ends access through the link, not underlying meeting retention |
 
-## A5 — Billing
+## A5 — Billing mirror
 
-| Field | Value |
+| Field | Draft record |
 |---|---|
-| Purpose | Sell and manage the subscription |
-| Categories of data subject | Paying account holders |
-| Categories of personal data | Paddle customer id, billing email, subscription status, price and product ids, period boundaries, scheduled changes |
-| Legal basis (draft) | Art. 6(1)(b); Art. 6(1)(c) for the statutory records Paddle keeps as merchant of record |
-| Where it lives | `paddle_customers`, `paddle_subscriptions` — a mirror of Paddle state, not the source of truth |
-| Recipients | Paddle |
-| Third-country transfer | `Not verified` |
-| Retention | Mirror rows are detached from the user on erasure: `user_id` set to null and the customer email anonymised (branch). Paddle's own statutory retention is outside our erasure and must be described in the privacy policy |
-| Security measures | Webhook signature verification; no card data ever reaches us |
-| Status | `BILLING_MUTATIONS_ENABLED=false`. No real payment has been taken |
+| Purpose / people / data | Subscription service for buyers; Paddle customer/provider IDs, email, subscription/product/price/status/period data |
+| Storage / recipients | paddle_customers and paddle_subscriptions; Paddle handles merchant-of-record payment records separately |
+| Proposed basis | Necessary local contract administration where applicable; do not borrow Paddle's statutory basis for every local copy |
+| Retention / controls | Erasure nulls local email/userId and sets anonymized_at. Late upserts cannot restore a marked identity; IDs/subscription state remain. Signed webhooks and guarded mutation routes. |
+| Limits | Historical unmarked null rows are not safely classified by absence alone. Provider identifiers can remain personal/linkable. Paddle's retention and rights duties are separately assessed. |
+| Deployment status | Code has billing gates; actual configuration, payment history and provider records were not inspected here. A disabled gate cannot prove no earlier payments. |
 
-## A6 — Abuse prevention for verification email
+[Billing anonymization boundary](billing-anonymization.md).
 
-| Field | Value |
-|---|---|
-| Purpose | Enforce a durable daily budget on verification sends that survives restarts and rotating IPs |
-| Categories of data subject | Account holders and signup attempts |
-| Categories of personal data | User reference (nullable), trigger type, timestamp |
-| Legal basis (draft) | Art. 6(1)(f) — preventing abuse of our own sending reputation |
-| Where it lives | `email_send_ledger` |
-| Retention | Pruned by the sweep. The user reference is set to null on erasure; the event itself remains |
+## A6 — Verification-email abuse prevention
+
+Local email_send_ledger records a nullable user reference, trigger and timestamp to enforce a
+durable send budget. Proposed basis: legitimate interests, subject to assessment. The sweep prunes
+at a 30-day threshold; account deletion nulls the user reference. Correlation may remain possible,
+so this is not an automatic anonymization conclusion. Resend's separate delivery records and
+retention need provider evidence.
 
 ## A7 — Waitlist
 
-| Field | Value |
-|---|---|
-| Purpose | Collect an address from a visitor while the public site is gated, so they can be told at launch |
-| Categories of data subject | Pre-launch visitors |
-| Categories of personal data | Email address; which dialog it came from (`signin` or `upgrade`) |
-| Legal basis (draft) | Art. 6(1)(a) consent |
-| Where it lives | `waitlist_signups` |
-| Retention | **None defined** |
-| Security measures | Unique index, so a repeat submission is a no-op rather than a second row |
-| Open items | No withdrawal mechanism, no deletion path, no retention period, and the address is not covered by account deletion because there is no account. Blocking before Live — see [DPIA](dpia.md) action A4 |
+waitlist_signups stores a visitor's email and originating dialog for launch contact. Consent is
+the proposed basis; its collection, wording and withdrawal must be reviewed. No retention,
+unsubscribe or erasure workflow is implemented. Account deletion cannot be assumed to cover a
+person without an account. This needs action before relying on continued collection, not only
+after commercial launch: [backlog](launch-handoff.md).
 
-## A8 — Operational telemetry
+## A8 — Operational telemetry and web delivery
 
-| Field | Value |
-|---|---|
-| Purpose | Detect and diagnose errors |
-| Categories of data subject | Anyone whose request produces an error |
-| Categories of personal data | Error events; incidental identifiers in request context |
-| Legal basis (draft) | Art. 6(1)(f) |
-| Recipients | Sentry, Railway, Vercel |
-| Third-country transfer | `Not verified` |
-| Retention | Provider default. `Not verified` |
-| Security measures | API responses and logs are redacted before leaving the process (branch) |
+Purpose: delivery, reliability, security and error investigation. People: visitors and anyone whose
+content/request may be represented. Data: request/IP/user-agent metadata, error events and incidental
+identifiers. Recipients: Railway, Vercel, Cloudflare and optional Sentry, with service-specific roles.
+Proposed basis: assess necessary delivery/security interests and any optional analytics separately.
 
-## Processors
+Recall failures after PR75 use a stable generic error and allowlisted operation/status/UUID
+diagnostics; the corresponding Sentry event discards unsafe context. Other events, historical
+logs, edge/platform logging, retention and dashboard scrubbers are not proven fully sanitized.
+See [Recall boundary](recall-error-boundary.md). Do not describe all API errors/logs as redacted.
 
-Full detail, including purpose and DPA status per provider, is in the
-[processor map](data-processors.md). The register-relevant state today:
+## Recipients, transfers and organizational measures
 
-| Processor | Role | DPA | Region |
-|---|---|---|---|
-| Railway | API hosting | `Not verified` | `Not verified` |
-| Vercel | Web hosting | `Not verified` | `Not verified` |
-| Supabase | Database and audio storage | `Not verified` | `Not verified` |
-| Recall | Meeting bot capture | `Not verified` | `Not verified` |
-| AssemblyAI | In-room transcription | `Not verified` | `Not verified` |
-| Google | Gemini, OAuth | `Not verified` | `Not verified` |
-| Anthropic | Document generation | `Not verified` | `Not verified` |
-| Resend | Transactional email | `Not verified` | `Not verified` |
-| Sentry | Error telemetry | `Not verified` | `Not verified` |
-| Paddle | Merchant of record | `Not verified` | `Not verified` |
+The [provider role inventory](data-processors.md) is the detailed recipient record, including
+Cloudflare and separate Google Gemini/OAuth purposes. Paddle is an independent controller for
+its merchant buyer records; other services may combine processor and own-purpose roles. Article
+28 terms apply to processor relationships, not indiscriminately to every vendor.
 
-Ten of ten unverified on both counts. Article 28(3) requires a written contract with each, and
-Article 30(1)(e) requires this register to name third-country transfers and their safeguards. Until
-the [DPA checklist](dpa-checklist.md) is filled in, this register cannot be adopted and the privacy
-policy cannot make a data-residency claim.
+For each active service, complete actual processing countries, transfer mechanism/safeguards,
+retention/deletion, contracts and contacts through the [evidence checklist](dpa-checklist.md).
+Neither a headquarters location nor a configured API hostname proves where processing occurs.
 
-## General security measures (Art. 30(1)(g))
+Repository measures include ownership checks, secrets supplied through environment configuration,
+startup validation, synthetic-only development data, scoped error controls and additive migration
+tests. Actual TLS/access/backups/logging, migration execution and deployed commit checks still
+need operational evidence. Policies and source code are not themselves that evidence.
 
-Described once here rather than repeated per activity: TLS everywhere; secrets in the platform
-environment and never in the repository; fail-fast environment validation at boot; an API that
-refuses to start against a remote database from a terminal; migrations that run before new code
-serves traffic; deploys verified by commit SHA rather than by HTTP status; and no personal data in
-the repository, in tests, or as placeholders.
-
-## Maintenance
-
-Article 30 requires the register to be current, not accurate once. Revisit it when a table holding
-personal data is added or dropped, when a provider is added, removed or reconfigured, when a
-retention period changes, and at each DPIA review. Owner: `Unassigned`.
+Review this draft when data, purposes, providers, regions, retention, rights workflows or risks
+change. Maintain evidence privately; publish no seller identity or agreement invented from a
+placeholder.
