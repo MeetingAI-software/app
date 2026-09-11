@@ -16,6 +16,7 @@ import { msToClock } from '@/lib/format';
 import DocumentView from '@/components/DocumentView';
 import ChatPanel from '@/components/ChatPanel';
 import LiveTranscript from '@/components/LiveTranscript';
+import ShareControl from '@/components/ShareControl';
 
 /**
  * The API stores a failure as `<sentence> (<provider_sub_code>)`. Nobody should have to read a
@@ -95,9 +96,6 @@ export default function MeetingDetailPage() {
 
   // Accordion state
   const [isAccordionOpen, setIsAccordionOpen] = useState(false);
-
-  // Copy share token flash state
-  const [copied, setCopied] = useState(false);
 
   // Refs for tracking active polling
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -201,13 +199,10 @@ export default function MeetingDetailPage() {
     }
   };
 
-  const handleCopyShare = () => {
-    if (!meeting?.shareToken) return;
-    const shareUrl = `${window.location.origin}/s/${meeting.shareToken}`;
-    navigator.clipboard.writeText(shareUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  /** Keeps the page's meeting in step with the share panel without a refetch. */
+  const handleShareChange = useCallback((patch: { shareToken: string; shareEnabled: boolean }) => {
+    setMeeting((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
 
   const handlePrint = () => {
     window.print();
@@ -262,12 +257,7 @@ export default function MeetingDetailPage() {
           <div className="flex gap-2">
             {meeting.status === 'transcribed' && (
               <>
-                <button
-                  onClick={handleCopyShare}
-                  className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-lg font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
-                >
-                  {copied ? 'Copied ✓' : 'Share Link'}
-                </button>
+                <ShareControl meeting={meeting} onChange={handleShareChange} />
                 <button
                   onClick={handlePrint}
                   className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-lg font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"

@@ -1,11 +1,19 @@
 import type { Metadata } from 'next';
-import { getShare, type ShareResponse } from '@/lib/api';
+import { ApiError, getShare, type ShareResponse } from '@/lib/api';
 import SharePageClient from '@/components/SharePageClient';
 import { BRAND_NAME } from '@/lib/brand';
 
 interface Props {
   params: Promise<{ token: string }>;
 }
+
+/**
+ * A share link is unlisted, not public: it is secret only because the token is. Letting a crawler
+ * index it hands the notes to anyone who searches, no token required — and a search engine's cached
+ * snapshot outlives revocation in a way no Cache-Control header can reach. Applied to both branches
+ * below, so a switched-off link is no more indexable than a live one.
+ */
+const NO_INDEX = { index: false, follow: false } as const;
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { token } = await params;
@@ -20,16 +28,25 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return {
       title: `${title} | ${BRAND_NAME}`,
       description,
+      robots: NO_INDEX,
       openGraph: {
         title,
         description,
         type: 'website',
       },
     };
-  } catch {
+  } catch (error: unknown) {
+    // Revocation makes this catch routine rather than rare, and an unfurl is written before anyone
+    // clicks: pasted into Slack, a switched-off link would otherwise show a card promising notes
+    // that the page then refuses to hand over. A 404 says so in the preview. Anything else (API
+    // down, network) keeps the neutral title — that is a failure to load, not a revocation.
+    const gone = error instanceof ApiError && error.status === 404;
     return {
-      title: `Meeting Notes | ${BRAND_NAME}`,
-      description: 'View shared meeting notes',
+      title: gone ? `Link unavailable | ${BRAND_NAME}` : `Meeting Notes | ${BRAND_NAME}`,
+      description: gone
+        ? 'This link is no longer available.'
+        : 'View shared meeting notes',
+      robots: NO_INDEX,
     };
   }
 }
@@ -42,9 +59,16 @@ async function loadSharePage(token: string): Promise<SharePageResult> {
   try {
     return { ok: true, data: await getShare(token) };
   } catch (error: unknown) {
+    // A 404 here is now routine rather than rare — the owner can switch sharing off, and the API
+    // deliberately answers the same way for that as for a token that never existed. Whoever opened
+    // the link is a stranger who cannot act on "Unknown share token", so they get plain English
+    // instead of the API's wording. Anything else still surfaces its own message.
+    const notFound = error instanceof ApiError && error.status === 404;
     return {
       ok: false,
-      message: error instanceof Error ? error.message : 'This link may have expired or is invalid.',
+      message: notFound || !(error instanceof Error)
+        ? 'This link is no longer available. The owner may have turned off sharing or replaced the link.'
+        : error.message,
     };
   }
 }

@@ -61,6 +61,37 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     return (row as Meeting) || null;
   }
 
+  /**
+   * Turning sharing off leaves the token in place, so re-enabling restores the SAME link. That is
+   * the point of keeping rotate separate: "pause this" and "this leaked" are different problems
+   * and only one of them should invalidate a URL people may have bookmarked.
+   *
+   * Owner-scoped like every other HTTP-reachable meeting query: the requester rides in the WHERE so
+   * the write itself enforces ownership, rather than trusting a check that ran a moment earlier in
+   * the route. Returns null when the row is not this user's, which the caller reports as a 404.
+   */
+  async setShareEnabled(id: string, userId: string, enabled: boolean): Promise<Meeting | null> {
+    const [row] = await db
+      .update(meetings)
+      .set({ shareEnabled: enabled, updatedAt: new Date() })
+      .where(and(eq(meetings.id, id), eq(meetings.ownerUserId, userId)))
+      .returning();
+    return (row as Meeting) || null;
+  }
+
+  /**
+   * Mints a fresh token. Anyone holding the old link gets a 404 from the next request onward.
+   * Owner-scoped for the same reason as the toggle above.
+   */
+  async rotateShareToken(id: string, userId: string): Promise<Meeting | null> {
+    const [row] = await db
+      .update(meetings)
+      .set({ shareToken: crypto.randomBytes(16).toString('base64url'), updatedAt: new Date() })
+      .where(and(eq(meetings.id, id), eq(meetings.ownerUserId, userId)))
+      .returning();
+    return (row as Meeting) || null;
+  }
+
   async findByTranscriptionJobId(jobId: string): Promise<Meeting | null> {
     const [row] = await db
       .select()
