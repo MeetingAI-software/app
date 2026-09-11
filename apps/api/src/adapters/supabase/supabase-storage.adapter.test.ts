@@ -26,6 +26,17 @@ describe('SupabaseStorageAdapter', () => {
   });
 
   describe('upload', () => {
+    it('passes cancellation to the storage request and waits for rejection', async () => {
+      const controller = new AbortController();
+      fetchFn.mockImplementation(async (_url, options) => new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
+      }));
+      const pending = adapterWith(fetchFn).upload('m1', Buffer.from('audio'), 'audio/webm', { signal: controller.signal });
+      const result = expect(pending).rejects.toThrow('cancelled');
+      controller.abort();
+      await result;
+      expect(fetchFn.mock.calls[0][1].signal).toBe(controller.signal);
+    });
     it('PUTs the bytes to the object endpoint with the service-role auth and returns the path', async () => {
       fetchFn.mockResolvedValue(makeRes(200, { Key: 'meeting-audio/m1/audio.webm' }));
       const adapter = adapterWith(fetchFn);

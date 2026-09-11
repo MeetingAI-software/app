@@ -17,6 +17,62 @@ const WEBM_BYTES = (() => {
   return bytes;
 })();
 
+describe('upload admission lifetime', () => {
+  it.each(['resolve', 'reject'])('holds a disconnected upload through pending storage %s and cleanup', async (outcome) => {
+    const originalLimit = config.MAX_CONCURRENT_UPLOADS;
+    config.MAX_CONCURRENT_UPLOADS = 1;
+    let settle!: (value: { path: string }) => void;
+    let fail!: (error: Error) => void;
+    const pending = new Promise<{ path: string }>((resolve, reject) => { settle = resolve; fail = reject; });
+    const storage = { upload: vi.fn().mockReturnValueOnce(pending).mockResolvedValue({ path: 'audio/next.webm' }),
+      delete: vi.fn().mockResolvedValue(undefined), getSignedUrl: vi.fn() };
+    const updateStatus = vi.fn().mockResolvedValue(undefined);
+    const enqueue = vi.fn().mockResolvedValue(undefined);
+    const meetingCreate = vi.fn().mockResolvedValue({ id: 'synthetic-upload' });
+    const app = createServer([createUploadRoutes(
+      { create: meetingCreate, setUploadInfo: vi.fn(), updateStatus } as never,
+      { insertIfNew: enqueue } as never, { assertCanStartMeeting: vi.fn() } as never, storage,
+    )], async (token) => ({ id: token, email: 'synthetic@example.test', emailVerified: true, createdAt: new Date() }));
+    const server = app.listen(0);
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/meetings/upload`;
+    const request = (id: string, signal?: AbortSignal) => {
+      const body = new FormData();
+      body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'synthetic.webm');
+      return fetch(url, { method: 'POST', signal, body, headers: {
+        origin: config.WEB_ORIGIN, cookie: `session=${id}`, 'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+      } });
+    };
+    try {
+      const controller = new AbortController();
+      const first = request('first', controller.signal).catch(() => null);
+      await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(1));
+      const forwarded = storage.upload.mock.calls[0][3].signal as AbortSignal;
+      controller.abort();
+      await first;
+      await vi.waitFor(() => expect(forwarded.aborted).toBe(true));
+      for (let i = 0; i < 3; i++) {
+        const rejected = await request(`blocked-${i}`);
+        expect(rejected.status).toBe(503);
+        expect(rejected.headers.get('retry-after')).toBe('5');
+        expect(await rejected.json()).toMatchObject({ error: { code: 'UPLOAD_CAPACITY_REACHED' } });
+      }
+      expect(meetingCreate).toHaveBeenCalledTimes(1);
+      if (outcome === 'resolve') settle({ path: 'audio/abandoned.webm' });
+      else fail(new Error('synthetic storage failure'));
+      await vi.waitFor(() => expect(updateStatus).toHaveBeenCalledTimes(1));
+      expect(enqueue).not.toHaveBeenCalled();
+      if (outcome === 'resolve') expect(storage.delete).toHaveBeenCalledWith('audio/abandoned.webm');
+      expect((await request('next')).status).toBe(201);
+      expect(enqueue).toHaveBeenCalledTimes(1);
+    } finally {
+      settle({ path: 'audio/abandoned.webm' });
+      config.MAX_CONCURRENT_UPLOADS = originalLimit;
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+});
+
 describe('in-room upload availability', () => {
   let server: Server;
   let baseUrl: string;
