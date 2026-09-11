@@ -26,10 +26,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         type: 'website',
       },
     };
-  } catch {
+  } catch (error: unknown) {
+    // Revocation makes this catch routine rather than rare, and an unfurl is written before anyone
+    // clicks: pasted into Slack, a switched-off link would otherwise show a card promising notes
+    // that the page then refuses to hand over. A 404 says so in the preview. Anything else (API
+    // down, network) keeps the neutral title — that is a failure to load, not a revocation.
+    const gone = error instanceof ApiError && error.status === 404;
     return {
-      title: `Meeting Notes | ${BRAND_NAME}`,
-      description: 'View shared meeting notes',
+      title: gone ? `Link unavailable | ${BRAND_NAME}` : `Meeting Notes | ${BRAND_NAME}`,
+      description: gone
+        ? 'This link is no longer available.'
+        : 'View shared meeting notes',
     };
   }
 }
