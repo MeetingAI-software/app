@@ -1,43 +1,50 @@
-# Production data processor map
+# Provider and personal-data role inventory
 
-This inventory describes the integrations present in the Syncmemos codebase. It is an engineering
-input to the Privacy Policy, not legal advice or proof that a vendor setting or agreement is active.
-Dashboard configuration, contracted region, retention controls, subprocessor terms, and a signed
-data processing agreement (DPA) must be checked before Live. "Not verified" below must never be
-turned into a public residency claim.
+**Draft engineering inventory, updated 2026-09-11. Contract, region and deployment evidence is not
+verified unless explicitly stated. This is not an approved privacy policy.**
 
-| Provider | Purpose and data handled | Region | Retention and deletion | DPA status |
-|---|---|---|---|---|
-| Railway | Hosts the API, worker, sweep job, and operational logs; receives account, meeting, transcript, document, chat, usage, billing identifiers, IP/request metadata, and provider events. | Deployment region not verified. | Application rows follow [data retention](data-retention.md); platform logs/backups require dashboard verification. | Not verified. |
-| Vercel | Hosts the Next.js frontend; receives page requests, IP/user-agent metadata, and any platform logs or analytics enabled outside this repository. | Deployment and log-processing regions not verified. | No application database is implemented in the web app; platform logs and deployment artifacts require dashboard verification. | Not verified. |
-| Supabase | PostgreSQL persistence and temporary Storage for uploaded in-room audio; holds account, session, meeting, transcript, document, chat, usage, email, webhook, and Paddle mirror data. | Project database and Storage regions must be verified in the dashboard; the repository does not prove them. | Audio becomes eligible one hour after transcription and is deleted by the next sweep; account data is erased on account deletion; provider backups require verification. | Not verified. |
-| Recall | Joins online meetings, records/transcribes them, and returns participant/timing/transcript data and provider identifiers. | Selected by `RECALL_BASE_URL`; the deployed value and workspace region are not verified here. | Syncmemos requests recording deletion after successful processing and on account deletion; provider-side residual retention requires verification. | Not verified. |
-| AssemblyAI | Transcribes uploaded in-room audio and returns diarized transcript data through a webhook. | In-room recording is disabled by default. Production enablement requires `https://api.eu.assemblyai.com`, but the account provisioning and deployed value remain externally verifiable facts. | Uploaded audio is deleted from Syncmemos Storage after successful processing; AssemblyAI's own retention and deletion settings require verification. | Not verified. |
-| Google | Gemini may generate documents/chat responses from transcripts; Google OAuth receives authentication identifiers and returns profile identity data. | Provider processing region and any Gemini regional controls are not verified. | Application output remains until account deletion; provider request/log retention requires verification. | Not verified. |
-| Anthropic (optional) | When Claude is selected, receives transcript-derived prompts and returns generated documents or grounded chat answers. | Provider processing region is not verified. | Application output remains until account deletion; provider request/log retention and zero-data-retention eligibility require verification. | Not verified. |
-| Resend | Sends verification email containing recipient address and a single-use verification URL; returns delivery metadata. | Processing region not verified. | The local send ledger is kept 30 days; Resend message/event retention requires verification. | Not verified. |
-| Sentry | When configured, receives captured exceptions plus selected request, user, meeting, and operational identifiers. Raw verification tokens must not be sent. | Project region and relay/storage configuration are not verified. | Sentry event retention and scrubbing rules require dashboard verification. | Not verified. |
-| Paddle | Merchant-of-record checkout, subscription management, customer portal, and webhooks; handles customer/contact, billing, tax, payment, transaction, subscription, and product data. Syncmemos stores a billing-state mirror. | Provider processing region is not controlled by this repository. | Paddle retains statutory transaction records under its own obligations; the local mirror follows account-erasure behavior and must be reconciled with required financial retention. | Not verified. |
+A vendor's role depends on the processing purpose and applicable terms. A merchant of record,
+identity provider and infrastructure processor are not interchangeable. Article 28 agreements are
+required for processor relationships; independent controllers need a separately assessed lawful
+disclosure and transparency, not a fictitious processor agreement. Confirm any mixed roles.
 
-## Data flows and deletion boundaries
+| Provider/service | Purpose and data | Role to validate for our use | Evidence still needed |
+|---|---|---|---|
+| Railway | API, worker, sweep, logs; account/meeting/content and billing mirror data | Processor for hosted application data; assess own service-account/security records separately | Region, access, applicable DPA, logs, backups, incident contact |
+| Vercel | Next.js web, request metadata, possible platform analytics/logs | Processor for hosted customer data; own platform purposes may differ | Production source revision/settings, processing locations, DPA, analytics and logs |
+| Cloudflare | Public web proxy/edge requests, IP and request metadata | Assess processor role for proxied end-user data and separate own-purpose records | Zone/services, TLS termination, caching/logging, retention, DPA and transfers |
+| Supabase | PostgreSQL and temporary uploaded audio Storage | Processor for application database and audio | Project/Storage/backup locations, applicable DPA, restorable backup and deletion controls |
+| Recall | Bot recording/transcription, speaker/timing/content, provider IDs | Processor role for supplied meeting content subject to actual terms | Workspace region, subprocessors, signing setup, media deletion/residual retention, DPA |
+| AssemblyAI | Transcription of uploaded in-room audio when enabled | Processor role subject to account/terms | EU provisioning, retention/training settings and DPA; endpoint validation alone proves none of these |
+| Google Gemini | Transcript-derived prompts and generated documents/chat when selected | Establish role under the actual paid/free API service and terms; do not reuse OAuth assumptions | Service/tier, input use, retention/training, region, transfers and applicable data terms |
+| Google OAuth | Google account authentication and linked subject identity | Google controls its Google-account authentication purposes; assess the app's receipt/use separately | Identity-service terms, disclosure, retention and transfer assessment |
+| Anthropic (optional) | Transcript-derived prompts and generated text when selected | Establish processor/other purposes under the contracted API tier | Region, input use, retention, zero-retention eligibility and applicable DPA |
+| Resend | Verification recipient, single-use URL and delivery events | Processor for transactional delivery; assess own-purpose metadata | DPA, message/event retention, region and incident contact |
+| Sentry (optional) | Error events and selected operational identifiers | Processor for customer error data under applicable terms; own account purposes separately | Project region, event retention, SDK capture/scrubbing, DPA |
+| Paddle | Checkout, tax/payment, subscription/customer records and signed events | Independent controller for merchant-of-record buyer/sale obligations; assess any other service purpose separately | Actual seller/contract entity, retained statutory records, rights route, transfers and applicable terms |
 
-- Online meetings flow through Recall to the API; provider recording deletion is requested after the
-  transcript is safely processed and again during account deletion.
-- In-room audio flows from the browser to Supabase Storage and, only when explicitly enabled, to
-  AssemblyAI. The API refuses unsafe production enablement and deletes its stored audio on the
-  documented sweep schedule.
-- Transcripts may be sent to Gemini or Anthropic depending on `DOC_PROVIDER` and `CHAT_PROVIDER`.
-  Generated content and chat are persisted in Supabase until account deletion.
-- Resend receives verification delivery data; verification token rows expire after 24 hours and are
-  removed by the sweep. Sentry receives errors, not deliberate credential payloads.
-- Paddle's statutory merchant records are outside Syncmemos account-erasure control. The Privacy
-  Policy must distinguish Paddle's independent obligations from Syncmemos' local billing mirror.
+Observed on 2026-09-11: unauthenticated GETs to the public web returned server=cloudflare and a cf-ray
+header. This establishes proxy use on those responses, not zone configuration or residency. API
+health returned Railway's server header and main SHA d1707ba2be3a48dc73126225308fac6e44ddf0fb.
+The connected Vercel team listing returned no accessible teams; that does not establish deployment
+settings or the web's exact live revision.
 
-## Live verification checklist
+## Deletion and disclosure boundaries
 
-- Record the contracted region and relevant dashboard screenshot/export for every active provider.
-- Confirm deletion/retention settings, backups, logs, and subprocessors rather than inferring them
-  from an API hostname.
-- Obtain or confirm the applicable DPA and document its owner and review date.
-- Remove unused optional providers and credentials from production.
-- Reconcile this map with deployed environment variables and the final Privacy Policy before launch.
+Online content flows through Recall to the API and database. Uploaded audio flows through Storage
+to AssemblyAI only when enabled. Gemini/Anthropic receive prompts according to provider settings.
+The [retention inventory](data-retention.md) distinguishes implemented cleanup from missing controls.
+
+Account deletion first requires provider media deletion to succeed, then removes local account
+content. This is not evidence that backups, provider logs, failed webhook payloads or Paddle's
+merchant records are erased. [Google deletion](google-account-deletion.md),
+[local billing anonymization](billing-anonymization.md) and the [Recall error boundary](recall-error-boundary.md)
+describe the PR75 controls; they require that branch's migration and matching API/web release.
+
+Record active providers, purpose-specific roles, executed/incorporated terms, regions, transfers,
+retention and incident/DSR contacts in the private evidence record before making public claims.
+Remove unused credentials only through an authorized operations change. See [provider checklist](dpa-checklist.md).
+
+Sources for role distinctions: [Paddle privacy](https://www.paddle.com/legal/privacy),
+[Cloudflare privacy](https://www.cloudflare.com/privacypolicy/). Their public policies do not prove
+which agreement or account settings are active for Syncmemos.
