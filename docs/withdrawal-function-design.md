@@ -1,200 +1,104 @@
-# Withdrawal function — design (not implemented)
+# Withdrawal function — design draft
 
-**Status: design draft for the adviser. Nothing here is built, and nothing here should be built
-before the legal question in §1 is answered.** `LEGAL_WITHDRAWAL_FLOW_APPROVED` stays `false`.
+**Draft for qualified legal and product review, updated 2026-09-11. No withdrawal-processing
+function is implemented by this document.** Keep `LEGAL_WITHDRAWAL_FLOW_APPROVED=false`
+until an authorized review establishes the applicable duty and verifies the actual flow.
+This work does not implement refunds, payment mutations or a parallel case platform.
 
-Today the product does not operate a withdrawal function of its own. It links to Paddle Buyer
-Support at `https://paddle.net` from the public footer, both language versions of the Refund Policy,
-and authenticated Settings, and it says in both languages that a statutory withdrawal and a
-voluntary refund are different requests. Paddle is Merchant of Record; it receives the request,
-decides eligibility, and moves the money. That is deliberate, and the constraint that produced it
-has not changed: **we must not build a parallel withdrawal-processing mechanism that bypasses
-Paddle.** Any design here that touches money is out of bounds.
+## Current behavior
 
-What is left, then, is a narrow question: does the trader owe the consumer a withdrawal *function*
-on its own site, and an *acknowledgement* of the notice, that a hosted third-party flow does not by
-itself discharge?
+The footer, Settings and the Refund Policy link to [Paddle Buyer Support](https://paddle.net).
+Existing Swedish/English text distinguishes statutory withdrawal from a voluntary refund and
+says that sending a request is not approval. Paddle handles payment-side processing as Merchant
+of Record. A support link by itself is not evidence that the required online withdrawal function,
+confirmation or durable acknowledgement exists or satisfies a particular trader's duty.
 
-## 1. The question this document does not answer
+## Applicable rule and open assessment
 
-Chapter 2, Section 10 a of the Swedish Distance Contracts Act requires a trader who lets consumers
-conclude distance contracts online to provide a withdrawal function — a clearly labelled route by
-which the consumer sends an unambiguous withdrawal notice, followed by an immediate acknowledgement
-of receipt on a durable medium, stating when it was received.
+The online withdrawal-function rules are **not limited to financial services**.
+Konsumentverket's guidance describes the change effective 19 June 2026 for online consumer
+contracts where a statutory right of withdrawal applies, and distinguishes acknowledgement of
+receipt from approval. [Konsumentverket, published 8 June 2026](https://www.konsumentverket.se/nyhet/lagandring-gor-det-enklare-att-angra-kop-pa-natet/).
 
-Three things must be settled by the adviser before any code is written:
+Our specific assessment remains open. The owner and adviser must establish:
 
-1. **Does the provision apply to this contract at all?** The rules were introduced for distance
-   contracts for financial services. Whether a SaaS subscription sold through a merchant of record
-   falls inside them is a legal reading, not an engineering one. If it does not, option A below is
-   the whole answer and this document ends there.
-2. **If it applies, who is the trader for it?** The consumer contracts with Paddle as merchant of
-   record while using our application. If Paddle is the trader for this purpose, Paddle's flow is
-   the function and our duty is to make it reachable and correctly labelled — which is what exists.
-3. **Does the hosted flow discharge the duty?** [Legal pages](legal-pages.md) already lists the
-   exact questions Paddle must confirm in writing: that its flow lets the buyer state the contract
-   being withdrawn, requires an explicit final confirmation, and sends an immediate durable receipt
-   containing the time it was received. **If Paddle answers yes to all of them, build nothing.**
-   Option B below exists only for the case where Paddle answers no, or does not answer.
+- Whether the actual offer is B2B, B2C or mixed; the consumer contract, service/digital-content
+  classification and any applicable withdrawal exceptions. A SaaS label alone settles none of these.
+- Which legal entity is the trader for the relevant obligation, given the actual Paddle agreement,
+  checkout, receipts and our online interface. Merchant-of-record terminology does not replace
+  that analysis or automatically remove our responsibilities.
+- Whether the reachable hosted flow provides the required information, explicit submission and
+  immediate acknowledgement on a durable medium, including the notice content and receipt date/time.
+- Whether access remains effective when the buyer is signed out, cannot recover an account or has
+  already deleted it. An authenticated-only route must not frustrate a statutory right.
 
-## 2. Option A — reachability only (current behaviour, recommended default)
+Review the current [Distance Contracts Act](https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/lag-200559-om-distansavtal-och-avtal-utanfor_sfs-2005-59/)
+and the concrete contracts. Do not rely on the previous draft's financial-services-only reading
+or its unverified section reference.
 
-We add nothing. The obligation is met by Paddle's flow, and our responsibility is that the route to
-it is unmistakable and honest.
+## Option A — rely on a verified hosted flow
 
-What would still need work under this option is text and evidence, not features:
+Retain the existing links if the qualified assessment and provider evidence establish that this
+arrangement meets every applicable duty. This is a conditional design option, not a compliance
+conclusion, a cost estimate or approval to enable the gate.
 
-- the label must say *withdrawal*, distinctly from *refund*, everywhere it appears — already true in
-  the Terms, the Refund Policy, and Settings;
-- the pages must say plainly that submitting a request is not itself approval — already true;
-- Paddle's written confirmation must be on file against the exact deployed commit, and stored in the
-  private launch record rather than in this repository.
+Obtain Paddle's written response to the questions in [legal pages](legal-pages.md). Test the real
+buyer journey and sample acknowledgement in an approved environment, including accessibility,
+contract identification and signed-out recovery. Record which entity receives a legally effective
+notice and what happens when email delivery fails. Keep private evidence tied to the reviewed
+commit and policy version. If any required part is missing, keep the gate closed and scope the
+necessary change separately.
 
-**Cost: zero. Risk: entirely dependent on Paddle's answer.** Recommend adopting this and treating
-option B as contingency.
+## Option B — scoped notice receipt, only after a responsibility decision
 
-## 3. Option B — a thin withdrawal notice, if the duty is ours
+If the duty requires an application change, draft it with Paddle and the adviser before
+implementation. Receiving notice and acknowledging it is distinct from deciding a refund or
+moving money. Handoff to support must not misleadingly require the buyer to submit the same
+withdrawal again to make an already valid notice effective.
 
-Only if §1 lands the duty on us. The design principle is a hard line: **we receive and acknowledge a
-notice; Paddle decides and pays.** We never state eligibility, never promise a refund, never open a
-case Paddle does not know about.
+A future design would need:
 
-### 3.1 Flow
+1. A clearly labelled, reachable withdrawal route separate from cancellation and voluntary refunds.
+2. Proportionate contract identification, including an accessible path for buyers who cannot sign in.
+3. An explicit final submission and a reliable record of the notice and its time of receipt.
+4. Immediate acknowledgement using a verified durable medium, with the notice content and
+   date/time. A transient on-screen message or a print button is not assumed to satisfy this.
+5. A defined failure/retry process for receipt delivery, with no false claim that an email was sent
+   merely because a queue accepted it, and no silent loss of an already received notice.
+6. An agreed transfer of the notice to the responsible party and a clear buyer-facing explanation.
 
-1. The consumer opens the withdrawal function from Settings, the footer, or the Refund Policy. It is
-   a distinct control, never a variant of "cancel subscription" and never labelled "refund".
-2. A page shows their purchase as we already hold it — subscription, plan, purchase date, billing
-   email — and asks them to confirm it is the contract being withdrawn.
-3. A final, explicit confirmation step. One unambiguous action, no pre-ticked boxes, no bundling
-   with a cancellation.
-4. On submit, the notice is recorded with a server-side timestamp and the acknowledgement is sent.
-5. The consumer is then handed to Paddle Buyer Support to complete the request, with the same
-   wording that already tells them what Paddle does and does not decide.
+Paddle handles its payment-side assessment and settlement; application text must not imply that a
+provider's discretion creates or extinguishes statutory rights. Receipt is not approval and is not
+a promise of a refund.
 
-Step 5 is what keeps this inside the constraint: the function receives a notice, and Paddle remains
-the only place money moves.
+## Data, accessibility and retention decisions before implementation
 
-### 3.2 Identifying the purchase
+No table or migration is proposed for this merge. If a notice record later proves necessary,
+justify the minimal fields, access controls, acknowledgement evidence and retention period against
+the actual obligation. A server timestamp alone is not the whole legal record. Removing a user
+foreign key while retaining subscription/provider identifiers does not automatically anonymize it.
+Article 6(1)(c) is only a candidate basis where a specific applicable legal obligation has been
+identified; determine the basis and record it in [RoPA](ropa.md).
 
-We already mirror Paddle state in `paddle_customers` and `paddle_subscriptions`, and a signed-in
-consumer's subscription is therefore identifiable without asking them for anything. That path is the
-easy one, and the only one to build first.
+Test keyboard navigation, meaningful labels, screen-reader feedback, contrast and error recovery
+across the complete hosted/application flow. Ordinary form semantics are useful implementation
+requirements, not proof of complete accessibility compliance.
 
-A consumer who cannot sign in is harder, and the honest design answer is not to solve it here: send
-them to Paddle, which can identify the purchase from the billing email. Building an unauthenticated
-notice form invites exactly the parallel mechanism we are forbidden to build, and it would collect
-personal data from anyone who fills it in, whether or not they ever bought anything.
+Do not collect unnecessary free text, reasons, identity documents or a duplicate support thread.
+Do not add eligibility calculations, refunds, credits or payment mutations in this project.
+The future scope must respect both effective consumer access and data minimization; omitting a
+necessary signed-out path is not an acceptable shortcut.
 
-### 3.3 Data model
+## Decision record to complete privately
 
-One table, deliberately thin. Names below are illustrative; nothing is migrated.
-
-| Column | Why it exists |
-|---|---|
-| `id` | Primary key |
-| `user_id` | The account that sent the notice; nulled on erasure, the way the send ledger is |
-| `subscription_id` | Which contract is being withdrawn |
-| `received_at` | Server clock, never the client's. This is the timestamp the acknowledgement quotes and the only legally load-bearing field |
-| `acknowledgement_sent_at` | Evidence the receipt actually went out |
-| `notice_version` | Which version of the withdrawal text the consumer saw, the way the recording notice is versioned |
-| `locale` | Which language the acknowledgement was sent in |
-
-What is deliberately **not** stored: no reason, no free-text field, no eligibility determination, no
-outcome, no refund amount, no correspondence. A free-text box would collect whatever the consumer
-chooses to type, and none of it is needed to make the notice unambiguous. An outcome column would be
-us keeping a shadow case record of a decision that is Paddle's.
-
-### 3.4 The acknowledgement
-
-Sent immediately, on a durable medium, in the consumer's language. Durable means it survives outside
-our session: an email through Resend, plus the same text rendered on screen so it can be saved or
-printed. It must state that the notice was received, the time it was received, and which contract it
-concerned — and it must say, in terms, that receipt is not a decision.
-
-If the email send fails, the notice is still received and still recorded. The screen text is the
-fallback receipt, and the failure is logged so it can be resent. The one thing that must never
-happen is the notice being rejected because the receipt could not be sent.
-
-### 3.5 Copy
-
-Draft, for the adviser to correct. Both languages ship together or neither ships.
-
-**Swedish**
-
-> **Ångra ditt köp**
-> Ånger enligt lag är inte samma sak som en frivillig återbetalning. Här skickar du ett meddelande om
-> att du vill ångra köpet nedan. Paddle, som är säljare (Merchant of Record), tar emot och handlägger
-> begäran och beslutar om ångerrätten gäller.
->
-> Avtal: {plan}, köpt {datum}
->
-> [ Bekräfta att jag ångrar köpet ]
-
-Acknowledgement:
-
-> Vi tog emot ditt meddelande om ånger {datum och tid} för {plan}, köpt {datum}. Det här är ett
-> mottagningsbevis, inte ett beslut. Paddle handlägger begäran och återkommer till dig.
-
-**English**
-
-> **Withdraw from your purchase**
-> A statutory withdrawal is not the same as a voluntary refund. Here you send notice that you are
-> withdrawing from the purchase below. Paddle, as Merchant of Record, receives and handles the
-> request and decides whether the withdrawal right applies.
->
-> Contract: {plan}, purchased {date}
->
-> [ Confirm that I am withdrawing ]
-
-Acknowledgement:
-
-> We received your withdrawal notice at {date and time} for {plan}, purchased {date}. This is an
-> acknowledgement of receipt, not a decision. Paddle handles the request and will come back to you.
-
-Two rules for whoever edits this text: the word *withdrawal* and the word *refund* never stand in for
-each other, and nothing in it may read as a promise of money.
-
-### 3.6 Accessibility
-
-The function is a form, and the ordinary rules are the whole requirement: a real `<form>` with a
-real submit button rather than a click handler on a `<div>`; a visible label on the confirmation
-control that says what it does out of context, not "Confirm"; the confirmation step reachable and
-operable by keyboard alone in a sensible order; the acknowledgement announced to assistive
-technology and not only rendered visually; contrast that meets WCAG 2.2 AA; and no reliance on
-colour alone to distinguish withdrawal from refund. The existing footer link already carries an
-`aria-label` that names the destination, which is the pattern to follow.
-
-### 3.7 Retention
-
-The notice is a record of a legal act, so it is not swept with operational data, and it is not
-deleted on account deletion the way meetings are — `user_id` is nulled and the row remains, exactly
-as `email_send_ledger` handles the same tension. How long it must remain is a legal question tied to
-limitation periods and to Paddle's own record keeping; `Unassigned` until the adviser sets it.
-Whatever they set goes into [the register](ropa.md) as a new activity and into
-[data retention](data-retention.md) as a new row. The legal basis would be Art. 6(1)(c), a legal
-obligation.
-
-## 4. What must not be built
-
-- No refund processing, no payment mutation, no crediting — Paddle only.
-- No eligibility logic. We never compute or display whether a withdrawal applies.
-- No shadow case record: no status field, no outcome, no correspondence thread.
-- No unauthenticated notice form.
-- No free-text reason box.
-- No bundling of withdrawal into the cancel-subscription flow.
-
-## 5. Decision path
-
-| # | Step | Owner |
+| Decision / evidence | Responsible role | Current status |
 |---|---|---|
-| 1 | Adviser answers §1.1 — does the provision apply to this contract | `Unassigned` |
-| 2 | Paddle confirms in writing the questions in [legal pages](legal-pages.md) | `Unassigned` |
-| 3 | If both point at Paddle: adopt option A, keep this document as the record of why | `Unassigned` |
-| 4 | If the duty is ours: adviser reviews §3 including the copy, then implementation is scoped as its own change with its own migration and tests | `Unassigned` |
-| 5 | `LEGAL_WITHDRAWAL_FLOW_APPROVED=true` only after 1–3, or 1–4, are complete and reviewed against the exact deployed commit | `Unassigned` |
+| Actual B2B/B2C offer, contract classification and applicable duty | Owner + adviser | Not verified |
+| Responsible trader/entity and hosted-flow responsibility | Owner + adviser + Paddle | Not verified |
+| End-to-end function, explicit submission, durable receipt and recovery evidence | Owner + engineering + Paddle | Not verified |
+| Any required application change, data basis/retention and accessibility | Adviser + engineering | Not scoped or approved |
+| Reviewed policy version and permission to enable the gate | Accountable owner | Not approved by this document |
 
-## References
-
-- [Legal pages and the publication gate](legal-pages.md)
-- [Konsumentverket on the online withdrawal function](https://www.konsumentverket.se/nyhet/lagandring-gor-det-enklare-att-angra-kop-pa-natet/)
-- [Distansavtalslagen (2005:59)](https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/lag-200559-om-distansavtal-och-avtal-utanfor_sfs-2005-59/)
+Named owners are Unassigned. Provider correspondence stays outside Git. The historical
+[launch plan](launch-plan.md) (preserved by PR77) is context; the [handoff](launch-handoff.md) and
+[legal publication gate](legal-pages.md) describe current readiness.
