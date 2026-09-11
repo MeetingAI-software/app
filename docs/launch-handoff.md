@@ -1,104 +1,122 @@
-# Launch handoff
+# Controlled merge and launch handoff
 
-Where the launch work stands as of **2026-08-27**, what is left, and who can do it. Written to be
-readable months from now by someone who was not in the room.
+**Engineering handoff updated 2026-09-11. Legal assessments and procedures remain drafts.**
+This records the intended result of PR75 → PR76 → PR77. It is not approval to merge, deploy,
+open registration or enable payments. Current-head checks and private release evidence must be
+attached to the review; historical test totals do not certify a new commit.
 
-Nothing here identifies a person, a company, an address, or a Paddle Seller ID. Those live in the
-private launch record; this document names roles.
+## Three existing PRs, in order
 
-## The state in one paragraph
-
-The product works and the engineering side of compliance is largely done or drafted. What blocks
-Live is not code. It is that no legal seller has been chosen, no support address has been confirmed
-as monitored, no provider has a verified region or a signed processing agreement, and no qualified
-reviewer has read the policies. Every one of those is owner work, and each one blocks something
-downstream. The three flags stay as they are: `LEGAL_POLICIES_PUBLISHED=false`,
-`LEGAL_WITHDRAWAL_FLOW_APPROVED=false`, `BILLING_MUTATIONS_ENABLED=false`. No Live catalog exists, no
-Live key is installed, and no real payment has been taken.
-
-## What was done in this pass
-
-**Security and compliance branch.** `fix/security-compliance-hardening` was rebased onto current
-`main` and is green: typecheck clean, 798 API tests passing across 79 files with 5 skipped, 137 web
-tests across 24 files, both builds succeeding. Three conflicts needed judgement rather than
-mechanics, and all three are written up in the audit report: the migrations were renumbered so they
-follow `main`'s waitlist migration without a single SQL statement changing; upload validation kept
-`main`'s magic-byte sniffing over the branch's declared-MIME allowlist, because the allowlist would
-have rejected recordings `main` deliberately accepts; and the CSP kept Report-Only, because flipping
-it to enforcing during a merge that is also a production deploy is two changes wearing one hat.
-
-**Privacy pack.** Four drafts written for the adviser: the [DPIA](dpia.md), the
-[register](ropa.md), the [DSR procedure](data-subject-requests.md), and the
-[breach procedure](incident-response.md). They are drafts, and they say so on the first line.
-
-**Withdrawal function.** [Designed, not built](withdrawal-function-design.md). The design keeps
-Paddle as the only place money moves and refuses to create a parallel case record.
-
-**Owner support.** A [per-provider checklist](dpa-checklist.md) turning the processor map from ten
-`Not verified` rows into a task list with named questions.
-
-**Housekeeping.** A [documentation index](README.md) with the launch sequence and an owner per step;
-a dead `DEPLOYMENT.md` link replaced with the actual deploy job; the accepted esbuild advisory
-rechecked and confirmed unchanged.
-
-## Branches to review
-
-Two, both awaiting the owner. Neither should be automerged: merging to `main` runs a production
-migration and deploys.
-
-| Branch | Contents | Note |
+| Order | Branch / PR | Scope and dependency |
 |---|---|---|
-| `fix/security-compliance-hardening` | Twelve commits of security and compliance fixes, plus the audit report and the pre-merge checklist | Read the pre-merge checklist first. It is a production migration |
-| `docs/launch-readiness-pack` | The privacy pack, the withdrawal design, the DPA checklist, the docs index, two small fixes | Documentation only, no code paths touched |
+| 1 | `fix/security-compliance-hardening` / [PR75](https://github.com/MeetingAI-software/app/pull/75) | Runtime security, compatible dependency patches, additive database changes and the release checklist |
+| 2 | `docs/launch-readiness-pack` / [PR76](https://github.com/MeetingAI-software/app/pull/76) | Corrected privacy drafts, provider roles and this handoff; describes the PR75 implementation |
+| 3 | `fix/withdrawal-copy-not-refund` / [PR77](https://github.com/MeetingAI-software/app/pull/77) | Historical launch-plan annotation; withdrawal/refund text fixes already exist in main |
 
-Merge the security branch first — the privacy documents describe several of its measures as
-implemented, flagged as branch-only until it lands.
+All three keep main as their base. Verify their ordered merge result in a separate integration
+copy. The documentation branches may inherit older main dependencies before PR75; do not copy
+runtime fixes into them or treat their standalone audit as the final combined dependency state.
+No replacement PR or history rewrite is needed.
 
-There are also roughly six already-merged feature branches that can be deleted.
+Merging main can release production automatically. The Railway workflow runs API/web checks,
+stamps the commit, migrates and deploys; Vercel's web deployment is independently triggered.
+A green local build does not establish that these releases are coordinated. A documentation merge
+can also retrigger deployment. The owner makes the merge decision after the checks below.
 
-## What blocks Live, in order
+## Code delivered by PR75
 
-1. **Choose the legal seller.** Blocks the controller entry in every privacy document, the seller
-   facts on the legal pages, which supervisory authority applies to a breach, and Paddle Live.
-2. **Confirm the support address is monitored.** Blocks the DSR procedure — there is no request
-   process without an inbox someone reads — and the published contact point.
-3. **Provider regions and DPAs, all ten.** Blocks any residency statement in the privacy policy,
-   the transfer entries in the register, and the breach-notification chain.
-4. **Merge the security branch.** Blocks the DPIA measures that are currently branch-only, and OAuth
-   accounts cannot be deleted at all until it lands.
-5. **Adviser review**, including the controller/processor question below.
-6. **Publish the legal pages** against the exact reviewed commit, then Paddle Live, preflight, and
-   the paid validation.
+- A session-bound Google OIDC round for Google-only account deletion, followed by a separate final
+  confirmation. PostgreSQL holds challenge/grant hashes; a grant expires within five minutes and
+  is consumed atomically before deletion, including a failed attempt. Password accounts still
+  verify their password. See [Google deletion](google-account-deletion.md) for the precise proof
+  and its distinction from forcing a new Google password entry.
+- Share expiry and owner controls, generic private-safe share metadata, recording-notice evidence,
+  Origin/auth/ownership boundaries, bounded upload/SSE capacity and ordered durable replay.
+- Blank optional configuration normalization with conditional startup guards and range checks.
+- Stable Recall errors with a deliberately narrow diagnostics/monitoring allowlist. This is not
+  evidence of complete historical log redaction: [Recall boundary](recall-error-boundary.md).
+- A persistent local Paddle anonymization marker preventing late upserts from restoring email or
+  user linkage. Provider identifiers and necessary billing state remain:
+  [billing erasure limits](billing-anonymization.md).
+- Compatible dependency updates under the manual update policy. Run a fresh full and production
+  audit on each final security/integration lockfile; no forced Drizzle downgrade.
 
-## The question to put to the adviser first
+## Closed-mode release prerequisites
 
-An organiser records a meeting. The other participants are transcribed, labelled, summarised and
-stored, with no account and no relationship with us. Are we the processor for the organiser, a
-controller in our own right, or joint controllers? [DPIA §7](dpia.md) sets out what each answer
-costs. It changes the terms, possibly the notice flow, and the whole participant path in the DSR
-procedure — so it is the first agenda item, not a loose end.
+The detailed operator checklist is [security pre-merge](security-branch-premerge.md). Each item
+below requires evidence, not an assumption. Store secrets, account identifiers and provider
+records privately.
 
-## Gaps that no document closes
+1. Record the current main, three PR heads and deployment configuration. Confirm how to hold or
+   coordinate Vercel and Railway releases before any merge; allow no active recordings across
+   the compatibility window.
+2. Obtain a verified backup and a tested restore/recovery procedure. Inspect the actual migration
+   ledger read-only and match its lineage. Do not edit existing SQL 0011–0013.
+3. Apply the reviewed migration order during the later authorized release: the canonical ledger
+   includes the existing security 0011–0013, followed by
+   `0014_reconcile_share_lineages`, `0015_google_deletion_authorization` and
+   `0016_paddle_anonymization_marker`. Main's parallel
+   `0011_demonic_gwen_stacy` has a later timestamp than security's 0011–0013; bridge 0014
+   adds the missing columns on either lineage. Verify the real ledger against the migration
+   guide; do not manually replay or renumber history.
+4. Validate actual environment values without exposing them. Blank optional/default numeric values
+   use absence/defaults, while required values, enabled-feature requirements and ranges still
+   fail closed. Match API registration/legal gates and the web's published-policy version and
+   seller inputs. Keep approved closed-mode gates closed; no Live payment inference follows
+   merely from a flag or a 404 legal page.
+5. Confirm the Google application, existing callback URL, HTTPS cookie/session behavior and
+   same-account deletion round in an approved synthetic release check. A mocked browser round
+   and local negative tests do not certify the provider dashboard.
+6. Coordinate Recall workspace/region and realtime verification secret with provider configuration
+   and existing bots. A legacy workspace may have different async and realtime secrets; newer
+   workspaces can use one workspace secret for both. Disabling new live transcription does not
+   remove callbacks from existing bots. Follow the pre-merge checklist's drain/rotation sequence.
+7. Tell the operator that legacy share links without an expiry are intentionally disabled and old
+   browser tabs may need reloading. Verify API and web commit identity after release, then run the
+   approved closed-mode smoke: health, registration/legal/billing gates, authenticated owner
+   access, revoked/expired sharing and required notice behavior. Keep CSP Report-Only.
 
-Known, written down, and not fixed:
+**Rollback after migration:** leave additive schema and the migration ledger intact. Use a
+previously tested compatible application revision only; an arbitrary old main can restore weaker
+sharing/deletion/signature behavior. Pause affected operations or apply a forward fix if no
+compatible rollback exists. A database restore is a separate operator decision accounting for
+writes since backup and reapplying erasure restrictions. Test this before release.
 
-- **Waitlist.** `waitlist_signups` has no retention period, no deletion path, and no way to withdraw
-  the consent it relies on. It is new on `main` and was not in scope for any prior work. Blocking.
-- **Participant rights.** Someone recorded in a meeting has no route to their own data. This is a
-  design consequence, not an oversight, and the adviser's answer decides what we owe them.
-- **No export endpoint.** A subject access request is assembled by hand today.
-- **`transcripts.raw_payload`.** A second complete copy of every meeting, kept indefinitely for
-  reprocessing. Minimisation argues for bounding it.
-- **`webhook_events` that never process.** Their payloads keep transcript content with no row-level
-  retention. The redaction on the branch only covers rows that succeeded.
-- **CSP is Report-Only.** Flipping it to enforcing is its own change, after a pass through the app
-  including the Paddle overlay reports no violations.
+## Evidence and remaining uncertainty
 
-## Two things that must not slip
+Local verification must cover clean Node20 installation, all API/web tests, both typechecks,
+web lint, both production builds, full audit with no high/critical findings, production audit
+with no findings, secrets/diff checks, empty/main-lineage migrations and snapshot/schema agreement.
+Use synthetic negative tests for auth, ownership, sharing, webhooks, recording notice, erasure and
+resource limits; mock external identity/payment/storage providers in browser smoke. Attach the
+final commit-specific CI links to the PRs after pushing.
 
-**Nothing of a legal nature in this repository is finished text.** Every policy, procedure and
-assessment here is a draft for the qualified reviewer.
+Read-only public observations on 2026-09-11: API health reported main commit
+`d1707ba2be3a48dc73126225308fac6e44ddf0fb`; the public web returned Cloudflare headers and CSP
+Report-Only, and /terms returned 404. Those observations establish neither all environment values
+nor backups, provider regions, contracts, actual payments, web commit identity or deployment
+coordination. The connected Vercel team inventory was empty. No production mutation or migration
+was performed during this preparation.
 
-**No personal data in the repository.** No ID documents, no bank details, no home addresses, no
-secrets — not in commits, not in tests, not as placeholders. Seller facts are environment variables
-in the hosting platform. Provider evidence and correspondence live in the private launch record.
+## Separate launch backlog
+
+These items do not all have to be implemented to review a closed-mode security merge. They do
+need an explicit decision before the affected processing or commercial launch. The backlog
+contains engineering, operational and legal work; documentation alone does not close it.
+Named people remain **Unassigned**.
+
+| Priority | Work | Responsible role | Dependency | Definition of done |
+|---|---|---|---|---|
+| P0 before affected collection | Waitlist retention, unsubscribe and erasure | Engineering + privacy owner | Agreed purpose, basis, period and monitored request channel | Tested expiry/deletion and withdrawal path; notice matches actual behavior |
+| P0 before broader recording use | Failed webhook payloads and orphan audio | Engineering + operations | Inventory of failure/storage paths and provider retention | Bounded retry/content retention, orphan reconciliation, synthetic failure tests and an owned alert/runbook |
+| P0 before broader recording use | Raw transcript minimization | Engineering + privacy reviewer | Reprocessing need and justified retention decision | Every raw copy has an enforced period and verified erasure path; docs match |
+| P0 before participant processing expansion | Participant DSR, access and export | Privacy reviewer + support + engineering | Purpose-specific controller/processor assessment and identity/third-party safeguards | Exercised manual or scoped product process meets rights/deadlines without exposing other participants; a general export platform is not required by this PR scope |
+| P0 before public legal pages/Live | Legal seller and accountable processing roles | Owner + qualified adviser | Business model and B2B/B2C contract evidence | Verified seller facts, purpose-specific roles and reviewed policy text/version |
+| P0 before public support promises | Support and incident/DSR coverage | Owner + operations | Monitored address, backup contact and permissions | Delivery/authentication checks plus a synthetic response exercise with assigned coverage |
+| P0 before residency/processing claims | Provider agreements, regions and transfers | Owner + privacy adviser + providers | [Role inventory](data-processors.md) including Cloudflare | Actual service/account evidence; Article 28 terms where a processor role applies, separate-controller arrangements where appropriate, transfer/retention/incident contacts reviewed |
+| P0 before consumer Live sales | Withdrawal-function/Paddle responsibility | Owner + adviser + Paddle | Contract/consumer scope and actual hosted flow | Written purpose-specific responsibility assessment and tested reachable function/confirmation/durable receipt where owed; gate approved only for the reviewed implementation |
+| P1 separate release | CSP enforcement | Engineering | Report review across app, login, sharing and Paddle overlay | Resolved violations and regression/browser evidence in a dedicated enforcing change |
+| P0 before legal launch approval | DPIA/RoPA/DSR/incident review | Accountable controller + adviser | Above factual evidence and workflow decisions | Drafts reviewed, roles assigned, residual-risk decisions recorded and procedures exercised |
+
+No seller identity, agreement, region or approval is supplied by this repository. Keep the launch
+record and any incident/request evidence in a restricted system, outside Git.
