@@ -1,5 +1,33 @@
 # Säkerhets- och regelefterlevnadsgranskning – Syncmemos
 
+> **Historiskt granskningsunderlag. Uppdateringsnotering 2026-09-11:** Rapporttexten nedan
+> beskriver tidigare granskningar och deras dåvarande kod, testtal och driftobservationer.
+> Den är inte aktuellt mergeklartecken. Påståenden nedan om en DELETE-fras för Google-radering,
+> avsaknad av SSE-kvoter, beroendeversioner och krav på en annan Recall-hemlighet är ersatta
+> av åtgärderna och källorna i denna notering. Historiska fynd och lanseringsfrågor finns kvar
+> som underlag; de innebär inte att alla kommersiella lanseringskrav måste lösas i dessa tre PR:er.
+
+PR75 har följts upp med kompatibla beroenderättningar, blanknormalisering av optional miljövärden,
+en ny sessionsbunden Google-OIDC-runda och atomisk engångsbehörighet före separat raderingsbekräftelse,
+begränsad SSE-admission/återspelning, ordnad databasmarkör vid samtidiga skrivningar,
+upload-kapacitet som hålls tills storage-arbetet avslutats, beständig lokal Paddle-markering och
+generiska Recall-fel med begränsad telemetri. De ursprungliga migrationerna 0011–0013 lämnas orörda;
+0014 förenar migrationslinjerna från main och security, följt av additiva 0015 och 0016.
+
+Aktuell kontrollomfattning och begränsningar finns i [Google-radering](google-account-deletion.md),
+[SSE](live-stream-limits.md), [uppladdning](upload-limits.md),
+[Paddle-radering](billing-anonymization.md), [Recall-fel](recall-error-boundary.md) och
+[beroendepolicy](dependency-security.md). Varken fullständig loggsanering eller global radering
+är verifierad. Recall realtime ska använda rätt workspace-verifieringshemlighet; äldre workspace
+kan ha skilda async-/realtime-hemligheter, nyare kan använda samma för båda.
+
+Följ [aktuell premerge-checklista](security-branch-premerge.md) och de tre befintliga PR:ernas
+slutliga head/CI-bevis i ordningen PR75 → PR76 → PR77. Dokumentationspaketet i PR76 rättar
+leverantörsroller, retention, utkast och fortsatt launcharbete. Ingen produktionsmigrering,
+driftsättning, grindändring eller juridisk granskning har genomförts genom denna uppdatering.
+
+---
+
 > **Lanseringsbeslut: `STOPP`**
 > De bekräftade kritiska kodbristerna är åtgärdade i arbetskopian, men ändringarna är inte produktionsverifierade. Nykundsregistrering och betalningar ska förbli stängda tills migrering, ny Recall-hemlighet, policypublicering, logg-/incidentbedömning och de externa leverantörs- och driftkontrollerna nedan är verifierade.
 
