@@ -17,6 +17,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     errorMessage: null,
     summary: null,
     shareToken: 'tok',
+    shareEnabled: true,
     participantNames: null,
     audioStoragePath: null,
     transcriptionJobId: null,
@@ -75,6 +76,8 @@ describe('IngestLiveTranscriptService', () => {
       listForUser: vi.fn(),
       countActiveForUser: vi.fn(),
       deleteById: vi.fn(),
+      setShareEnabled: vi.fn(),
+      rotateShareToken: vi.fn(),
     } as unknown as MeetingRepository;
 
     liveRepo = {

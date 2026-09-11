@@ -50,6 +50,7 @@ function fixture(overrides: Partial<Meeting>): Meeting {
     errorMessage: null,
     summary: null,
     shareToken: 'tok',
+    shareEnabled: false,
     participantNames: null,
     audioStoragePath: null,
     transcriptionJobId: null,

@@ -8,8 +8,7 @@ import {
   getTranscript,
   getDocument,
   generateDocument,
-  enableMeetingShare,
-  revokeMeetingShare,
+  type ShareState,
   type Meeting,
   type TranscriptSegment,
   type Document,
@@ -18,6 +17,7 @@ import { msToClock } from '@/lib/format';
 import DocumentView from '@/components/DocumentView';
 import ChatPanel from '@/components/ChatPanel';
 import LiveTranscript from '@/components/LiveTranscript';
+import ShareControl from '@/components/ShareControl';
 
 /**
  * The API stores a failure as `<sentence> (<provider_sub_code>)`. Nobody should have to read a
@@ -80,14 +80,6 @@ function messageFromError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function hasActiveShare(meeting: Meeting, now: number): boolean {
-  return Boolean(
-    meeting.shareEnabled
-      && meeting.shareExpiresAt
-      && new Date(meeting.shareExpiresAt).getTime() > now,
-  );
-}
-
 export default function MeetingDetailPage() {
   const params = useParams();
   const id = params.id as string;
@@ -105,12 +97,6 @@ export default function MeetingDetailPage() {
 
   // Accordion state
   const [isAccordionOpen, setIsAccordionOpen] = useState(false);
-
-  // Copy share token flash state
-  const [copied, setCopied] = useState(false);
-  const [shareBusy, setShareBusy] = useState(false);
-  const [shareError, setShareError] = useState<string | null>(null);
-  const [shareIsActive, setShareIsActive] = useState(false);
 
   // Refs for tracking active polling
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -145,7 +131,6 @@ export default function MeetingDetailPage() {
       try {
         const m = await getMeeting(id);
         setMeeting(m);
-        setShareIsActive(hasActiveShare(m, Date.now()));
 
         if (m.status === 'transcribed') {
           stopPolling();
@@ -165,7 +150,6 @@ export default function MeetingDetailPage() {
       .then((loadedMeeting) => {
         if (!active) return;
         setMeeting(loadedMeeting);
-        setShareIsActive(hasActiveShare(loadedMeeting, Date.now()));
         if (loadedMeeting.status === 'transcribed') {
           void fetchTranscriptAndDoc(loadedMeeting.id);
         } else if (loadedMeeting.status !== 'failed') {
@@ -216,42 +200,10 @@ export default function MeetingDetailPage() {
     }
   };
 
-  const handleCopyShare = async () => {
-    if (!meeting || shareBusy) return;
-    setShareBusy(true);
-    setShareError(null);
-    try {
-      const active = meeting.shareEnabled && meeting.shareExpiresAt
-        && new Date(meeting.shareExpiresAt).getTime() > Date.now();
-      const sharedMeeting = active ? meeting : await enableMeetingShare(meeting.id, 24);
-      setMeeting(sharedMeeting);
-      setShareIsActive(hasActiveShare(sharedMeeting, Date.now()));
-      const shareUrl = `${window.location.origin}/s/${sharedMeeting.shareToken}`;
-      await navigator.clipboard.writeText(shareUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      setShareError(messageFromError(err, 'Could not create the share link'));
-    } finally {
-      setShareBusy(false);
-    }
-  };
-
-  const handleRevokeShare = async () => {
-    if (!meeting || shareBusy) return;
-    setShareBusy(true);
-    setShareError(null);
-    try {
-      await revokeMeetingShare(meeting.id);
-      setMeeting({ ...meeting, shareEnabled: false, shareExpiresAt: null });
-      setShareIsActive(false);
-      setCopied(false);
-    } catch (err) {
-      setShareError(messageFromError(err, 'Could not revoke the share link'));
-    } finally {
-      setShareBusy(false);
-    }
-  };
+  /** Keeps the page's meeting in step with the share panel without a refetch. */
+  const handleShareChange = useCallback((patch: ShareState) => {
+    setMeeting((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
 
   const handlePrint = () => {
     window.print();
@@ -305,22 +257,7 @@ export default function MeetingDetailPage() {
           <div className="flex gap-2">
             {meeting.status === 'transcribed' && (
               <>
-                <button
-                  onClick={handleCopyShare}
-                  disabled={shareBusy}
-                  className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-lg font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
-                >
-                  {shareBusy ? 'Working…' : copied ? 'Copied ✓' : shareIsActive ? 'Copy Share Link' : 'Create 24h Share Link'}
-                </button>
-                {shareIsActive && (
-                  <button
-                    onClick={handleRevokeShare}
-                    disabled={shareBusy}
-                    className="px-4 py-2 bg-white text-red-700 border border-red-200 hover:bg-red-50 rounded-lg font-semibold text-sm transition-colors shadow-sm cursor-pointer disabled:opacity-50"
-                  >
-                    Revoke Link
-                  </button>
-                )}
+                <ShareControl meeting={meeting} onChange={handleShareChange} />
                 <button
                   onClick={handlePrint}
                   className="px-4 py-2 bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-lg font-semibold text-sm transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
@@ -331,11 +268,6 @@ export default function MeetingDetailPage() {
             )}
           </div>
         </div>
-        {shareError && (
-          <div className="print:hidden mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {shareError}
-          </div>
-        )}
 
         {/* An upload has no bot and no live stream — it goes straight to processing, so the
             original status card is still the honest thing to show. */}

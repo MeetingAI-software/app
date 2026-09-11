@@ -27,6 +27,8 @@ describe('UsageMeterService', () => {
       findByIdForUser: vi.fn(),
       listForUser: vi.fn(),
       deleteById: vi.fn(),
+      setShareEnabled: vi.fn(),
+      rotateShareToken: vi.fn(),
     };
 
 

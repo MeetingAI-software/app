@@ -26,7 +26,7 @@ export interface Meeting {
   errorMessage: string | null;
   summary: string | null;
   shareToken: string;
-  shareEnabled?: boolean;
+  shareEnabled: boolean;
   shareExpiresAt?: Date | null;
   participantNames: string[] | null;      // Day 3: names entered before an in-room recording
   recordingNoticeConfirmedAt?: Date | null;

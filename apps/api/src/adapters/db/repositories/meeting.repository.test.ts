@@ -244,6 +244,82 @@ describe('DrizzleMeetingRepository', () => {
     });
   });
 
+  describe('share controls', () => {
+    // All entry points enforce expiry. Disabling retires the link; re-enabling rotates it.
+    it('creates a meeting unshared', async () => {
+      const m = await repo.create({ ownerUserId: alice, source: 'bot' });
+      expect(m.shareEnabled).toBe(false);
+    });
+
+    it('enables a fresh expiring token and never resurrects a revoked link', async () => {
+      const m = await insertMeeting({ shareToken: 'stable-tok' });
+
+      const enabled = await repo.setShareEnabled(m.id, alice, true);
+      expect(enabled?.shareEnabled).toBe(true);
+      expect(enabled?.shareToken).not.toBe('stable-tok');
+      expect(enabled!.shareExpiresAt!.getTime()).toBeGreaterThan(Date.now() + 23 * HOUR);
+      expect(enabled!.shareExpiresAt!.getTime()).toBeLessThanOrEqual(Date.now() + 24 * HOUR);
+
+      const disabled = await repo.setShareEnabled(m.id, alice, false);
+      expect(disabled?.shareEnabled).toBe(false);
+      expect(disabled?.shareToken).toBe(enabled?.shareToken);
+      expect(disabled?.shareExpiresAt).toBeNull();
+      const reenabled = await repo.setShareEnabled(m.id, alice, true);
+      expect(reenabled?.shareToken).not.toBe(enabled?.shareToken);
+      expect(await repo.findByShareToken(enabled!.shareToken)).toBeNull();
+    });
+
+    it('rotating mints a new token and strands the old one', async () => {
+      const m = await insertMeeting({ shareToken: 'leaked-tok', shareEnabled: true, shareExpiresAt: new Date(Date.now() + HOUR) });
+
+      const rotated = await repo.rotateShareToken(m.id, alice);
+
+      expect(rotated!.shareToken).not.toBe('leaked-tok');
+      expect(rotated!.shareToken.length).toBeGreaterThan(0);
+      expect(await repo.findByShareToken('leaked-tok')).toBeNull();
+      expect((await repo.findByShareToken(rotated!.shareToken))?.id).toBe(m.id);
+      expect(rotated!.shareExpiresAt).toEqual(m.shareExpiresAt);
+    });
+
+    it('rotating leaves the enabled flag alone', async () => {
+      const on = await insertMeeting({ shareEnabled: true });
+      const off = await insertMeeting({ shareEnabled: false });
+
+      expect((await repo.rotateShareToken(on.id, alice))?.shareEnabled).toBe(true);
+      expect((await repo.rotateShareToken(off.id, alice))?.shareEnabled).toBe(false);
+    });
+
+    it('advances updatedAt on both operations', async () => {
+      const m = await insertMeeting({ updatedAt: new Date(Date.now() - HOUR) });
+
+      const enabled = await repo.setShareEnabled(m.id, alice, true);
+      expect(enabled!.updatedAt.getTime()).toBeGreaterThan(m.updatedAt.getTime());
+
+      const rotated = await repo.rotateShareToken(m.id, alice);
+      expect(rotated!.updatedAt.getTime()).toBeGreaterThanOrEqual(enabled!.updatedAt.getTime());
+    });
+
+    // The ownership test lives in the UPDATE's WHERE, not in a check the route runs first, so a
+    // caller who forgets to look the meeting up still cannot touch someone else's link.
+    it("refuses to touch another owner's share settings", async () => {
+      const theirs = await insertMeeting({ ownerUserId: bob, shareToken: 'bob-tok', shareEnabled: true });
+
+      expect(await repo.setShareEnabled(theirs.id, alice, false)).toBeNull();
+      expect(await repo.rotateShareToken(theirs.id, alice)).toBeNull();
+
+      // Nothing moved: Bob's link is still on and still the same URL.
+      const after = await repo.findByIdForUser(theirs.id, bob);
+      expect(after?.shareEnabled).toBe(true);
+      expect(after?.shareToken).toBe('bob-tok');
+    });
+
+    it('returns null for a meeting that does not exist', async () => {
+      const ghost = '00000000-0000-0000-0000-000000000000';
+      expect(await repo.setShareEnabled(ghost, alice, true)).toBeNull();
+      expect(await repo.rotateShareToken(ghost, alice)).toBeNull();
+    });
+  });
+
   describe('updateStatus', () => {
     it('changes status and advances updatedAt', async () => {
       const m = await insertMeeting({ updatedAt: new Date(Date.now() - HOUR) });

@@ -90,6 +90,30 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     return rows.length > 0;
   }
 
+  // The legacy toggle API now has the same expiry and rotation guarantees as POST /share.
+  async setShareEnabled(id: string, userId: string, enabled: boolean): Promise<Meeting | null> {
+    if (enabled) return this.enableShare(id, userId, new Date(Date.now() + 24 * 60 * 60 * 1000));
+    const [row] = await db
+      .update(meetings)
+      .set({ shareEnabled: false, shareExpiresAt: null, updatedAt: new Date() })
+      .where(and(eq(meetings.id, id), eq(meetings.ownerUserId, userId)))
+      .returning();
+    return (row as Meeting) || null;
+  }
+
+  /**
+   * Mints a fresh token. Anyone holding the old link gets a 404 from the next request onward.
+   * Owner-scoped for the same reason as the toggle above.
+   */
+  async rotateShareToken(id: string, userId: string): Promise<Meeting | null> {
+    const [row] = await db
+      .update(meetings)
+      .set({ shareToken: crypto.randomBytes(16).toString('base64url'), updatedAt: new Date() })
+      .where(and(eq(meetings.id, id), eq(meetings.ownerUserId, userId)))
+      .returning();
+    return (row as Meeting) || null;
+  }
+
   async findByTranscriptionJobId(jobId: string): Promise<Meeting | null> {
     const [row] = await db
       .select()

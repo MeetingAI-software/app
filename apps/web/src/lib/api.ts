@@ -21,7 +21,7 @@ export interface Meeting {
   errorMessage: string | null;
   summary: string | null;
   shareToken: string;
-  shareEnabled?: boolean;
+  shareEnabled: boolean;
   shareExpiresAt?: string | null;
   participantNames: string[] | null;   // Day 3: names for an in-room recording
   recordingNoticeConfirmedAt?: string | null;
@@ -449,6 +449,24 @@ export async function getDocument(id: string): Promise<Document> {
 export async function generateDocument(id: string, regenerate = false): Promise<{ document: Document }> {
   const res = await api(`/api/meetings/${id}/document${regenerate ? '?regenerate=true' : ''}`, { method: 'POST' });
   return handleResponse<{ document: Document }>(res);
+}
+
+/** What the three share-control endpoints return: the link's current state, nothing more. */
+export interface ShareState {
+  shareToken: string;
+  shareEnabled: boolean;
+  shareExpiresAt: string | null;
+}
+
+/** Enable a fresh 24-hour link, or revoke the existing link. */
+export async function setShare(id: string, enabled: boolean): Promise<ShareState> {
+  const res = await api(`/api/meetings/${id}/share/${enabled ? 'enable' : 'disable'}`, { method: 'POST' });
+  return handleResponse<ShareState>(res);
+}
+
+/** Mints a new token. Anyone holding the previous link gets a 404 from here on. */
+export async function rotateShare(id: string): Promise<ShareState> {
+  return handleResponse<ShareState>(await api(`/api/meetings/${id}/share/rotate`, { method: 'POST' }));
 }
 
 export async function getShare(token: string): Promise<ShareResponse> {
