@@ -64,7 +64,6 @@ logs/
 # AI assistant tooling — keep off GitHub (local only)
 CLAUDE.md
 AGENT.md
-AGENTS.md
 MEMORY.md
 .claude/
 .cursor/

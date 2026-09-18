@@ -1,0 +1,35 @@
+name: Branch name policy
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  branch-name:
+    name: Descriptive branch name
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate pull request branch
+        shell: bash
+        env:
+          BRANCH_NAME: ${{ github.head_ref }}
+        run: |
+          case "$BRANCH_NAME" in
+            codex/*)
+              echo "::error::Branches must never use the codex/ namespace."
+              exit 1
+              ;;
+            archerfish|wrasse)
+              echo "::error::Use a descriptive branch name instead of a generated animal name."
+              exit 1
+              ;;
+          esac
+
+          if [[ ! "$BRANCH_NAME" =~ ^[a-z0-9]+([/-][a-z0-9]+)*$ ]]; then
+            echo "::error::Use lowercase kebab-case, optionally with a conventional prefix (for example fix/meeting-timeout)."
+            exit 1
+          fi
+
+          echo "Branch name accepted: $BRANCH_NAME"
