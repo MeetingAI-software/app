@@ -154,14 +154,14 @@ export class GeminiDocumentAdapter implements DocumentGeneratorPort {
       }
 
       issues = outcome.issues;
-      logger.warn({ attempt, issues, operation: 'generateDocument' }, 'Gemini document failed validation');
+      logger.warn({ attempt, operation: 'generateDocument' }, 'Gemini document failed validation');
       prompt = buildRetryPrompt(basePrompt, issues);
     }
 
     logger.error(
-      { model, inputTokens, outputTokens, issues, operation: 'generateDocument' },
+      { model, inputTokens, outputTokens, operation: 'generateDocument' },
       'Gemini document failed validation after retry — nothing saved'
     );
-    throw new DocumentGenerationError(`document failed validation after retry: ${issues}`);
+    throw new DocumentGenerationError('document failed validation after retry');
   }
 }

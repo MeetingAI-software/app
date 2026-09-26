@@ -97,9 +97,9 @@ export function normalizeTranscript(payload: any): TranscriptSegment[] {
 
   const words: Array<{ speaker: string; text: string; startMs: number; endMs: number }> = [];
 
-  for (const rawSeg of rawSegments) {
+  for (const [segmentIndex, rawSeg] of rawSegments.entries()) {
     if (!rawSeg || typeof rawSeg !== 'object') {
-      console.warn('⚠️ Skipping invalid segment item in payload:', rawSeg);
+      console.warn('Skipping invalid transcript segment', { segmentIndex });
       continue;
     }
 
@@ -107,9 +107,9 @@ export function normalizeTranscript(payload: any): TranscriptSegment[] {
 
     // Check if word-level items are present
     if (Array.isArray(rawSeg.words) && rawSeg.words.length > 0) {
-      for (const word of rawSeg.words) {
+      for (const [wordIndex, word] of rawSeg.words.entries()) {
         if (!word || typeof word !== 'object') {
-          console.warn('⚠️ Skipping invalid word item in segment:', word);
+          console.warn('Skipping invalid transcript word', { segmentIndex, wordIndex });
           continue;
         }
 
@@ -122,7 +122,7 @@ export function normalizeTranscript(payload: any): TranscriptSegment[] {
         const endTimestamp = toSeconds(word.end_timestamp ?? word.end_time);
 
         if (startTimestamp === null || endTimestamp === null) {
-          console.warn('⚠️ Skipping word due to missing/invalid timestamps:', word);
+          console.warn('Skipping transcript word with invalid timestamps', { segmentIndex, wordIndex });
           continue;
         }
 
@@ -130,7 +130,7 @@ export function normalizeTranscript(payload: any): TranscriptSegment[] {
         const endMs = Math.round(endTimestamp * 1000);
 
         if (startMs > endMs) {
-          console.warn('⚠️ Skipping word due to startMs > endMs:', word);
+          console.warn('Skipping transcript word with reversed timestamps', { segmentIndex, wordIndex });
           continue;
         }
 
@@ -152,7 +152,7 @@ export function normalizeTranscript(payload: any): TranscriptSegment[] {
       const endTimestamp = toSeconds(rawSeg.end_timestamp ?? rawSeg.end_time);
 
       if (startTimestamp === null || endTimestamp === null) {
-        console.warn('⚠️ Skipping segment due to missing/invalid timestamps:', rawSeg);
+        console.warn('Skipping transcript segment with invalid timestamps', { segmentIndex });
         continue;
       }
 
@@ -160,7 +160,7 @@ export function normalizeTranscript(payload: any): TranscriptSegment[] {
       const endMs = Math.round(endTimestamp * 1000);
 
       if (startMs > endMs) {
-        console.warn('⚠️ Skipping segment due to startMs > endMs:', rawSeg);
+        console.warn('Skipping transcript segment with reversed timestamps', { segmentIndex });
         continue;
       }
 

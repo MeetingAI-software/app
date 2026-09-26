@@ -8,7 +8,7 @@ import { sanitizeBotProviderEvent } from '../observability/sentry';
 
 const marker = 'SYNTHETIC_SENSITIVE_token_signed_url_customer_data';
 const safeRequestId = '12345678-1234-4234-8234-123456789abc';
-const media = `https://media.example.test/transcript?signature=${marker}`;
+const media = `https://recallai-production-bot-data.s3.amazonaws.com/transcript?signature=${marker}`;
 const bot = { recordings: [{ media_shortcuts: { transcript: { data: { download_url: media } } } }] };
 const adapter = new RecallAdapter();
 const operations = [
@@ -75,6 +75,46 @@ describe('Recall error boundary', () => {
       expect(url).toBe(media);
       expect(options.headers).toBeUndefined();
     }
+  });
+
+  it.each([
+    'http://127.0.0.1/latest/meta-data',
+    'https://127.0.0.1/transcript',
+    'https://recallai-production-bot-data.s3.amazonaws.com.evil.test/transcript',
+    'https://attacker:secret@recallai-production-bot-data.s3.amazonaws.com/transcript',
+  ])('rejects an untrusted transcript URL before a second fetch: %s', async (downloadUrl) => {
+    fetchMock.mockResolvedValueOnce(Response.json({ recordings: [{ media_shortcuts: {
+      transcript: { data: { download_url: downloadUrl } },
+    } }] }));
+    await safeFailure(() => adapter.fetchTranscript(marker));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not follow a transcript redirect to an internal host', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(bot));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 302,
+      headers: { location: 'http://127.0.0.1/latest/meta-data' } }));
+    await safeFailure(() => adapter.fetchTranscript(marker));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][1].redirect).toBe('manual');
+  });
+
+  it('rejects an oversized transcript before reading its body', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(bot));
+    fetchMock.mockResolvedValueOnce(new Response('[{}]', { headers: { 'content-length': '9000000' } }));
+    await safeFailure(() => adapter.fetchTranscript(marker));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('still downloads a valid signed transcript without Recall credentials', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(bot));
+    fetchMock.mockResolvedValueOnce(Response.json([{ speaker: 'A',
+      words: [{ text: 'Hello', start_timestamp: 0, end_timestamp: 0.5 }],
+    }]));
+    await expect(adapter.fetchTranscript('synthetic-bot')).resolves.toMatchObject([
+      { speaker: 'A', text: 'Hello', startMs: 0, endMs: 500 },
+    ]);
+    expect(fetchMock.mock.calls[1][1].headers).toBeUndefined();
   });
 
   it('keeps body reading inside the timeout and discards timeout causes', async () => {
