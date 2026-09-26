@@ -226,6 +226,13 @@ export const googleOAuthBudget = pgTable('google_oauth_budget', {
   count: integer('count').notNull(),
 });
 
+// Fixed-size, shared provider slots. An expired lease can be reused after a crashed worker.
+export const googleOAuthExchangeSlots = pgTable('google_oauth_exchange_slots', {
+  slot: integer('slot').primaryKey(),
+  token: text('token'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+});
+
 // Cross-replica login admission before database user lookup and password hashing. Identifier
 // scopes contain only digests, never submitted addresses or client-supplied strings.
 export const loginAttemptBudgets = pgTable('login_attempt_budgets', {

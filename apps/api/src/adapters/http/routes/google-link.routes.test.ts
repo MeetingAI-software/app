@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { createServer } from '../server';
 import { createAuthRoutes } from './auth.routes';
 import { GoogleOAuthStateService } from '../../../application/google-oauth-state.service';
+import { GoogleOAuthExchangeService } from '../../../application/google-oauth-exchange.service';
 import type { GoogleOAuthChallenge } from '../../../ports/google-oauth-state.port';
 import type { AuthService, AuthServiceApi } from '../../../application/auth.service';
 import { config } from '../../../config/env';
@@ -11,8 +12,11 @@ import { InvalidCredentialsError } from '../../../domain/errors';
 
 const google = vi.hoisted(() => ({
   getToken: vi.fn(), verifyIdToken: vi.fn(), generateAuthUrl: vi.fn(), setCredentials: vi.fn(),
+  clientOptions: vi.fn(), acquire: vi.fn(), release: vi.fn(),
 }));
 vi.mock('google-auth-library', () => ({ OAuth2Client: class {
+  constructor(options: unknown) { google.clientOptions(options); }
+  transporter = { interceptors: { request: { add: vi.fn() } } };
   getToken = google.getToken;
   verifyIdToken = google.verifyIdToken;
   generateAuthUrl = google.generateAuthUrl;
@@ -49,7 +53,10 @@ describe('active Google account linking', () => {
       },
     });
     const auth = { beginGoogleLink, completeGoogleLink, getUserForToken } as unknown as AuthService & AuthServiceApi;
-    const app = createServer([createAuthRoutes(auth, undefined, oauthStates)],
+    const exchanges = new GoogleOAuthExchangeService({
+      acquire: google.acquire, release: google.release,
+    });
+    const app = createServer([createAuthRoutes(auth, undefined, oauthStates, undefined, exchanges)],
       async token => token === 'session-one' || token === 'session-two' ? owner : null);
     server = app.listen(0);
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -58,6 +65,8 @@ describe('active Google account linking', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    google.acquire.mockResolvedValue(true);
+    google.release.mockResolvedValue(undefined);
     beginGoogleLink.mockResolvedValue(1);
     completeGoogleLink.mockResolvedValue(undefined);
     getUserForToken.mockImplementation(async token =>
@@ -111,6 +120,10 @@ describe('active Google account linking', () => {
     expect(google.verifyIdToken).toHaveBeenCalledWith({
       idToken: 'signed-id-token', audience: 'synthetic-client',
     });
+    expect(google.clientOptions).toHaveBeenCalledWith(expect.objectContaining({
+      transporterOptions: { timeout: 8_000, retry: false },
+    }));
+    expect(google.release).toHaveBeenCalledTimes(1);
     const replay = await callback(state!, 'session-one');
     expect(replay.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_state_invalid`);
     expect(completeGoogleLink).toHaveBeenCalledTimes(1);
@@ -122,6 +135,23 @@ describe('active Google account linking', () => {
     expect(swapped.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_state_invalid`);
     expect(google.getToken).not.toHaveBeenCalled();
     expect(completeGoogleLink).not.toHaveBeenCalled();
+  });
+
+  it('does not contact Google when all shared exchange slots are leased', async () => {
+    const { state } = await begin();
+    google.acquire.mockResolvedValueOnce(false);
+    const blocked = await callback(state!, 'session-one');
+    expect(blocked.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_busy`);
+    expect(google.getToken).not.toHaveBeenCalled();
+    expect(google.release).not.toHaveBeenCalled();
+  });
+
+  it('releases its provider slot after a failed token request', async () => {
+    const { state } = await begin();
+    google.getToken.mockRejectedValueOnce(new Error('synthetic provider failure'));
+    const failed = await callback(state!, 'session-one');
+    expect(failed.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_error`);
+    expect(google.release).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a valid Google token whose nonce differs from the initiated challenge', async () => {

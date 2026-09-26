@@ -136,3 +136,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Finns FFmpeg och ffprobe i den verkliga API-runtime som byggs från `nixpacks.toml`, vilken maximal längd och väntetid är acceptabel för Team/Business, och får äldre uppladdningar avräknas till reserverat maximum när betrodd mediatid saknas?
 - **Mitt förslag:** Verifiera runtime-binärerna och kör syntetiska tysta filer nära respektive plangräns mot staging samt en signerad AssemblyAI-callback. Mät CPU, minne, svarstid och providerkostnad. Behåll avvisning vid timeout och konservativ avräkning tills en säkrare, verifierad regel finns. Informera support om att äldre pågående uppladdningar kan få maxavräkning.
 - **Status:** Väntar på ägarens senare driftbeslut. Inga provider- eller produktionsändringar är gjorda.
+
+### D20 — Verifiera Google-utbytets kapacitet i drift (G03)
+
+- **Vad betyder det?** Migration 0026 skapar åtta delade providerplatser. Varje tokenutbyte och hämtning av Googles signeringscertifikat har åtta sekunders transporttimeout utan automatiskt retry; platsen släpps efter verifieringen eller återtas efter 30 sekunder vid processkrasch. När alla platser används måste användaren starta ett nytt OAuth-flöde. En äldre API-replika saknar gränsen under blandad utrullning.
+- **Vad behöver du avgöra?** Är åtta samtidiga Google-utbyten och en väntetid på högst åtta sekunder per providerbegäran rimliga för faktisk trafik? Kan API-utrullningen ske så att äldre repliker inte fortsätter ta emot callbacks efter migration och aktivering?
+- **Mitt förslag:** Kontrollera migrationens åtta rader och API-rollens rättigheter före utrullning. Belastningsprova syntetiska OAuth-callbacks över minst två riktiga repliker, följ legitima avslag och bekräfta att inga gamla repliker tar providertrafik. Behåll fail-closed-beteendet vid databasfel.
+- **Status:** Väntar på drift- och kapacitetskontroll. Ingen produktionskonfiguration eller provider har ändrats.

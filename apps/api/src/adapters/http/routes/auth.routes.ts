@@ -13,14 +13,15 @@ import {
   readDeletionGrantCookie,
 } from '../cookies';
 import { fixedWindowLimiter } from '../middleware/rate-limit';
-import { OAuth2Client } from 'google-auth-library';
+import { createGoogleOAuthClient } from '../google-oauth-client';
 import { config } from '../../../config/env';
 import type { User } from '../../../domain/types';
 import { DELETION_STATE_PREFIX, type DeletionAuthorizationService } from '../../../application/deletion-authorization.service';
 import type { GoogleOAuthStateService } from '../../../application/google-oauth-state.service';
+import type { GoogleOAuthExchangeService } from '../../../application/google-oauth-exchange.service';
 import type { LoginAdmissionService } from '../../../application/login-admission.service';
 import {
-  DeletionReauthenticationRequiredError, GoogleAccountLinkRequiredError, GoogleLinkRejectedError,
+  DeletionReauthenticationRequiredError, GoogleAccountLinkRequiredError, GoogleLinkRejectedError, OAuthCapacityError,
 } from '../../../domain/errors';
 
 function authUserResponse(user: User) {
@@ -38,7 +39,7 @@ export function hasVerifiedGoogleEmail(payload: {
 
 export function createAuthRoutes(auth: AuthService & AuthServiceApi,
   deletion?: DeletionAuthorizationService, oauthStates?: GoogleOAuthStateService,
-  loginAdmission?: LoginAdmissionService): Router {
+  loginAdmission?: LoginAdmissionService, googleExchanges?: GoogleOAuthExchangeService): Router {
   const router = Router();
 
   const signupSchema = z.object({
@@ -265,7 +266,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi,
       }
       const { state, nonce } = await oauthStates.issue({ purpose: 'login' });
       setOAuthStateCookie(res, state);
-      const client = new OAuth2Client(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, config.GOOGLE_REDIRECT_URI);
+      const client = createGoogleOAuthClient();
       return res.redirect(client.generateAuthUrl({
         access_type: 'offline',
         scope: ['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
@@ -286,7 +287,7 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi,
         purpose: 'link', userId: req.userId!, sessionToken: readSessionCookie(req) ?? '', authVersion,
       });
       setOAuthStateCookie(res, state);
-      const client = new OAuth2Client(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, config.GOOGLE_REDIRECT_URI);
+      const client = createGoogleOAuthClient();
       return res.json({ url: client.generateAuthUrl({
         access_type: 'offline', prompt: 'select_account',
         scope: ['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
@@ -329,16 +330,17 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi,
       if (!code) {
         return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_failed`);
       }
-      const redirectUri = config.GOOGLE_REDIRECT_URI;
-      const client = new OAuth2Client(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, redirectUri);
-      const { tokens } = await client.getToken(code);
-      client.setCredentials(tokens);
-
-      const ticket = await client.verifyIdToken({
-        idToken: tokens.id_token as string,
-        audience: config.GOOGLE_CLIENT_ID,
+      if (!googleExchanges) throw new Error('Google exchange admission is unavailable');
+      const payload = await googleExchanges.run(async () => {
+        const client = createGoogleOAuthClient();
+        const { tokens } = await client.getToken(code);
+        if (!tokens.id_token) throw new Error('Missing Google identity token');
+        const ticket = await client.verifyIdToken({
+          idToken: tokens.id_token,
+          audience: config.GOOGLE_CLIENT_ID,
+        });
+        return ticket.getPayload();
       });
-      const payload = ticket.getPayload();
       if (!hasVerifiedGoogleEmail(payload) || !oauthStates?.matchesNonce(challenge, payload.nonce)) {
         return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_payload_invalid`);
       }
@@ -358,6 +360,9 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi,
       setSessionCookie(res, sessionToken, expiresAt);
       return res.redirect(`${config.WEB_ORIGIN}/meetings`);
     } catch (error) {
+      if (error instanceof OAuthCapacityError) {
+        return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_busy`);
+      }
       if (error instanceof GoogleAccountLinkRequiredError) {
         return res.redirect(`${config.WEB_ORIGIN}/login?error=account_link_required`);
       }
