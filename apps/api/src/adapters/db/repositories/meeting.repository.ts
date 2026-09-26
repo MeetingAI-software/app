@@ -1,11 +1,63 @@
 import { db } from '../client';
-import { meetings } from '../schema';
-import { eq, inArray, desc, and, lt, gt, isNotNull } from 'drizzle-orm';
+import { meetingQuotaReservations, meetings, usageLedger, users } from '../schema';
+import { eq, inArray, desc, and, lt, gt, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { MeetingRepository } from '../../../ports/repositories.port';
 import type { Meeting, MeetingPlatform, MeetingSource, MeetingStatus } from '../../../domain/types';
 import crypto from 'crypto';
+import type { PlanEntitlements } from '../../../domain/billing';
+import { CapExceededError } from '../../../domain/errors';
 
 export class DrizzleMeetingRepository implements MeetingRepository {
+  async reserve(input: Parameters<MeetingRepository['create']>[0],
+    entitlements: PlanEntitlements, maxConcurrent: number): Promise<Meeting> {
+    // The owner row is the mutex shared by all API replicas and usage settlement. The meeting
+    // and its claim commit together, so even a crash before the provider call consumes capacity.
+    return db.transaction(async tx => {
+      const [owner] = await tx.select({ id: users.id }).from(users)
+        .where(eq(users.id, input.ownerUserId)).for('update');
+      if (!owner) throw new Error('Meeting owner does not exist');
+
+      const [active] = await tx.select({
+        count: sql<string>`count(*)`,
+        seconds: sql<string>`coalesce(sum(${meetingQuotaReservations.reservedSeconds}), 0)`,
+      }).from(meetingQuotaReservations).where(and(
+        eq(meetingQuotaReservations.ownerUserId, input.ownerUserId),
+        isNull(meetingQuotaReservations.releasedAt),
+      ));
+      if (Number(active.count) >= maxConcurrent) {
+        throw new CapExceededError('concurrent recording limit');
+      }
+
+      const [used] = await tx.select({
+        seconds: sql<string>`coalesce(sum(${usageLedger.secondsRecorded}), 0)`,
+      }).from(usageLedger).innerJoin(meetings, eq(usageLedger.meetingId, meetings.id))
+        .where(and(eq(meetings.ownerUserId, input.ownerUserId),
+          sql`${usageLedger.createdAt} >= date_trunc('month', now())`));
+      if (Number(used.seconds) + Number(active.seconds) + entitlements.maxMeetingSeconds
+        > entitlements.monthlySecondsCap) {
+        throw new CapExceededError('Monthly recording limit reached for your plan');
+      }
+
+      const [row] = await tx.insert(meetings).values({
+        ownerUserId: input.ownerUserId,
+        meetingUrl: input.meetingUrl ?? null,
+        platform: input.platform ?? 'zoom',
+        status: 'pending',
+        source: input.source,
+        participantNames: input.participantNames ?? null,
+        recordingNoticeConfirmedAt: input.recordingNoticeConfirmedAt ?? null,
+        recordingNoticeVersion: input.recordingNoticeVersion ?? null,
+        shareToken: crypto.randomBytes(16).toString('base64url'),
+      }).returning();
+      await tx.insert(meetingQuotaReservations).values({
+        meetingId: row.id,
+        ownerUserId: input.ownerUserId,
+        reservedSeconds: entitlements.maxMeetingSeconds,
+      });
+      return row as Meeting;
+    });
+  }
+
   async create(input: {
     ownerUserId: string;
     source: MeetingSource;
@@ -141,11 +193,19 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       if (patch.errorMessage !== undefined) updateFields.errorMessage = patch.errorMessage;
     }
 
-    const [row] = await db
-      .update(meetings)
-      .set(updateFields)
-      .where(eq(meetings.id, id))
-      .returning();
+    if (to === 'failed') {
+      // Failure and release are one commit. A replay cannot release a later, different claim.
+      return db.transaction(async tx => {
+        const [row] = await tx.update(meetings).set(updateFields)
+          .where(eq(meetings.id, id)).returning();
+        if (row) await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
+          .where(and(eq(meetingQuotaReservations.meetingId, id),
+            isNull(meetingQuotaReservations.releasedAt)));
+        return row as Meeting;
+      });
+    }
+    const [row] = await db.update(meetings).set(updateFields)
+      .where(eq(meetings.id, id)).returning();
     return row as Meeting;
   }
 
@@ -177,7 +237,7 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     const rows = await db
       .select()
       .from(meetings)
-      .where(inArray(meetings.status, ['bot_joining', 'recording', 'processing']));
+      .where(inArray(meetings.status, ['pending', 'bot_joining', 'recording', 'processing']));
     return rows.length;
   }
 
@@ -187,7 +247,7 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       .from(meetings)
       .where(and(
         eq(meetings.ownerUserId, userId),
-        inArray(meetings.status, ['bot_joining', 'recording', 'processing'])
+        inArray(meetings.status, ['pending', 'bot_joining', 'recording', 'processing'])
       ));
     return rows.length;
   }

@@ -84,6 +84,8 @@ export class ProcessUploadEventService {
 
     // Idempotent: a replayed webhook must not produce a second transcript.
     if (meeting.status === 'transcribed') {
+      // A worker can crash after setting terminal status but before settling its claim.
+      await this.usageRepo.addSeconds(meeting.id, meeting.durationSeconds ?? 0);
       logger.info({ meetingId: meeting.id }, 'transcription_ready for an already-transcribed meeting — skipping');
       return;
     }

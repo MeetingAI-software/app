@@ -10,8 +10,13 @@ import type {
 } from '../domain/types';
 import type { DocumentContent } from '../domain/document';
 import type { ChatMessage } from './chat.port';
+import type { PlanEntitlements } from '../domain/billing';
 
 export interface MeetingRepository {
+  reserve(input: { ownerUserId: string; source: MeetingSource; meetingUrl?: string;
+    platform?: MeetingPlatform; participantNames?: string[];
+    recordingNoticeConfirmedAt?: Date; recordingNoticeVersion?: string },
+    entitlements: PlanEntitlements, maxConcurrent: number): Promise<Meeting>;
   create(input: { ownerUserId: string; source: MeetingSource; meetingUrl?: string;
     platform?: MeetingPlatform; participantNames?: string[];
     recordingNoticeConfirmedAt?: Date; recordingNoticeVersion?: string }): Promise<Meeting>;
@@ -28,11 +33,11 @@ export interface MeetingRepository {
   rotateShareToken(id: string, userId: string): Promise<Meeting | null>;                    // owner-scoped: mint a new token; the old link dies
   setUploadInfo(id: string, patch: { audioStoragePath?: string | null;
     transcriptionJobId?: string }): Promise<void>;                    // Day 3: upload path
-  countActive(): Promise<number>;   // status in (bot_joining, recording, processing)
+  countActive(): Promise<number>;   // includes pending; informational, not an admission gate
   list(): Promise<Meeting[]>;
   findByIdForUser(id: string, userId: string): Promise<Meeting | null>;   // Day 5: owner-scoped read (HTTP uses ONLY this)
   listForUser(userId: string): Promise<Meeting[]>;   // Day 5: owner-scoped, newest first
-  countActiveForUser(userId: string): Promise<number>;   // Day 5: per-user concurrency cap
+  countActiveForUser(userId: string): Promise<number>;   // informational; use reserve() for admission
   deleteById(id: string): Promise<void>;             // Day 5: account erasure
   findTranscribedOlderThan?(hours: number): Promise<Meeting[]>;
   findFailedWithAudioOlderThan?(hours: number): Promise<Meeting[]>;

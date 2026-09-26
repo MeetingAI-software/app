@@ -80,3 +80,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Vilken `download_url`-värd returnerar ett syntetiskt Recall-transkript i den produktionsregion som används? Dela bara värdnamnet, inte URL:ens signerade query eller kunddata.
 - **Mitt förslag:** Kontrollera ett syntetiskt transkript mot allowlisten före merge. Lägg till exakt ny dokumenterad bucketvärd om den legitima regionen kräver det; öppna inte för godtyckliga S3-buckets.
 - **Status:** Väntar på ägarens svar. Inga leverantörs- eller nätverksinställningar har ändrats.
+
+### D12 — Avstämning av osäkra botskapanden (G07/G30)
+
+- **Vad betyder det?** Om Recall skapar en bot men svaret går förlorat saknar appen bot-ID. Säkerhetsfixen behåller då mötesreservationen i `pending` för att inte tillåta fler betalda botar under samma kvot. Användaren kan därför tillfälligt bli blockerad.
+- **Vad behöver du avgöra?** Vem kan med behörig Recall-åtkomst avstämma en syntetisk eller verklig föräldralös bot mot appens `meetingId` och säkert avgöra när reservationen får frigöras?
+- **Mitt förslag:** Bygg ett begränsat driftflöde som söker Recall på intern metadata, granskar status och loggar beslutet innan en föräldralös reservation frisläpps. Testa det med syntetisk bot och förlorat svar. Frigör inte automatiskt en okänd aktiv bot efter en kort timeout.
+- **Status:** Väntar på ägarens svar. Ingen provider- eller produktionsändring är gjord.

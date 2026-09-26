@@ -48,13 +48,13 @@ describe('Recall error boundary', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it.each(operations)('sanitizes %s network exceptions on the bounded retry', async (_name, operation) => {
+  it.each(operations)('sanitizes %s network exceptions without duplicating paid creation', async (name, operation) => {
     vi.useFakeTimers();
     fetchMock.mockRejectedValue(new Error(marker, { cause: { url: media, token: marker } }));
     const result = safeFailure(operation);
     await vi.advanceTimersByTimeAsync(2_001);
     await result;
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(name === 'create_bot' ? 1 : 2);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -130,16 +130,21 @@ describe('Recall error boundary', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('retries a 5xx once and preserves successful bot creation and recording deletion', async () => {
+  it('does not retry an ambiguous bot-create 5xx, but permits a later explicit start', async () => {
     vi.useFakeTimers();
     fetchMock.mockResolvedValueOnce(new Response(marker, { status: 503 })).mockResolvedValueOnce(Response.json({ id: 'synthetic-bot' }));
-    const created = operations[0][1]();
-    await vi.advanceTimersByTimeAsync(2_001);
-    expect(await created).toEqual({ botId: 'synthetic-bot' });
+    await safeFailure(operations[0][1]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await operations[0][1]()).toEqual({ botId: 'synthetic-bot' });
     for (const status of [200, 404, 409]) {
       fetchMock.mockResolvedValueOnce(new Response('', { status }));
       await expect(adapter.deleteRecording('synthetic-bot')).resolves.toBeUndefined();
     }
+    fetchMock.mockResolvedValueOnce(new Response(marker, { status: 503 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    const deletion = adapter.deleteRecording('synthetic-bot');
+    await vi.advanceTimersByTimeAsync(2_001);
+    await expect(deletion).resolves.toBeUndefined();
   });
 
   it('returns a stable HTTP error and restricts Sentry to permitted metadata even with contaminated SDK context', async () => {

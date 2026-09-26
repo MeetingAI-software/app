@@ -157,12 +157,8 @@ export function createUploadRoutes(
     const participantNames = parseParticipantNames(req.body?.participantNames);
 
     // Monthly hours protect the wallet on BOTH the bot and the upload path (→ 429), per user.
-    await usageMeter.assertCanStartMeeting(req.userId!, 'upload');
     signal.throwIfAborted();
-
-    const meeting = await meetingRepo.create({
-      ownerUserId: req.userId!,
-      source: 'upload',
+    const { meeting } = await usageMeter.reserveMeeting(req.userId!, 'upload', {
       participantNames,
       recordingNoticeConfirmedAt: new Date(),
       recordingNoticeVersion: RECORDING_NOTICE_VERSION,

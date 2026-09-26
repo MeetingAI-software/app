@@ -27,7 +27,7 @@ describe('upload admission lifetime', () => {
     const app = createServer([createUploadRoutes(
       { create: vi.fn().mockResolvedValue({ id: 'valid-upload' }), setUploadInfo: vi.fn() } as never,
       { insertIfNew: vi.fn() } as never,
-      { assertCanStartMeeting: vi.fn() } as never,
+      { reserveMeeting: vi.fn().mockResolvedValue({ meeting: { id: 'valid-upload' } }) } as never,
       storage,
       { parseTimeoutMs: 80 },
     )], async (token) => ({ id: token, email: 'synthetic@example.test', emailVerified: true, createdAt: new Date() }));
@@ -67,10 +67,11 @@ describe('upload admission lifetime', () => {
       delete: vi.fn().mockResolvedValue(undefined), getSignedUrl: vi.fn() };
     const updateStatus = vi.fn().mockResolvedValue(undefined);
     const enqueue = vi.fn().mockResolvedValue(undefined);
-    const meetingCreate = vi.fn().mockResolvedValue({ id: 'synthetic-upload' });
+    const reserveMeeting = vi.fn().mockResolvedValue({ meeting: { id: 'synthetic-upload' } });
     const app = createServer([createUploadRoutes(
-      { create: meetingCreate, setUploadInfo: vi.fn(), updateStatus } as never,
-      { insertIfNew: enqueue } as never, { assertCanStartMeeting: vi.fn() } as never, storage,
+      { setUploadInfo: vi.fn(), updateStatus } as never,
+      { insertIfNew: enqueue } as never,
+      { reserveMeeting } as never, storage,
     )], async (token) => ({ id: token, email: 'synthetic@example.test', emailVerified: true, createdAt: new Date() }));
     const server = app.listen(0);
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/meetings/upload`;
@@ -96,7 +97,7 @@ describe('upload admission lifetime', () => {
         expect(rejected.headers.get('retry-after')).toBe('5');
         expect(await rejected.json()).toMatchObject({ error: { code: 'UPLOAD_CAPACITY_REACHED' } });
       }
-      expect(meetingCreate).toHaveBeenCalledTimes(1);
+      expect(reserveMeeting).toHaveBeenCalledTimes(1);
       if (outcome === 'resolve') settle({ path: 'audio/abandoned.webm' });
       else fail(new Error('synthetic storage failure'));
       await vi.waitFor(() => expect(updateStatus).toHaveBeenCalledTimes(1));
@@ -115,17 +116,17 @@ describe('upload admission lifetime', () => {
 describe('in-room upload availability', () => {
   let server: Server;
   let baseUrl: string;
-  const assertCanStartMeeting = vi.fn();
+  const reserveMeeting = vi.fn();
   const meetingCreate = vi.fn();
 
   beforeAll(() => {
-    assertCanStartMeeting.mockRejectedValue(
+    reserveMeeting.mockRejectedValue(
       new FeatureUnavailableError('In-room recording is not available in this environment'),
     );
     const route = createUploadRoutes(
       { create: meetingCreate } as unknown as MeetingRepository,
       {} as WebhookEventRepository,
-      { assertCanStartMeeting } as unknown as UsageMeterService,
+      { reserveMeeting } as unknown as UsageMeterService,
       {} as AudioStoragePort,
     );
     const app = createServer([route], async (token) => token === 'valid-token' ? {
@@ -140,7 +141,7 @@ describe('in-room upload availability', () => {
   }));
 
   beforeEach(() => {
-    assertCanStartMeeting.mockClear();
+    reserveMeeting.mockClear();
     meetingCreate.mockClear();
   });
 
@@ -157,7 +158,7 @@ describe('in-room upload availability', () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ error: { code: 'RECORDING_NOTICE_REQUIRED' } });
-    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(reserveMeeting).not.toHaveBeenCalled();
     expect(meetingCreate).not.toHaveBeenCalled();
   });
 
@@ -207,7 +208,7 @@ describe('in-room upload availability', () => {
         updateStatus,
       } as unknown as MeetingRepository,
       { insertIfNew: vi.fn() } as unknown as WebhookEventRepository,
-      { assertCanStartMeeting: vi.fn().mockResolvedValue(undefined) } as unknown as UsageMeterService,
+      { reserveMeeting: vi.fn().mockResolvedValue({ meeting: storedMeeting }) } as unknown as UsageMeterService,
       storage,
     );
     const localServer = createServer([route], async () => ({
@@ -242,14 +243,14 @@ describe('in-room upload availability', () => {
 describe('in-room upload content validation', () => {
   let server: Server;
   let baseUrl: string;
-  const assertCanStartMeeting = vi.fn();
+  const reserveMeeting = vi.fn();
   const meetingCreate = vi.fn();
 
   beforeAll(() => {
     const route = createUploadRoutes(
       { create: meetingCreate } as unknown as MeetingRepository,
       {} as WebhookEventRepository,
-      { assertCanStartMeeting } as unknown as UsageMeterService,
+      { reserveMeeting } as unknown as UsageMeterService,
       {} as AudioStoragePort,
     );
     const app = createServer([route], async (token) => token === 'valid-token' ? {
@@ -288,7 +289,7 @@ describe('in-room upload content validation', () => {
       },
     });
     // The reason sniffing runs before the meter: no meeting row, and nothing billable downstream.
-    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(reserveMeeting).not.toHaveBeenCalled();
     expect(meetingCreate).not.toHaveBeenCalled();
   });
 
@@ -309,7 +310,7 @@ describe('in-room upload content validation', () => {
       body,
     });
     expect(response.status).toBe(400);
-    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(reserveMeeting).not.toHaveBeenCalled();
     expect(meetingCreate).not.toHaveBeenCalled();
   });
 
@@ -328,7 +329,7 @@ describe('in-room upload content validation', () => {
       body,
     });
     expect(response.status).toBe(400);
-    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(reserveMeeting).not.toHaveBeenCalled();
   });
 
   it('rejects an oversized participant field before parsing JSON or charging', async () => {
@@ -345,6 +346,6 @@ describe('in-room upload content validation', () => {
       body,
     });
     expect(response.status).toBe(400);
-    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(reserveMeeting).not.toHaveBeenCalled();
   });
 });
