@@ -357,7 +357,8 @@ function build(meetingStore: Meeting[] = []) {
   const hasher = new Argon2Hasher();
   const meetings = meetingRepoOver(meetingStore);
   const transcripts: TranscriptRepository = { save: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
-  const documents: DocumentRepository = { upsertForMeeting: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
+  const documents: DocumentRepository = { claimGeneration: vi.fn(), completeGeneration: vi.fn(),
+    failGeneration: vi.fn(), upsertForMeeting: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
   const chat: ChatMessageRepository = { claimQuestion: vi.fn(), completeQuestion: vi.fn(), releaseQuestion: vi.fn(),
     add: vi.fn(), listByMeeting: vi.fn(), countUserMessages: vi.fn(), deleteByMeeting: vi.fn() };
   const usage: UsageRepository = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };

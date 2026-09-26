@@ -92,6 +92,9 @@ describe('meeting routes', () => {
   const getTranscript = vi.fn();
   const getDocument = vi.fn();
   const upsertForMeeting = vi.fn();
+  const claimGeneration = vi.fn();
+  const completeGeneration = vi.fn();
+  const failGeneration = vi.fn();
   const generateDocument = vi.fn();
 
   let server: Server;
@@ -118,6 +121,9 @@ describe('meeting routes', () => {
   const documentRepo = {
     getByMeetingId: getDocument,
     upsertForMeeting,
+    claimGeneration,
+    completeGeneration,
+    failGeneration,
   } as unknown as DocumentRepository;
 
   beforeAll(() => {
@@ -142,7 +148,7 @@ describe('meeting routes', () => {
 
   beforeEach(() => {
     meetingOverrides = {};
-    for (const fn of [start, listForUser, findByShareToken, enableShare, revokeShare, list, getTranscript, getDocument, upsertForMeeting, generateDocument, setShareEnabled, rotateShareToken]) {
+    for (const fn of [start, listForUser, findByShareToken, enableShare, revokeShare, list, getTranscript, getDocument, upsertForMeeting, claimGeneration, completeGeneration, failGeneration, generateDocument, setShareEnabled, rotateShareToken]) {
       fn.mockReset();
     }
     // Both share writes are owner-scoped in the real repository — the requester rides in the
@@ -159,6 +165,9 @@ describe('meeting routes', () => {
     getTranscript.mockResolvedValue(SEGMENTS);
     getDocument.mockResolvedValue(null);
     upsertForMeeting.mockResolvedValue({ id: 'doc-1' });
+    claimGeneration.mockResolvedValue({ status: 'claimed', claimId: 'claim-1' });
+    completeGeneration.mockResolvedValue(undefined);
+    failGeneration.mockResolvedValue(undefined);
     generateDocument.mockResolvedValue({
       content: docContent(), model: 'gemini-2.5-flash', inputTokens: 1200, outputTokens: 340,
     });
@@ -412,7 +421,7 @@ describe('meeting routes', () => {
     it('regenerates on request, replacing what was there', async () => {
       const user = 'regenerator-1';
       getDocument
-        .mockResolvedValueOnce({ content: docContent({ title: 'Old' }), createdAt: new Date() })
+        .mockResolvedValueOnce({ content: docContent({ title: 'Old' }), createdAt: new Date('2026-08-01') })
         .mockResolvedValueOnce({ content: docContent({ title: 'Fresh' }), createdAt: new Date() });
 
       const response = await asUser(user)
@@ -420,7 +429,7 @@ describe('meeting routes', () => {
 
       expect(response.status).toBe(201);
       expect(generateDocument).toHaveBeenCalledTimes(1);
-      expect(upsertForMeeting).toHaveBeenCalledTimes(1);
+      expect(completeGeneration).toHaveBeenCalledTimes(1);
     });
 
     it('generates the first document and stores it with its cost metadata', async () => {
@@ -433,11 +442,36 @@ describe('meeting routes', () => {
 
       expect(response.status).toBe(201);
       expect(generateDocument).toHaveBeenCalledWith(SEGMENTS, { meetingIsoDate: '2026-08-01' });
-      expect(upsertForMeeting).toHaveBeenCalledWith(
+      expect(completeGeneration).toHaveBeenCalledWith(
         ownMeetingOf(user),
+        'claim-1',
         docContent(),
         { model: 'gemini-2.5-flash', inputTokens: 1200, outputTokens: 340 },
       );
+    });
+
+    it('returns a fresh document on regeneration without another provider call', async () => {
+      const user = 'fresh-regeneration';
+      const fresh = { content: docContent({ title: 'Fresh' }), createdAt: new Date() };
+      getDocument.mockResolvedValue(fresh);
+      claimGeneration.mockResolvedValue({ status: 'cached', document: fresh });
+
+      const response = await asUser(user)
+        .post(`/api/meetings/${ownMeetingOf(user)}/document?regenerate=true`);
+      expect(response.status).toBe(200);
+      expect(generateDocument).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['pending', 409, 'DOCUMENT_IN_PROGRESS'],
+      ['limit', 429, 'DOCUMENT_LIMIT_REACHED'],
+    ])('blocks a %s claim before calling the provider', async (status, httpStatus, code) => {
+      const user = `blocked-${status}`;
+      claimGeneration.mockResolvedValue({ status });
+      const response = await asUser(user).post(`/api/meetings/${ownMeetingOf(user)}/document`);
+      expect(response.status).toBe(httpStatus);
+      expect((await response.json() as { error: { code: string } }).error.code).toBe(code);
+      expect(generateDocument).not.toHaveBeenCalled();
     });
 
     it('refuses a meeting that has not finished transcribing', async () => {
@@ -478,7 +512,8 @@ describe('meeting routes', () => {
       expect(response.status).toBe(502);
       expect(body.error.code).toBe('DOCUMENT_GENERATION_ERROR');
       expect(JSON.stringify(body)).not.toContain(marker);
-      expect(upsertForMeeting).not.toHaveBeenCalled();
+      expect(completeGeneration).not.toHaveBeenCalled();
+      expect(failGeneration).toHaveBeenCalledWith(ownMeetingOf(user), 'claim-1');
     });
 
     // The Zod gate at meetings.routes.ts:248. Models return malformed shapes; nothing malformed may
@@ -495,7 +530,8 @@ describe('meeting routes', () => {
 
       expect(response.status).toBe(400);
       expect(body.error.code).toBe('VALIDATION_ERROR');
-      expect(upsertForMeeting).not.toHaveBeenCalled();
+      expect(completeGeneration).not.toHaveBeenCalled();
+      expect(failGeneration).toHaveBeenCalledWith(ownMeetingOf(user), 'claim-1');
     });
 
     it('stops the fourth generation in a minute', async () => {

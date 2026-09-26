@@ -108,3 +108,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Hur kan ett syntetiskt misslyckat chattanrop och dess faktiska kostnad verifieras hos Gemini och Claude, vem får frigöra ett fastnat anspråk och kan chattanrop pausas tills alla API-repliker kör den nya versionen?
 - **Mitt förslag:** Lägg till ett begränsat driftflöde som listar gamla osynliga anspråk, avstämmer providerutfall och loggar beslut innan frigöring. Kontrollera om leverantörerna stöder idempotens för generering; annars undvik automatiskt omförsök efter tvetydigt svar. Spärra chatttrafik under blandad utrullning eller driftsätt atomiskt så att ingen äldre replika tar emot frågor efter aktivering.
 - **Status:** Väntar på ägarens svar. Ingen provider- eller produktionsändring är gjord.
+
+### D16 — Bestäm dokumentbudget och avstäm fastnade genereringar (G14)
+
+- **Vad betyder det?** Den nya gränsen tillåter tre betalda genereringsförsök per möte, inklusive misslyckade eller osäkra providerutfall. Ett färskt dokument återanvänds i tio minuter. En krasch kan lämna ett anspråk i 15 minuter, varefter ett nytt försök får ta över inom samma livstidsbudget. Användaren kan behöva support om tre försök förbrukas av fel.
+- **Vad behöver du avgöra?** Är tre försök per möte en godtagbar produktgräns, och vem får granska faktiska providerkostnader och återställa ett fastnat anspråk eller bevilja ett nytt försök efter dokumenterat fel?
+- **Mitt förslag:** Behåll gränsen tills verklig kostnad och legitim användning har mätts. Bygg en behörighetsstyrd avstämning med revisionsspår innan manuella återställningar. Pausa dokumentgenerering under blandad utrullning så att äldre API-repliker inte kringgår budgeten.
+- **Status:** Väntar på ägarens senare beslut. Ingen provider- eller produktionsändring är gjord.

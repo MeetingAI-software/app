@@ -51,6 +51,15 @@ export interface MeetingRepository {
 }
 
 export interface DocumentRepository {
+  claimGeneration(meetingId: string, regenerate: boolean): Promise<
+    | { status: 'claimed'; claimId: string }
+    | { status: 'cached'; document: { content: DocumentContent; createdAt: Date } }
+    | { status: 'pending' }
+    | { status: 'limit' }
+  >;
+  completeGeneration(meetingId: string, claimId: string, content: DocumentContent,
+    meta: { model: string; inputTokens: number; outputTokens: number }): Promise<void>;
+  failGeneration(meetingId: string, claimId: string): Promise<void>;
   upsertForMeeting(meetingId: string, content: DocumentContent,
     meta: { model: string; inputTokens: number; outputTokens: number }): Promise<{ id: string }>;
   getByMeetingId(meetingId: string): Promise<{ content: DocumentContent; createdAt: Date } | null>;

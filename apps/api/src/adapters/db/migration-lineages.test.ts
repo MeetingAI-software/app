@@ -51,6 +51,8 @@ describe('immutable migration lineages', () => {
         'google_oauth_budget.window', 'google_oauth_budget.count',
         'login_attempt_budgets.scope', 'login_attempt_budgets.window',
         'login_attempt_budgets.count',
+        'document_generation_budgets.meeting_id',
+        'document_generation_budgets.attempts',
       ]));
       const indexes = await client.query<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE tablename='meetings'");
       expect(indexes.rows.map(row => row.indexname)).toContain('meetings_share_expiry_idx');
@@ -59,6 +61,34 @@ describe('immutable migration lineages', () => {
         expect(meetings.rows).toEqual([{ share_enabled: false, share_expires_at: null, share_token: 'historical-token' }]);
         expect((await client.query('SELECT email FROM users')).rows).toEqual([{ email: 'migration@example.test' }]);
       }
+    } finally {
+      await client.close();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('seeds one paid attempt for each document created before the budget migration', async () => {
+    const client = new PGlite();
+    const db = drizzle(client);
+    const folder = mkdtempSync(join(tmpdir(), 'syncmemos-document-migration-'));
+    try {
+      const entries = journal.entries.slice(0, 23);
+      mkdirSync(join(folder, 'meta'));
+      writeFileSync(join(folder, 'meta/_journal.json'), JSON.stringify({ ...journal, entries }));
+      for (const entry of entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(folder, `${entry.tag}.sql`));
+      await migrate(db, { migrationsFolder: folder });
+      await client.exec(`
+        INSERT INTO users (id,email) VALUES ('00000000-0000-4000-8000-000000000001','document@example.test');
+        INSERT INTO meetings (id,owner_user_id,share_token,status)
+        VALUES ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001',
+          'document-migration-token','transcribed');
+        INSERT INTO documents (meeting_id,content,model)
+        VALUES ('00000000-0000-4000-8000-000000000002','{}'::jsonb,'historical-model');
+      `);
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      expect((await client.query('SELECT attempts FROM document_generation_budgets')).rows)
+        .toEqual([{ attempts: 1 }]);
     } finally {
       await client.close();
       rmSync(folder, { recursive: true, force: true });

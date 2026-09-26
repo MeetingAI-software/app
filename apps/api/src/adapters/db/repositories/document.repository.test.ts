@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { db, migrateOnce, truncateAll } from '../pglite-harness';
-import { documents, meetings, users } from '../schema';
+import { documentGenerationBudgets, documents, meetings, users } from '../schema';
 import { DrizzleDocumentRepository } from './document.repository';
 import type { DocumentContent } from '../../../domain/document';
 
@@ -141,6 +141,66 @@ describe('DrizzleDocumentRepository', () => {
   describe('getByMeetingId', () => {
     it('returns null for a meeting that has not been summarised', async () => {
       expect(await repo.getByMeetingId(meetingB)).toBeNull();
+    });
+  });
+
+  describe('paid generation admission', () => {
+    it('allows only one first-generation claim across repository instances', async () => {
+      const results = await Promise.all([
+        repo.claimGeneration(meetingA, false),
+        new DrizzleDocumentRepository().claimGeneration(meetingA, false),
+      ]);
+      expect(results.map(result => result.status).sort()).toEqual(['claimed', 'pending']);
+      const [budget] = await db.select().from(documentGenerationBudgets)
+        .where(eq(documentGenerationBudgets.meetingId, meetingA));
+      expect(budget.attempts).toBe(1);
+    });
+
+    it('counts uncertain failures and stops the fourth paid attempt', async () => {
+      for (let i = 0; i < 3; i++) {
+        const claim = await repo.claimGeneration(meetingA, false);
+        expect(claim.status).toBe('claimed');
+        if (claim.status === 'claimed') await repo.failGeneration(meetingA, claim.claimId);
+      }
+      expect(await repo.claimGeneration(meetingA, false)).toEqual({ status: 'limit' });
+      expect((await repo.claimGeneration(meetingB, false)).status).toBe('claimed');
+    });
+
+    it('reuses a recent document and charges one new claim for an older regeneration', async () => {
+      await repo.upsertForMeeting(meetingA, content(), meta);
+      expect((await repo.claimGeneration(meetingA, true)).status).toBe('cached');
+      await db.update(documents).set({ createdAt: new Date(Date.now() - 11 * 60_000) })
+        .where(eq(documents.meetingId, meetingA));
+      const claim = await repo.claimGeneration(meetingA, true);
+      expect(claim.status).toBe('claimed');
+      if (claim.status !== 'claimed') return;
+      await repo.completeGeneration(meetingA, claim.claimId, content({ title: 'New' }), meta);
+      expect((await repo.getByMeetingId(meetingA))?.content.title).toBe('New');
+      expect((await repo.claimGeneration(meetingA, true)).status).toBe('cached');
+      const [budget] = await db.select().from(documentGenerationBudgets)
+        .where(eq(documentGenerationBudgets.meetingId, meetingA));
+      expect(budget.attempts).toBe(1);
+    });
+
+    it('rejects a late result after recovery from a stale claim', async () => {
+      const first = await repo.claimGeneration(meetingA, false);
+      expect(first.status).toBe('claimed');
+      if (first.status !== 'claimed') return;
+      await db.update(documentGenerationBudgets)
+        .set({ claimedAt: new Date(Date.now() - 16 * 60_000) })
+        .where(eq(documentGenerationBudgets.meetingId, meetingA));
+      const second = await new DrizzleDocumentRepository().claimGeneration(meetingA, false);
+      expect(second.status).toBe('claimed');
+      if (second.status !== 'claimed') return;
+      await expect(repo.completeGeneration(meetingA, first.claimId,
+        content({ title: 'Old result' }), meta)).rejects.toThrow('unavailable');
+      await repo.failGeneration(meetingA, first.claimId);
+      await repo.completeGeneration(meetingA, second.claimId,
+        content({ title: 'Latest result' }), meta);
+      expect((await repo.getByMeetingId(meetingA))?.content.title).toBe('Latest result');
+      const [budget] = await db.select().from(documentGenerationBudgets)
+        .where(eq(documentGenerationBudgets.meetingId, meetingA));
+      expect(budget.attempts).toBe(2);
     });
   });
 
