@@ -58,6 +58,8 @@ import { createUploadRoutes } from './adapters/http/routes/upload.routes';
 import { createAuthRoutes } from './adapters/http/routes/auth.routes';
 import { createMeRoutes } from './adapters/http/routes/me.routes';
 import { createBillingRoutes } from './adapters/http/routes/billing.routes';
+import { PaddleBillingAdmissionService } from './application/paddle-billing-admission.service';
+import { DrizzlePaddleBillingAdmissionRepository } from './adapters/db/repositories/paddle-billing-admission.repository';
 import { createWaitlistRoutes } from './adapters/http/routes/waitlist.routes';
 import { PaddleCustomerPortalAdapter } from './adapters/paddle/paddle-customer-portal.adapter';
 import { PaddleCheckoutAdapter } from './adapters/paddle/paddle-checkout.adapter';
@@ -254,6 +256,7 @@ async function bootstrap() {
       subscriptionUpdate,
       billingContext,
       config.BILLING_MUTATIONS_ENABLED,
+      new PaddleBillingAdmissionService(new DrizzlePaddleBillingAdmissionRepository()),
     ),
     createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen, liveTranscriptRepo, liveTranscriptBus),
     createChatRoutes(meetingRepo, chatService),

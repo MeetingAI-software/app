@@ -24,6 +24,7 @@ import {
   PaddleCustomerNotFoundError,
   PaddleNotConfiguredError,
   PaddleOwnershipConflictError,
+  PaddleBillingAdmissionError,
   OAuthCapacityError,
   GoogleLinkRejectedError,
   BillingMutationsDisabledError,
@@ -100,6 +101,13 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   if (err instanceof PaddleOwnershipConflictError) {
     report5xx();
     return res.status(409).json({ error: { code: 'PADDLE_OWNERSHIP_CONFLICT', message: err.message } });
+  }
+
+  if (err instanceof PaddleBillingAdmissionError) {
+    res.setHeader('Retry-After', err.reason === 'rate_limited' ? '60' : '5');
+    return res.status(err.reason === 'rate_limited' ? 429 : 503).json({
+      error: { code: 'PADDLE_ADMISSION', message: err.message },
+    });
   }
 
   if (err instanceof OAuthCapacityError) {

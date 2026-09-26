@@ -105,6 +105,13 @@ export class BotProviderError extends Error {
   }
 }
 
+export class PaddleBillingAdmissionError extends Error {
+  constructor(readonly reason: 'rate_limited' | 'busy') {
+    super(reason === 'rate_limited' ? 'Too many billing requests; try again shortly' : 'Billing is busy; try again shortly');
+    this.name = 'PaddleBillingAdmissionError';
+  }
+}
+
 /** The transcription request was definitely rejected before a paid job could be created. */
 export class TranscriptionSubmitRejectedError extends Error {
   constructor(message: string) {

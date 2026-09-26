@@ -51,6 +51,10 @@ describe('immutable migration lineages', () => {
         'google_oauth_budget.window', 'google_oauth_budget.count',
         'google_oauth_exchange_slots.slot', 'google_oauth_exchange_slots.token',
         'google_oauth_exchange_slots.expires_at',
+        'paddle_billing_slots.slot', 'paddle_billing_slots.token',
+        'paddle_billing_slots.user_id', 'paddle_billing_slots.expires_at',
+        'paddle_billing_budgets.scope', 'paddle_billing_budgets.window',
+        'paddle_billing_budgets.count',
         'login_attempt_budgets.scope', 'login_attempt_budgets.window',
         'login_attempt_budgets.count',
         'document_generation_budgets.meeting_id',
@@ -60,6 +64,8 @@ describe('immutable migration lineages', () => {
       expect(names).not.toContain('meetings.transcript_claim_id');
       const exchangeSlots = await client.query('SELECT slot FROM google_oauth_exchange_slots ORDER BY slot');
       expect(exchangeSlots.rows).toEqual(Array.from({ length: 8 }, (_, index) => ({ slot: index + 1 })));
+      const billingSlots = await client.query('SELECT slot FROM paddle_billing_slots ORDER BY slot');
+      expect(billingSlots.rows).toEqual(Array.from({ length: 8 }, (_, index) => ({ slot: index + 1 })));
       const indexes = await client.query<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE tablename='meetings'");
       expect(indexes.rows.map(row => row.indexname)).toContain('meetings_share_expiry_idx');
       expect(indexes.rows.map(row => row.indexname)).toContain('meetings_bot_id_uq');

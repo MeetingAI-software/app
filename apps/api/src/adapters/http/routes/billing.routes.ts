@@ -3,6 +3,7 @@ import type { CustomerPortalService } from '../../../application/customer-portal
 import type { CheckoutService } from '../../../application/checkout.service';
 import type { SubscriptionUpdateService } from '../../../application/subscription-update.service';
 import type { BillingContextService } from '../../../application/billing-context.service';
+import type { PaddleBillingAdmissionService } from '../../../application/paddle-billing-admission.service';
 import { BillingMutationsDisabledError } from '../../../domain/errors';
 import { z } from 'zod';
 
@@ -12,6 +13,7 @@ export function createBillingRoutes(
   subscriptionUpdate: SubscriptionUpdateService,
   billingContext: BillingContextService,
   billingMutationsEnabled: boolean,
+  admission: PaddleBillingAdmissionService,
 ): Router {
   const router = Router();
 
@@ -30,7 +32,7 @@ export function createBillingRoutes(
   // The endpoint accepts no customer/subscription identifiers. Ownership comes from req.userId.
   router.post('/api/me/billing-portal', async (req, res, next) => {
     try {
-      const url = await customerPortal.createForUser(req.userId!);
+      const url = await admission.run(req.userId!, () => customerPortal.createForUser(req.userId!));
       return res.status(201).json({ url });
     } catch (error) {
       return next(error);
@@ -44,7 +46,7 @@ export function createBillingRoutes(
         priceId: z.string().min(1),
         quantity: z.number().int().min(1).max(100).default(1),
       }).parse(req.body);
-      const transactionId = await checkout.createForUser(req.userId!, priceId, quantity);
+      const transactionId = await admission.run(req.userId!, () => checkout.createForUser(req.userId!, priceId, quantity));
       return res.status(201).json({ transactionId });
     } catch (error) {
       return next(error);
@@ -55,7 +57,7 @@ export function createBillingRoutes(
     try {
       requireBillingMutations();
       const { priceId } = z.object({ priceId: z.string().min(1) }).parse(req.body);
-      const preview = await subscriptionUpdate.previewForUser(req.userId!, priceId);
+      const preview = await admission.run(req.userId!, () => subscriptionUpdate.previewForUser(req.userId!, priceId));
       return res.json(preview);
     } catch (error) {
       return next(error);
@@ -66,7 +68,7 @@ export function createBillingRoutes(
     try {
       requireBillingMutations();
       const { priceId } = z.object({ priceId: z.string().min(1) }).parse(req.body);
-      const result = await subscriptionUpdate.updateForUser(req.userId!, priceId);
+      const result = await admission.run(req.userId!, () => subscriptionUpdate.updateForUser(req.userId!, priceId));
       return res.json({ accepted: true, ...result });
     } catch (error) {
       return next(error);
