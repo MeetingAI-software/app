@@ -8,7 +8,8 @@ import type { MeetingRepository, WebhookEventRepository } from '../../../ports/r
 import type { AudioStoragePort } from '../../../ports/audio-storage.port';
 import type { UsageMeterService } from '../../../application/usage-meter.service';
 import { createServer } from '../server';
-import { createUploadRoutes } from './upload.routes';
+import { createUploadRoutes as createUploadRoutesReal } from './upload.routes';
+import { AudioDurationError, measureAudioDuration } from './audio-duration';
 import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
 
 /** Passes the content sniffer: an EBML header, which is what a real WebM recording opens with. */
@@ -17,6 +18,21 @@ const WEBM_BYTES = (() => {
   bytes.set([0x1a, 0x45, 0xdf, 0xa3]);
   return bytes;
 })();
+
+// Legacy route tests exercise multipart, notice, storage and outbox behavior with a synthetic
+// container header. Supply a measured duration; the real decoder has its own integration tests.
+function createUploadRoutes(
+  meetingRepo: MeetingRepository, webhookRepo: WebhookEventRepository,
+  usageMeter: UsageMeterService, storage: AudioStoragePort,
+  options: Parameters<typeof createUploadRoutesReal>[4] = {},
+) {
+  const meter = usageMeter as UsageMeterService & { getUploadMaxSeconds?: (id: string) => Promise<number> };
+  meter.getUploadMaxSeconds ??= vi.fn().mockResolvedValue(86_400);
+  return createUploadRoutesReal(meetingRepo, webhookRepo, usageMeter, storage, {
+    ...options,
+    inspectAudio: options.inspectAudio ?? (async () => 1) as typeof measureAudioDuration,
+  });
+}
 
 describe('upload admission lifetime', () => {
   it('releases the upload slot when a client keeps a multipart body open', async () => {
@@ -379,5 +395,68 @@ describe('in-room upload content validation', () => {
     });
     expect(response.status).toBe(400);
     expect(reserveMeeting).not.toHaveBeenCalled();
+  });
+});
+
+describe('upload duration admission', () => {
+  const send = async (server: Server) => {
+    const body = new FormData();
+    body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+    return fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/meetings/upload`, {
+      method: 'POST', body,
+      headers: { origin: config.WEB_ORIGIN, cookie: 'session=verified',
+        'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION },
+    });
+  };
+
+  it.each([
+    ['invalid', 400, 'INVALID_AUDIO'],
+    ['too_long', 413, 'AUDIO_TOO_LONG'],
+    ['unavailable', 503, 'AUDIO_INSPECTION_UNAVAILABLE'],
+  ] as const)('rejects %s inspection before reservation or storage', async (reason, status, code) => {
+    const reserveMeeting = vi.fn();
+    const upload = vi.fn();
+    const inspectAudio = vi.fn().mockRejectedValue(new AudioDurationError(reason));
+    const route = createUploadRoutes({} as MeetingRepository, {} as WebhookEventRepository,
+      { reserveMeeting, getUploadMaxSeconds: vi.fn().mockResolvedValue(2) } as unknown as UsageMeterService,
+      { upload } as unknown as AudioStoragePort, { inspectAudio });
+    const server = createServer([route], async () => ({
+      id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
+    })).listen(0);
+    try {
+      const response = await send(server);
+      expect(response.status).toBe(status);
+      expect(await response.json()).toMatchObject({ error: { code } });
+      expect(reserveMeeting).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  it('reserves exactly the accepted decoded duration before storing audio', async () => {
+    const reserveMeeting = vi.fn().mockResolvedValue({ meeting: { id: 'meeting-1' } });
+    const upload = vi.fn().mockResolvedValue({ path: 'audio/recording.webm' });
+    const inspectAudio = vi.fn().mockResolvedValue(2);
+    const route = createUploadRoutes(
+      { setUploadInfo: vi.fn() } as unknown as MeetingRepository,
+      { insertIfNew: vi.fn() } as unknown as WebhookEventRepository,
+      { reserveMeeting, getUploadMaxSeconds: vi.fn().mockResolvedValue(2) } as unknown as UsageMeterService,
+      { upload } as unknown as AudioStoragePort, { inspectAudio },
+    );
+    const server = createServer([route], async () => ({
+      id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
+    })).listen(0);
+    try {
+      expect((await send(server)).status).toBe(201);
+      expect(inspectAudio).toHaveBeenCalledWith(expect.any(Buffer),
+        { format: 'webm', mime: 'audio/webm' }, 2, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+      expect(reserveMeeting).toHaveBeenCalledWith('user-1', 'upload',
+        expect.objectContaining({ uploadDurationSeconds: 2 }));
+      expect(upload).toHaveBeenCalledTimes(1);
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
   });
 });

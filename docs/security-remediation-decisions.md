@@ -129,3 +129,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Vem får kontrollera Recalls jobbstatus, det lagrade transkriptet och faktisk modellkostnad för ett fastnat möte, och vem får därefter frigöra anspråket med revisionsspår?
 - **Mitt förslag:** Inför en behörighetsstyrd avstämning som först jämför providerutfall, mötesstatus, transkript och sammanfattning. Frigör bara ett specifikt anspråk efter dokumenterat beslut; automatiskt tidsbaserat övertagande bör vänta tills ett sent workersvar kan stängslas säkert. Kör ett syntetiskt kraschprov hos Recall.
 - **Status:** Väntar på ägarens senare driftbeslut. Inga provider- eller produktionsändringar är gjorda.
+
+### D19 — Bekräfta ljudkontrollens driftgränser och avräkning (G09)
+
+- **Vad betyder det?** Uppladdad ljudtid mäts nu genom fullständig avkodning före lagring och betald transkribering. Vissa förlustkomprimerade format ger upp till en extra debiterad sekund på grund av kodarpadding; en fil exakt vid plangränsen kan därför avvisas konservativt. Om FFmpeg eller ffprobe saknas, kraschar eller når tidsgränsen avvisas uppladdningen. Långa giltiga inspelningar kan behöva mer kapacitet eller en annan produktgräns. För äldre redan pågående uppladdningar utan verifierad duration dras hela den tidigare reservationen vid slutbokföring.
+- **Vad behöver du avgöra?** Finns FFmpeg och ffprobe i den verkliga API-runtime som byggs från `nixpacks.toml`, vilken maximal längd och väntetid är acceptabel för Team/Business, och får äldre uppladdningar avräknas till reserverat maximum när betrodd mediatid saknas?
+- **Mitt förslag:** Verifiera runtime-binärerna och kör syntetiska tysta filer nära respektive plangräns mot staging samt en signerad AssemblyAI-callback. Mät CPU, minne, svarstid och providerkostnad. Behåll avvisning vid timeout och konservativ avräkning tills en säkrare, verifierad regel finns. Informera support om att äldre pågående uppladdningar kan få maxavräkning.
+- **Status:** Väntar på ägarens senare driftbeslut. Inga provider- eller produktionsändringar är gjorda.
