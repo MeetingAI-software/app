@@ -10,7 +10,7 @@ import { createAuthRoutes } from './auth.routes';
 describe('login admission before password hashing', () => {
   const login = vi.fn();
   const admit = vi.fn();
-  const admission = new LoginAdmissionService({ admit }, 1);
+  const admission = new LoginAdmissionService({ admit, admitSignup: async () => true }, 1);
   let server: Server;
   let baseUrl: string;
   const result = {

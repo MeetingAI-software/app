@@ -3,7 +3,7 @@ import { LoginAdmissionService } from './login-admission.service';
 
 describe('LoginAdmissionService', () => {
   it('caps live password-hash work and releases slots exactly once', () => {
-    const service = new LoginAdmissionService({ admit: async () => true }, 1);
+    const service = new LoginAdmissionService({ admit: async () => true, admitSignup: async () => true }, 1);
     const release = service.acquireHashSlot();
     expect(release).not.toBeNull();
     expect(service.acquireHashSlot()).toBeNull();
