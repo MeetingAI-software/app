@@ -21,7 +21,8 @@ export function sanitizeRequestUrl(rawUrl: string | undefined): string {
   if (!rawUrl) return '';
   const queryAt = rawUrl.indexOf('?');
   const path = queryAt === -1 ? rawUrl : rawUrl.slice(0, queryAt);
-  const redacted = path.replace(/^\/(api\/share|s)\/[^/]+/, '/$1/:token');
+  const redacted = path.replace(/^\/(api\/share|s)\/[^/]+/i,
+    (_match, route: string) => `/${route.toLowerCase()}/:token`);
   return queryAt === -1 ? redacted : `${redacted}?[Redacted]`;
 }
 

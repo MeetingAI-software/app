@@ -22,7 +22,10 @@ describe('safe request logging', () => {
     expect(sanitizeRequestUrl('/healthz')).toBe('/healthz');
     expect(sanitizeRequestUrl('/api/share/synthetic-bearer?view=1'))
       .toBe('/api/share/:token?[Redacted]');
+    expect(sanitizeRequestUrl('/api/Share/synthetic-bearer?view=1'))
+      .toBe('/api/share/:token?[Redacted]');
     expect(sanitizeRequestUrl('/s/synthetic-bearer')).toBe('/s/:token');
+    expect(sanitizeRequestUrl('/S/synthetic-bearer')).toBe('/s/:token');
   });
 
   it('redacts bearer share paths on both successful and failed requests', async () => {
@@ -42,6 +45,29 @@ describe('safe request logging', () => {
     const log = lines.join('');
     expect(log).not.toContain('success-bearer-secret');
     expect(log).not.toContain('failure-bearer-secret');
+    expect(log).toContain('/api/share/:token');
+  });
+
+  it('redacts mixed-case share paths even when authentication rejects the request', async () => {
+    const lines: string[] = [];
+    const stream: DestinationStream = { write: chunk => { lines.push(chunk); } };
+    const router = express.Router();
+    router.get('/api/share/:token', (_req, res) => res.status(200).json({ ok: true }));
+    const app = createServer([router], async token => token === 'valid-token'
+      ? { id: 'owner', email: 'owner@example.test', emailVerified: true, createdAt: new Date() }
+      : null, { requestLogStream: stream });
+    server = app.listen(0);
+    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    expect((await fetch(`${baseUrl}/api/Share/rejected-bearer-secret`)).status).toBe(401);
+    expect((await fetch(`${baseUrl}/api/Share/success-bearer-secret`, {
+      headers: { cookie: 'session=valid-token' },
+    })).status).toBe(200);
+    await vi.waitFor(() => expect(lines.length).toBeGreaterThanOrEqual(2));
+
+    const log = lines.join('');
+    expect(log).not.toContain('rejected-bearer-secret');
+    expect(log).not.toContain('success-bearer-secret');
     expect(log).toContain('/api/share/:token');
   });
 
