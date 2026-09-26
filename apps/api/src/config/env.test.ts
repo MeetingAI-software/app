@@ -5,7 +5,21 @@ const productionBase = {
   NODE_ENV: 'production',
   DATABASE_URL: 'postgres://test:test@localhost:5432/test',
   WEB_ORIGIN: 'https://www.syncmemos.com',
+  BOT_PROVIDER: 'recall',
+  RECALL_API_KEY: 'synthetic-recall-key',
+  RECALL_BASE_URL: 'https://api.recall.test',
+  RECALL_WEBHOOK_SECRET: 'synthetic-webhook-secret',
+  PUBLIC_WEBHOOK_URL: 'https://api.syncmemos.com',
+  LIVE_TRANSCRIPT_ENABLED: 'false',
 };
+
+describe('fake provider production gate', () => {
+  it('rejects fake mode in production even with public registration disabled', () => {
+    const result = envSchema.safeParse({ ...productionBase, BOT_PROVIDER: 'fake' });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.some(issue => issue.path[0] === 'BOT_PROVIDER')).toBe(true);
+  });
+});
 
 describe('production transport URL validation', () => {
   it.each([

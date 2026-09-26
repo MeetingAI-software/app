@@ -38,3 +38,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Är variabeln satt till den adressen för produktion och eventuella förhandsmiljöer som bygger med produktionsläge?
 - **Mitt förslag:** Kontrollera Vercels miljöinställningar före merge. Sätt adressen till den godkända API-värden för de miljöer som ska kunna byggas. En annan API-värd kräver ett uttryckligt produktbeslut och ändrad allowlist i kod.
 - **Status:** Väntar på ägarens svar. Inga Vercel-inställningar har ändrats.
+
+### D06 — Kontrollera Recall-läge före API-merge (G16)
+
+- **Vad betyder det?** Produktions-API:t startar nu inte med `BOT_PROVIDER=fake`. Det publika Recall-ingestflödet kräver signatur även när en fake-adapter är vald i lokal utveckling.
+- **Vad behöver du avgöra?** Är driftmiljön redan konfigurerad med `BOT_PROVIDER=recall`, API-nyckel, signerande webhookhemligheter och publik HTTPS-webhookadress?
+- **Mitt förslag:** Kontrollera miljövariablerna utan att kopiera hemligheter till PR. Sätt Recall-konfigurationen före merge om botfunktionen ska vara aktiv; håll annars releasen tillbaka tills produktläget är bestämt.
+- **Status:** Väntar på ägarens svar. Inga leverantörsinställningar har ändrats.

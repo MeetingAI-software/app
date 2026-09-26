@@ -74,9 +74,7 @@ export function verifyRecallSignature(
 }
 
 export function verifyWebhookSignature(req: any): boolean {
-  if (config.BOT_PROVIDER === 'fake') {
-    // Verification is bypassed when using fake provider to allow simulated local webhooks.
-    return true;
-  }
+  // FakeBotAdapter writes its synthetic event directly to the repository; no public webhook
+  // needs an unsigned mode. An accidental fake deployment therefore cannot open this endpoint.
   return verifyRecallSignature(req, config.RECALL_WEBHOOK_SECRET);
 }

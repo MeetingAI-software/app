@@ -108,6 +108,10 @@ export const envSchema = z.object({
   NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID: z.preprocess(blankToUndefined, z.string().optional()),
   NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID: z.preprocess(blankToUndefined, z.string().optional()),
 }).superRefine((cfg, ctx) => {
+  if (cfg.NODE_ENV === 'production' && cfg.BOT_PROVIDER === 'fake') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['BOT_PROVIDER'],
+      message: 'Fake bot provider is unavailable in production' });
+  }
   if (cfg.NODE_ENV === 'production') {
     const secureUrls = [
       ['WEB_ORIGIN', cfg.WEB_ORIGIN, '/'],
