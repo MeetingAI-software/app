@@ -467,23 +467,41 @@ export function createMeetingRoutes(
         throw new MeetingNotReadyError('No transcript segments found for the meeting');
       }
 
-      const meetingIsoDate = meeting.createdAt.toISOString().split('T')[0];
-      
-      let generated;
-      try {
-        generated = await documentGenerator.generateDocument(segments, { meetingIsoDate });
-      } catch {
-        throw new DocumentGenerationError('Document generation failed');
+      const claim = await documentRepo.claimGeneration(meeting.id, regenerate);
+      if (claim.status === 'cached') {
+        return res.status(200).json({ document: claim.document });
+      }
+      if (claim.status === 'pending') {
+        return res.status(409).json({ error: {
+          code: 'DOCUMENT_IN_PROGRESS', message: 'Document generation is already in progress',
+        } });
+      }
+      if (claim.status === 'limit') {
+        return res.status(429).json({ error: {
+          code: 'DOCUMENT_LIMIT_REACHED', message: 'Document generation limit reached for this meeting',
+        } });
       }
 
-      // Zod gate
-      const validatedContent = documentContentSchema.parse(generated.content);
+      const meetingIsoDate = meeting.createdAt.toISOString().split('T')[0];
 
-      await documentRepo.upsertForMeeting(meeting.id, validatedContent, {
-        model: generated.model,
-        inputTokens: generated.inputTokens,
-        outputTokens: generated.outputTokens,
-      });
+      try {
+        let generated;
+        try {
+          generated = await documentGenerator.generateDocument(segments, { meetingIsoDate });
+        } catch {
+          throw new DocumentGenerationError('Document generation failed');
+        }
+
+        const validatedContent = documentContentSchema.parse(generated.content);
+        await documentRepo.completeGeneration(meeting.id, claim.claimId, validatedContent, {
+          model: generated.model,
+          inputTokens: generated.inputTokens,
+          outputTokens: generated.outputTokens,
+        });
+      } catch (error) {
+        await documentRepo.failGeneration(meeting.id, claim.claimId);
+        throw error;
+      }
 
       const savedDoc = await documentRepo.getByMeetingId(meeting.id);
       return res.status(201).json({ document: savedDoc });

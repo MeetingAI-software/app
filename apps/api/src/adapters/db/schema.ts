@@ -99,6 +99,15 @@ export const documents = pgTable('documents', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// A meeting row lock serializes claims across replicas. Attempts are never refunded after an
+// uncertain provider outcome, so repeated failures cannot create unlimited paid requests.
+export const documentGenerationBudgets = pgTable('document_generation_budgets', {
+  meetingId: uuid('meeting_id').primaryKey().references(() => meetings.id, { onDelete: 'cascade' }),
+  attempts: integer('attempts').notNull().default(0),
+  claimId: uuid('claim_id'),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+});
+
 export const chatMessages = pgTable('chat_messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   meetingId: uuid('meeting_id').notNull().references(() => meetings.id),
