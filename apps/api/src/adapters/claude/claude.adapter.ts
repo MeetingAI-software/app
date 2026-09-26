@@ -159,16 +159,16 @@ export class ClaudeAdapter implements DocumentGeneratorPort {
 
       issues = outcome.issues;
       logger.warn(
-        { attempt, issues, operation: 'generateDocument' },
+        { attempt, operation: 'generateDocument' },
         'Claude document failed validation'
       );
       prompt = buildRetryPrompt(basePrompt, issues);
     }
 
     logger.error(
-      { model, inputTokens, outputTokens, issues, operation: 'generateDocument' },
+      { model, inputTokens, outputTokens, operation: 'generateDocument' },
       'Claude document failed validation after retry — nothing saved'
     );
-    throw new DocumentGenerationError(`document failed validation after retry: ${issues}`);
+    throw new DocumentGenerationError('document failed validation after retry');
   }
 }
