@@ -26,6 +26,12 @@ export interface MeetingRepository {
   enableShare(id: string, userId: string, expiresAt: Date): Promise<Meeting | null>;
   revokeShare(id: string, userId: string): Promise<boolean>;
   findByTranscriptionJobId(jobId: string): Promise<Meeting | null>;   // Day 3: map a transcription webhook back to its meeting
+  /** Claim the one possible paid transcription submit before calling the provider. */
+  claimUploadSubmission(id: string): Promise<boolean>;
+  /** Bind the returned provider job at most once to the claimed upload. */
+  bindTranscriptionJob(id: string, jobId: string): Promise<boolean>;
+  /** Fail and release an upload only after a definite pre-job provider rejection. */
+  failRejectedUploadSubmission(id: string, reason: string): Promise<void>;
   updateStatus(id: string, to: MeetingStatus,
     patch?: Partial<Pick<Meeting, 'botId' | 'durationSeconds' | 'errorMessage'>>): Promise<Meeting>;
   setSummary(id: string, summary: string): Promise<void>;

@@ -9,6 +9,7 @@ import type { TranscriptionPort } from '../ports/transcription.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { DocumentGeneratorPort } from '../ports/document-generator.port';
 import type { Meeting, MeetingStatus, TranscriptSegment } from '../domain/types';
+import { TranscriptionSubmitRejectedError } from '../domain/errors';
 
 const DIARIZED: TranscriptSegment[] = [
   { startMs: 0, endMs: 2000, speaker: 'Speaker A', text: 'Kicking off the in-room sync.' },
@@ -56,6 +57,9 @@ describe('ProcessUploadEventService', () => {
       enableShare: vi.fn(),
       revokeShare: vi.fn(),
       findByTranscriptionJobId: vi.fn(),
+      claimUploadSubmission: vi.fn().mockResolvedValue(true),
+      bindTranscriptionJob: vi.fn().mockResolvedValue(true),
+      failRejectedUploadSubmission: vi.fn(),
       updateStatus: vi.fn(),
       setSummary: vi.fn(),
       setUploadInfo: vi.fn(),
@@ -84,10 +88,10 @@ describe('ProcessUploadEventService', () => {
 
       await service.process('audio_uploaded', { meetingId: 'm1' });
 
-      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'processing');
+      expect(meetingRepo.claimUploadSubmission).toHaveBeenCalledWith('m1');
       expect(storage.getSignedUrl).toHaveBeenCalledWith('m1/audio.webm');
       expect(transcription.submit).toHaveBeenCalledWith('https://signed/audio.webm', { meetingId: 'm1' });
-      expect(meetingRepo.setUploadInfo).toHaveBeenCalledWith('m1', { transcriptionJobId: 'job-1' });
+      expect(meetingRepo.bindTranscriptionJob).toHaveBeenCalledWith('m1', 'job-1');
     });
 
     it('throws when the meeting is missing', async () => {
@@ -106,7 +110,45 @@ describe('ProcessUploadEventService', () => {
       await service.process('audio_uploaded', { meetingId: 'm1' });
 
       expect(transcription.submit).not.toHaveBeenCalled();
-      expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
+      expect(meetingRepo.claimUploadSubmission).not.toHaveBeenCalled();
+    });
+
+    it('does not repeat an ambiguous paid submit on worker replay', async () => {
+      vi.mocked(meetingRepo.findById).mockResolvedValueOnce(meeting({ status: 'pending' }))
+        .mockResolvedValueOnce(meeting({ status: 'processing' }));
+      vi.mocked(storage.getSignedUrl).mockResolvedValue('https://signed/audio.webm');
+      vi.mocked(meetingRepo.claimUploadSubmission).mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false);
+      vi.mocked(transcription.submit).mockRejectedValueOnce(new Error('unknown provider outcome'));
+
+      await expect(service.process('audio_uploaded', { meetingId: 'm1' }))
+        .rejects.toThrow('unknown provider outcome');
+      await service.process('audio_uploaded', { meetingId: 'm1' });
+
+      expect(transcription.submit).toHaveBeenCalledTimes(1);
+      expect(meetingRepo.bindTranscriptionJob).not.toHaveBeenCalled();
+    });
+
+    it('does not submit if the stored meeting is already failed', async () => {
+      vi.mocked(meetingRepo.findById).mockResolvedValue(meeting({ status: 'failed' }));
+      vi.mocked(storage.getSignedUrl).mockResolvedValue('https://signed/audio.webm');
+      vi.mocked(meetingRepo.claimUploadSubmission).mockResolvedValue(false);
+
+      await service.process('audio_uploaded', { meetingId: 'm1' });
+      expect(transcription.submit).not.toHaveBeenCalled();
+    });
+
+    it('fails and releases a definitely rejected submission', async () => {
+      vi.mocked(meetingRepo.findById).mockResolvedValue(meeting({ status: 'pending' }));
+      vi.mocked(storage.getSignedUrl).mockResolvedValue('https://signed/audio.webm');
+      vi.mocked(transcription.submit).mockRejectedValue(
+        new TranscriptionSubmitRejectedError('AssemblyAI submit rejected: 401'));
+
+      await service.process('audio_uploaded', { meetingId: 'm1' });
+
+      expect(meetingRepo.failRejectedUploadSubmission)
+        .toHaveBeenCalledWith('m1', 'AssemblyAI submit rejected: 401');
+      expect(meetingRepo.bindTranscriptionJob).not.toHaveBeenCalled();
     });
   });
 

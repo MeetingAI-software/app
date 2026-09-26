@@ -165,6 +165,7 @@ export function createUploadRoutes(
     });
 
     let uploadedPath: string | null = null;
+    let outboxAttempted = false;
     try {
       signal.throwIfAborted();
       // The detected type, not the declared one — the stored object key is then derived entirely
@@ -174,6 +175,7 @@ export function createUploadRoutes(
       signal.throwIfAborted();
       await meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: path });
       signal.throwIfAborted();
+      outboxAttempted = true;
       await webhookRepo.insertIfNew({
         provider: 'upload',
         externalEventId: `audio_uploaded:${meeting.id}`,
@@ -181,12 +183,22 @@ export function createUploadRoutes(
         payload: { meetingId: meeting.id },
       });
     } catch (err) {
-      // If storage succeeded but the DB/outbox failed, remove the object immediately. The meeting
+      if (outboxAttempted) {
+        // The event insert may have committed even if its response was lost. A worker could
+        // already be submitting the paid job, so retain audio and quota for reconciliation.
+        logger.warn({ meetingId: meeting.id }, 'Upload event outcome unknown; retaining audio and quota');
+        throw err;
+      }
+      // If storage succeeded but pre-outbox preparation failed, remove the object immediately. The meeting
       // row remains failed for support/audit purposes and the original error still propagates.
       if (uploadedPath) {
-        await storage.delete(uploadedPath).catch(() => {
-          logger.error({ meetingId: meeting.id }, 'Failed to remove an incomplete upload');
-        });
+        try {
+          await storage.delete(uploadedPath);
+          // No provider job was submitted. Clear the stale path after successful deletion.
+          await meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: null });
+        } catch {
+          logger.error({ meetingId: meeting.id }, 'Failed to reconcile an incomplete upload');
+        }
       }
       // Don't leave the row stuck in 'pending' with no audio behind it.
       await meetingRepo

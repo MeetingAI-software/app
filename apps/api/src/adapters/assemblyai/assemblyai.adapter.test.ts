@@ -49,7 +49,7 @@ describe('AssemblyAIAdapter', () => {
     it('throws on a non-ok submit', async () => {
       fetchFn.mockResolvedValue(makeRes(400, 'bad request'));
       const adapter = new AssemblyAIAdapter({ apiKey: 'k', fetchFn: fetchFn as unknown as typeof fetch });
-      await expect(adapter.submit('u', { meetingId: 'm' })).rejects.toThrow(/submit failed: 400/);
+      await expect(adapter.submit('u', { meetingId: 'm' })).rejects.toThrow(/submit rejected: 400/);
     });
 
     it('throws when the response is missing a transcript id', async () => {
@@ -81,32 +81,37 @@ describe('AssemblyAIAdapter', () => {
   });
 
   describe('retry and timeout', () => {
-    it('retries once on a 5xx and returns the second response', async () => {
+    it('still retries a transient GET for a completed transcript', async () => {
+      fetchFn.mockResolvedValueOnce(makeRes(503, 'busy'))
+        .mockResolvedValueOnce(makeRes(200, completedTranscriptFixture));
+      const adapter = new AssemblyAIAdapter({ apiKey: 'k', retryDelayMs: 0, fetchFn: fetchFn as unknown as typeof fetch });
+
+      await expect(adapter.fetchResult('job-1')).resolves.toHaveLength(4);
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('never retries a paid POST after an ambiguous 5xx response', async () => {
       fetchFn.mockResolvedValueOnce(makeRes(503, 'busy')).mockResolvedValueOnce(makeRes(200, { id: 't2' }));
       const adapter = new AssemblyAIAdapter({ apiKey: 'k', retryDelayMs: 0, fetchFn: fetchFn as unknown as typeof fetch });
 
-      const res = await adapter.submit('u', { meetingId: 'm' });
-
-      expect(res).toEqual({ jobId: 't2' });
-      expect(fetchFn).toHaveBeenCalledTimes(2);
+      await expect(adapter.submit('u', { meetingId: 'm' })).rejects.toThrow(/submit failed: 503/);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
     });
 
-    it('gives up after a single retry on a persistent 5xx', async () => {
-      fetchFn.mockResolvedValue(makeRes(500, 'down'));
+    it('keeps provider response text out of submit errors', async () => {
+      fetchFn.mockResolvedValue(makeRes(500, 'synthetic-secret-123'));
       const adapter = new AssemblyAIAdapter({ apiKey: 'k', retryDelayMs: 0, fetchFn: fetchFn as unknown as typeof fetch });
 
-      await expect(adapter.submit('u', { meetingId: 'm' })).rejects.toThrow(/submit failed: 500/);
-      expect(fetchFn).toHaveBeenCalledTimes(2);
+      await expect(adapter.submit('u', { meetingId: 'm' }))
+        .rejects.toThrow('AssemblyAI submit failed: 500');
     });
 
-    it('retries once after a network error', async () => {
+    it('never retries a paid POST after a lost response', async () => {
       fetchFn.mockRejectedValueOnce(new Error('socket hang up')).mockResolvedValueOnce(makeRes(200, { id: 't3' }));
       const adapter = new AssemblyAIAdapter({ apiKey: 'k', retryDelayMs: 0, fetchFn: fetchFn as unknown as typeof fetch });
 
-      const res = await adapter.submit('u', { meetingId: 'm' });
-
-      expect(res).toEqual({ jobId: 't3' });
-      expect(fetchFn).toHaveBeenCalledTimes(2);
+      await expect(adapter.submit('u', { meetingId: 'm' })).rejects.toThrow('AssemblyAI submit outcome unknown');
+      expect(fetchFn).toHaveBeenCalledTimes(1);
     });
 
     it('passes an abort signal so a slow request can time out', async () => {

@@ -238,6 +238,38 @@ describe('in-room upload availability', () => {
       await new Promise<void>((resolve, reject) => localServer.close((error) => error ? reject(error) : resolve()));
     }
   });
+
+  it('retains audio and quota if the upload event insert might have committed', async () => {
+    const meeting = { id: 'meeting-ambiguous' };
+    const storage = { upload: vi.fn().mockResolvedValue({ path: 'audio/ambiguous.webm' }),
+      delete: vi.fn() };
+    const updateStatus = vi.fn();
+    const route = createUploadRoutes(
+      { setUploadInfo: vi.fn(), updateStatus } as never,
+      { insertIfNew: vi.fn().mockRejectedValue(new Error('lost insert response')) } as never,
+      { reserveMeeting: vi.fn().mockResolvedValue({ meeting }) } as never,
+      storage as never,
+    );
+    const localServer = createServer([route], async () => ({
+      id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
+    })).listen(0);
+    try {
+      const body = new FormData();
+      body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+      const response = await fetch(`http://127.0.0.1:${(localServer.address() as AddressInfo).port}/api/meetings/upload`, {
+        method: 'POST',
+        headers: { origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+          'x-recording-notice-confirmed': 'true',
+          'x-recording-notice-version': RECORDING_NOTICE_VERSION },
+        body,
+      });
+      expect(response.status).toBe(500);
+      expect(storage.delete).not.toHaveBeenCalled();
+      expect(updateStatus).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>(resolve => localServer.close(() => resolve()));
+    }
+  });
 });
 
 describe('in-room upload content validation', () => {
