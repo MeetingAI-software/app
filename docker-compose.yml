@@ -28,7 +28,7 @@ services:
     ports:
       # Host 5432. Credentials are deliberately trivial: this database holds only seeded fake data
       # and is reachable from localhost only.
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - meetingai-db-data:/var/lib/postgresql/data
     healthcheck:
