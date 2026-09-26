@@ -187,13 +187,12 @@ describe('DrizzleMeetingRepository', () => {
   });
 
   describe('countActiveForUser', () => {
-    // 'pending', 'transcribed' and 'failed' are NOT active. Getting this set wrong would let a user
-    // exceed MAX_CONCURRENT_BOTS, or block them from starting a meeting they are entitled to.
-    it('counts only bot_joining, recording and processing', async () => {
+    // Pending work has already claimed paid capacity, even before the provider responds.
+    it('counts pending, bot_joining, recording and processing', async () => {
       for (const status of ['bot_joining', 'recording', 'processing', 'pending', 'transcribed', 'failed']) {
         await insertMeeting({ ownerUserId: alice, status });
       }
-      expect(await repo.countActiveForUser(alice)).toBe(3);
+      expect(await repo.countActiveForUser(alice)).toBe(4);
     });
 
     it("does not count another user's active meetings", async () => {

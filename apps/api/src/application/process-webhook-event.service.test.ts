@@ -183,11 +183,16 @@ describe('ProcessWebhookEventService', () => {
   });
 
   it.each(['transcribed', 'failed'] as const)
-    ('ignores a replayed transcript for terminal state %s before provider or billing calls', async status => {
+    ('avoids duplicate provider work for a replayed transcript in state %s', async status => {
       vi.mocked(meetingRepo.findByBotId).mockResolvedValue(meeting({ status }));
       await service.processEvent('transcript_ready', botEvent('done'));
       expect(bot.fetchTranscript).not.toHaveBeenCalled();
       expect(transcriptRepo.save).not.toHaveBeenCalled();
-      expect(usageRepo.addSeconds).not.toHaveBeenCalled();
+      if (status === 'transcribed') {
+        // The repository settles once; a replay also repairs a crash after status persistence.
+        expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', 0);
+      } else {
+        expect(usageRepo.addSeconds).not.toHaveBeenCalled();
+      }
     });
 });

@@ -60,7 +60,7 @@ describe('ProcessUploadEventService', () => {
       setSummary: vi.fn(),
       setUploadInfo: vi.fn(),
       countActive: vi.fn(),
-      countActiveForUser: vi.fn(),
+      reserve: vi.fn(), countActiveForUser: vi.fn(),
       list: vi.fn(),
       findByIdForUser: vi.fn(),
       listForUser: vi.fn(),

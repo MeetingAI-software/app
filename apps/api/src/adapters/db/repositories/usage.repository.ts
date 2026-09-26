@@ -1,16 +1,25 @@
 import { db } from '../client';
-import { usageLedger, meetings } from '../schema';
-import { sql, eq, and } from 'drizzle-orm';
+import { usageLedger, meetings, meetingQuotaReservations, users } from '../schema';
+import { sql, eq, and, isNull } from 'drizzle-orm';
 import type { UsageRepository } from '../../../ports/repositories.port';
 
 export class DrizzleUsageRepository implements UsageRepository {
   async addSeconds(meetingId: string, seconds: number): Promise<void> {
-    await db
-      .insert(usageLedger)
-      .values({
-        meetingId,
-        secondsRecorded: seconds,
-      });
+    if (!Number.isSafeInteger(seconds) || seconds < 0) throw new Error('Invalid recorded duration');
+    await db.transaction(async tx => {
+      const [meeting] = await tx.select({ ownerUserId: meetings.ownerUserId })
+        .from(meetings).where(eq(meetings.id, meetingId));
+      if (!meeting) throw new Error('Meeting does not exist');
+      // Same owner lock as admission: a new claim sees either the full reservation or the
+      // settled ledger entry, never an empty gap between the two.
+      await tx.select({ id: users.id }).from(users)
+        .where(eq(users.id, meeting.ownerUserId)).for('update');
+      await tx.insert(usageLedger).values({ meetingId, secondsRecorded: seconds })
+        .onConflictDoNothing({ target: usageLedger.meetingId });
+      await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
+        .where(and(eq(meetingQuotaReservations.meetingId, meetingId),
+          isNull(meetingQuotaReservations.releasedAt)));
+    });
   }
 
   async monthlyTotalSeconds(userId: string): Promise<number> {

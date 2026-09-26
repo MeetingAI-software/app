@@ -18,15 +18,9 @@ export class StartMeetingService {
     meetingUrl: string,
     recordingNotice?: { confirmedAt: Date; version: string },
   ): Promise<Meeting> {
-    // 1. Assert we have budget/quota (per user)
-    const entitlements = await this.usageMeter.assertCanStartMeeting(userId);
-
-    // 2. Create the pending meeting row, owned by this user.
-    // The route already rejected unsupported hosts, so detectPlatform cannot be null here.
+    // The database checks capacity and creates the pending row in one transaction.
     const platform = detectPlatform(meetingUrl) ?? 'zoom';
-    const meeting = await this.meetingRepo.create({
-      ownerUserId: userId,
-      source: 'bot',
+    const { meeting, entitlements } = await this.usageMeter.reserveMeeting(userId, 'bot', {
       meetingUrl,
       platform,
       ...(recordingNotice ? {
@@ -35,6 +29,9 @@ export class StartMeetingService {
       } : {}),
     });
 
+    // The route already rejected unsupported hosts, so detectPlatform cannot be null here.
+
+    let createdBotId: string | null = null;
     try {
       // 3. Request the bot join the meeting
       const { botId } = await this.botAdapter.createBot({
@@ -42,6 +39,7 @@ export class StartMeetingService {
         meetingId: meeting.id,
         maxMeetingSeconds: entitlements.maxMeetingSeconds,
       });
+      createdBotId = botId;
 
       // 4. Transition to bot_joining with the returned botId
       assertTransition(meeting.status, 'bot_joining');
@@ -52,11 +50,15 @@ export class StartMeetingService {
       return updated;
     } catch (err) {
       const failure = new BotProviderError(err instanceof BotProviderError ? err.diagnostics : { operation: 'create_bot' });
-      // Persist only the same generic failure returned to the caller, retaining safe diagnostics
-      // in the exception for monitoring rather than storing provider text on the meeting.
-      await this.meetingRepo.updateStatus(meeting.id, 'failed', {
-        errorMessage: failure.message,
-      });
+      const definiteRejection = err instanceof BotProviderError
+        && [400, 401, 403, 404, 422].includes(err.diagnostics.status ?? 0);
+      // After a lost response or failed DB write a paid bot might exist. Leave the pending
+      // reservation in place until provider reconciliation; releasing it would grant free slots.
+      if (!createdBotId && (definiteRejection || !(err instanceof BotProviderError))) {
+        await this.meetingRepo.updateStatus(meeting.id, 'failed', {
+          errorMessage: failure.message,
+        });
+      }
       throw failure;
     }
   }

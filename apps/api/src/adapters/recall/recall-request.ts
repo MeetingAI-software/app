@@ -50,7 +50,10 @@ export async function requestRecall(
 ): Promise<any> {
   if (!presigned && !config.RECALL_API_KEY) throw failure(operation);
   if (presigned && !validTranscriptUrl(url)) throw failure(operation);
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Create-bot POST has no provider idempotency key. A 5xx or lost response may already have
+  // created a paid bot, so retry only reads and the explicitly idempotent media deletion.
+  const mayRetry = presigned || deleting || (options.method ?? 'GET').toUpperCase() === 'GET';
+  for (let attempt = 0; attempt < (mayRetry ? 2 : 1); attempt++) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
     let response: Response | undefined;
@@ -61,7 +64,7 @@ export async function requestRecall(
         headers: presigned ? undefined : { Authorization: `Token ${config.RECALL_API_KEY}`,
           'Content-Type': 'application/json', accept: 'application/json' },
       });
-      if (response.status >= 500 && attempt === 0) {
+      if (response.status >= 500 && attempt === 0 && mayRetry) {
         await response.body?.cancel().catch(() => undefined);
         retry = true;
       } else if (deleting && (response.ok || response.status === 404 || response.status === 409)) {
@@ -76,7 +79,7 @@ export async function requestRecall(
       }
     } catch (err) {
       if (err instanceof BotProviderError) throw err;
-      if (controller.signal.aborted || attempt === 1) throw failure(operation, response);
+      if (controller.signal.aborted || !mayRetry || attempt === 1) throw failure(operation, response);
       retry = true;
     } finally {
       clearTimeout(timeout);

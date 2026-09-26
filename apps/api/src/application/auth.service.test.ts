@@ -313,7 +313,7 @@ function meetingRepoOver(store: Meeting[]): MeetingRepository {
     findByShareToken: vi.fn(), enableShare: vi.fn(), revokeShare: vi.fn(), findByTranscriptionJobId: vi.fn(),
     updateStatus: vi.fn(), setSummary: vi.fn(), setUploadInfo: vi.fn(),
     setShareEnabled: vi.fn(), rotateShareToken: vi.fn(),
-    countActive: vi.fn(), countActiveForUser: vi.fn(), list: vi.fn(), findByIdForUser: vi.fn(),
+    reserve: vi.fn(), countActive: vi.fn(), countActiveForUser: vi.fn(), list: vi.fn(), findByIdForUser: vi.fn(),
     listForUser: vi.fn(async (uid: string) => store.filter((m) => m.ownerUserId === uid)),
     deleteById: vi.fn(async (id: string) => {
       const i = store.findIndex((m) => m.id === id);

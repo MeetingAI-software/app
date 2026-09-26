@@ -187,7 +187,11 @@ export class ProcessWebhookEventService {
     } else if (action === 'transcript_ready') {
       // A distinct signed event ID can still replay a completed transcript. Do not fetch, save,
       // bill or delete media again once the meeting reached a terminal state.
-      if (meeting.status === 'transcribed' || meeting.status === 'failed') return;
+      if (meeting.status === 'transcribed') {
+        await this.usageRepo.addSeconds(meeting.id, meeting.durationSeconds ?? 0);
+        return;
+      }
+      if (meeting.status === 'failed') return;
       console.log(`👷 Processing transcript_ready for meeting ${meeting.id} (bot: ${botId})`);
       
       // Fetch transcript segments

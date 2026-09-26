@@ -73,7 +73,21 @@ export const usageLedger = pgTable('usage_ledger', {
   meetingId: uuid('meeting_id').notNull().references(() => meetings.id),
   secondsRecorded: integer('seconds_recorded').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  usageLedgerMeetingUq: uniqueIndex('usage_ledger_meeting_uq').on(t.meetingId),
+}));
+
+// One durable claim per admitted meeting. An active claim counts against the current monthly
+// budget even when a request crashes before the provider returns, or crosses a month boundary.
+export const meetingQuotaReservations = pgTable('meeting_quota_reservations', {
+  meetingId: uuid('meeting_id').primaryKey().references(() => meetings.id, { onDelete: 'cascade' }),
+  ownerUserId: uuid('owner_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  reservedSeconds: integer('reserved_seconds').notNull(),
+  releasedAt: timestamp('released_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  ownerActiveIdx: index('meeting_quota_reservations_owner_active_idx').on(t.ownerUserId, t.releasedAt),
+}));
 
 export const documents = pgTable('documents', {
   id: uuid('id').primaryKey().defaultRandom(),

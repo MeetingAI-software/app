@@ -8,6 +8,8 @@ Alla 66 `findingId` finns i [fyndregistret](#fyndregister-för-samtliga-66-fynd)
 
 ## Genomförd lokal verifiering, ännu inte avslutade fynd
 
+- **G07, `csf_da1786ccb8f3c089161d9f30`, `csf_67985ad96ca33ba5737c9f36`, `csf_39bbf72f43af1f1037168c45`, `csf_48517ef3093550d5202131da`, `csf_c21fb310b708744502a4865c`:** bot och uppladdning skapar nu mötesrad och beständig reservation i samma transaktion under ett användarradslås, före betalt providerarbete. `pending` räknas; aktiv reservation följer med över månadsbyte. Slutbokföring ersätter reservationen atomiskt och är idempotent per möte; felstatus släpper reservationen. Migreringen reserverar konservativt för äldre pågående möten och konsoliderar historiska ledgerdubletter. PGlite-tester täcker parallella botstarter, bot/uppladdning mot samma budget, månadsbyte, återspelning och frigöring. G09/G10:s betrodda duration, återhämtning av föräldralös `pending` utan känt provider-ID och lastprov över verkliga API-repliker återstår; G07 är därför inte stängt.
+- **N01/G30, lokalt fynd:** Recall-klienten försöker inte längre om ett `POST` som skapar en betald bot när 5xx eller nätverksfel kan dölja ett lyckat första anrop. Vid osäkert utfall eller misslyckad lagring av returnerat bot-ID behålls `pending` och reservationen tills providern kan stämmas av. Negativa adapter- och tjänstetester täcker 503, transportfel och databasfel efter bot-ID. Manuell återhämtning utan bot-ID samt produktionsbeteende hos Recall återstår; se D12.
 - **G05 tillägg, publik registrering:** registreringsvägen gör nu ett atomiskt budgetanspråk i delad databas per IP, e-postdigest och globalt innan lösenordshashning. Samma lokala Argon2-kapacitetstak som för login gäller registrering; platsen släpps direkt efter hashning, före databas- och mailarbete. Negativa HTTP-tester för nekad budget och full hashkapacitet samt parallella PGlite-anspråk på sista globala platsen och ett legitimt registreringsflöde passerar. Flera verkliga API-repliker och driftens proxy-IP-kedja behöver fortfarande lastprovas innan hela G05 kan stängas.
 - **G01, `csf_439b9e98c28e25790c47381f` och `csf_1e236855dd22a27716814192`:** automatiskt länkbeslut på enbart Google-e-post har tagits bort. Ett okänt `sub` som kolliderar med befintligt konto avvisas och det kontot verifieras inte som bieffekt. Befintligt `sub` kan inte längre verifiera en senare ändrad appadress. Aktiv länkning kräver inloggad session och aktuellt lösenord; Google-adressen måste vara samma verifierade appadress och unik `sub` kopplas atomiskt mot oförändrad autentiseringsversion. Negativa tjänste-, repository- och callbacktester passerar. Historiska automatiska kopplingar kräver separat driftgranskning D03; produktionsflödet är inte verifierat mot Google.
 - **G03, `csf_cc5105ae18c8a2dfb458623e`:** serverlagrat, tidsbegränsat state med engångsanspråk inför Google-tokenutbyte och nonce-kontroll har införts. Ett databaserat globalt budgetanspråk begränsar nya state över repliker. Tester täcker återspelning, parallella anspråk, fel session, fel nonce och migrationsvägar. Timeout och samtidighetsgräns för själva providerutbytet återstår; fyndet är därför inte stängt.
@@ -125,6 +127,7 @@ Varje paket anger **säkerhetsinvariant → ändring → negativt bevis**. Fynd-
 | **G27 Logout** | Visa lyckad utloggning först efter bekräftad serverrevokering; behåll tydligt retry-läge vid fel och töm browser-cookie i API:ets cleanup. Testa DB-fel så UI aldrig påstår att en aktiv token är återkallad. |
 | **G28 Promptgräns** | Placera deltagarnamn i uttryckligt obetrott metadatafält, normalisera kontrolltecken/avgränsare och validera genererade ägare mot kanonisk deltagarlista. Testa namn som innehåller instruktionstext. |
 | **G29 Lokal PostgreSQL** | Bind Docker-port till `127.0.0.1` eller använd enbart internt nät; ersätt kända devcredentials om fjärråtkomst behövs. Testa portbindningen från annan värd. |
+| **G30 Recall-botskapande** | Försök inte om ett betalt `POST /bot/` efter tvetydigt svar utan en dokumenterad idempotensnyckel. Behåll reservation vid osäkert providerutfall och stäm av föräldralös bot innan platsen frigörs. Testa 5xx, förlorat svar, definitivt 4xx och fel efter returnerat bot-ID. |
 
 ## Fyndregister för samtliga 66 fynd
 
@@ -198,6 +201,19 @@ En rad per findingId och occurrenceId från den bifogade JSON-artefakten. Plats 
 | 64 | medium | csf_57df4d3b3951e3fddfaf0988 | occ_5958a0f68aee19158d0861c1 | G01 | apps/api/src/adapters/http/routes/auth.routes.ts | Pre-registering an email preserves attacker access after the victim links Google |
 | 65 | low | csf_54db5ed02388e5927db66a42 | occ_debfe848b5e0cdee0dcadffb | G13 | apps/api/src/adapters/http/routes/chat.routes.ts | Concurrent chat questions can exceed the per-meeting model budget |
 | 66 | medium | csf_c21fb310b708744502a4865c | occ_dfdc7b1893edeb8dcff19546 | G07 | apps/api/src/adapters/http/routes/meetings.routes.ts | Parallel meeting starts launch paid bots beyond concurrency and monthly caps |
+
+### Nya belagda fynd, lokala ID:n tills avslutad skanning tilldelar scanner-ID
+
+| Nr | Grad | findingId | occurrenceId | Paket | Primär plats | Exakt titel |
+| ---: | --- | --- | --- | --- | --- | --- |
+| 67 | medium | local_recall_post_retry_20260926 | local_occ_recall_post_retry_20260926 | G30 | apps/api/src/adapters/recall/recall-request.ts | Ambiguous Recall bot creation is retried and can launch duplicate paid bots |
+
+#### N01 — Ambiguous Recall bot creation is retried and can launch duplicate paid bots (`local_recall_post_retry_20260926`, G30)
+
+- **Spår:** `apps/api/src/adapters/recall/recall-request.ts` (`requestRecall`), `apps/api/src/adapters/recall/recall.adapter.ts` (`createBot`), `apps/api/src/application/start-meeting.service.ts`.
+- **Nuvarande beteende före fix:** `requestRecall` försökte om samma `POST /api/v1/bot/` en gång efter 5xx eller transportfel. Om första anropet skapat en bot men svaret förlorats kunde ett andra anrop skapa en till. Felvägen i starttjänsten markerade dessutom mötet misslyckat och frigjorde kvot utan att veta om en bot var aktiv.
+- **Fixkrav:** försök inte om ett tvetydigt skapandeanrop utan providerstyrd idempotens. Håll reservationen när det är okänt om boten skapats eller dess ID inte kunnat lagras. Frigör bara efter ett definitivt avslag eller verifierad avstämning hos Recall.
+- **Verifiera:** 503, timeout/transportfel och DB-fel efter returnerat bot-ID leder inte till ett andra skapandeanrop eller frigjord plats; definitivt 4xx tillåter legitim återhämtning. Testa provideravstämning med syntetisk bot i driftlik miljö.
 
 Avstämning: **9 höga + 38 medel + 19 låga = 66 poster**. Gruppindelningen är en arbetsplan, inte en automatisk sammanslagning eller stängning av fynd. Ursprungsskanningen avbröts, så verifiera med en avslutad uppföljning.
 

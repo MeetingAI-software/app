@@ -130,22 +130,22 @@ describe('DrizzleUsageRepository', () => {
 
     it('excludes last month entirely while keeping this month', async () => {
       await insertUsageAt(aliceMeeting, 500, sql`now() - interval '1 month'`);
-      await insertUsageAt(aliceMeeting, 60, sql`now()`);
+      const thisMonthMeeting = await insertMeeting(alice);
+      await insertUsageAt(thisMonthMeeting, 60, sql`now()`);
 
       expect(await repo.monthlyTotalSeconds(alice)).toBe(60);
     });
   });
 
   describe('addSeconds', () => {
-    // A ledger, not a counter: each call appends. Turning this into an upsert would quietly reset
-    // the month every time a meeting finished.
-    it('appends a row per call rather than overwriting', async () => {
+    // Distinct webhook event IDs can replay the same terminal meeting.
+    it('settles one meeting only once even when the worker retries with another duration', async () => {
       await repo.addSeconds(aliceMeeting, 10);
       await repo.addSeconds(aliceMeeting, 20);
 
       const rows = await db.select().from(usageLedger).where(eq(usageLedger.meetingId, aliceMeeting));
-      expect(rows).toHaveLength(2);
-      expect(await repo.monthlyTotalSeconds(alice)).toBe(30);
+      expect(rows).toHaveLength(1);
+      expect(await repo.monthlyTotalSeconds(alice)).toBe(10);
     });
 
     it('accepts zero seconds without affecting the total', async () => {
