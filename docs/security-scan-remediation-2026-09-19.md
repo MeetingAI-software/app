@@ -213,6 +213,7 @@ En rad per findingId och occurrenceId från den bifogade JSON-artefakten. Plats 
 | ---: | --- | --- | --- | --- | --- | --- |
 | 67 | medium | local_recall_post_retry_20260926 | local_occ_recall_post_retry_20260926 | G30 | apps/api/src/adapters/recall/recall-request.ts | Ambiguous Recall bot creation is retried and can launch duplicate paid bots |
 | 68 | medium | local_assemblyai_post_retry_20260926 | local_occ_assemblyai_post_retry_20260926 | G31 | apps/api/src/adapters/assemblyai/assemblyai.adapter.ts | Ambiguous AssemblyAI transcript submission can create duplicate paid jobs |
+| 69 | medium | local_esbuild_dev_server_cors_20260926 | local_occ_esbuild_dev_server_cors_20260926 | G32 | package-lock.json | Dev toolchain includes an esbuild version with permissive dev-server CORS |
 
 #### N01 — Ambiguous Recall bot creation is retried and can launch duplicate paid bots (`local_recall_post_retry_20260926`, G30)
 
@@ -227,6 +228,14 @@ En rad per findingId och occurrenceId från den bifogade JSON-artefakten. Plats 
 - **Nuvarande beteende före fix:** klienten försökte om betalt `POST /v2/transcript` efter 5xx eller transportfel. Arbetaren försökte också om `audio_uploaded` när svar eller databaslagring försvann före jobb-ID, och ett gammalt jobb-ID kunde skrivas över.
 - **Fixkrav:** endast ett atomiskt, beständigt anspråk per uppladdning får nå skapandeanropet. Försök inte om okänt utfall utan dokumenterad provider-idempotens; bind jobb-ID högst en gång och behåll reservationen tills osäkert utfall har stämts av.
 - **Verifiera:** parallella workers, 503, tappat svar, krasch före/efter jobb-ID och återspelning kan inte skapa ett andra jobb. Kontrollera ett syntetiskt jobb mot AssemblyAI och en manuell återhämtningsväg innan fyndet stängs.
+
+#### N03 — Dev toolchain includes an esbuild version with permissive dev-server CORS (`local_esbuild_dev_server_cors_20260926`, G32)
+
+- **Spår:** `package-lock.json` (`@esbuild-kit/core-utils` → `esbuild@0.18.20`), `package.json` (`drizzle-kit` via API-arbetsytan). GitHubs råd [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) gäller `esbuild <=0.24.2` och anger `0.25.0` som rättad version.
+- **Nuvarande beteende före fix:** `npm audit --audit-level=high` rapporterade fyra måttliga poster i samma transitiva utvecklingskedja. Angreppsvägen kräver att den påverkade esbuild-versionens utvecklingsserver används och att en utvecklare öppnar en angriparsida; repositoryts kända användning går via `drizzle-kit`, och någon exploaterbar `serve`-väg har ännu inte belagts.
+- **Fixkrav:** lås den transitiva esbuild-versionen till en rättad version utan att bryta migration, schemaverktyg, byggen eller Node 20-installation. Undvik att nedgradera `drizzle-kit` genom en automatisk `--force`-fix.
+- **Verifiera:** `npm ci` på Node 20, `npm audit`, migrations-/schemaflöde samt API/webb-tester och byggen. Om verktygskedjan inte stöder override: dokumentera nåbarhetsbedömningen och välj kompatibel uppgradering.
+- **Status 2026-09-26:** öppet. En riktad npm-override provades lokalt men den befintliga låsfilen behöll `esbuild@0.18.20`. Omräkning från tom låsfil i Windows-arbetsytan ändrade många orelaterade plattformsberoenden och introducerade andra höga advisories; båda paketändringarna återställdes. Ingen kodväg till esbuilds `serve`-funktion har belagts i API:t, men ett rent Node 20-prov av verktygskedjan och en rättad låsfil återstår.
 
 Avstämning: **9 höga + 38 medel + 19 låga = 66 poster**. Gruppindelningen är en arbetsplan, inte en automatisk sammanslagning eller stängning av fynd. Ursprungsskanningen avbröts, så verifiera med en avslutad uppföljning.
 
