@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { login, ApiError } from '@/lib/api';
@@ -13,6 +13,16 @@ export function LoginPageClient({ legalPublished }: { legalPublished: boolean })
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get('error');
+    const message = reason === 'account_link_required'
+      ? 'This email already has an account. Sign in with your password, then link Google in Settings.'
+      : reason?.startsWith('oauth_')
+        ? 'Google sign-in could not be completed. Please try again.' : null;
+    if (!message) return;
+    queueMicrotask(() => setError(message));
+  }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

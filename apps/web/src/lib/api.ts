@@ -296,6 +296,14 @@ export async function verifyEmail(token: string, newPassword: string): Promise<A
   return handleResponseQuiet<AuthUserResponse>(response);
 }
 
+export async function startGoogleLink(currentPassword: string): Promise<{ url: string }> {
+  return handleResponseQuiet<{ url: string }>(await api('/api/auth/google/link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword }),
+  }));
+}
+
 export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthUserResponse> {
   const res = await api('/api/auth/change-password', {
     method: 'POST',

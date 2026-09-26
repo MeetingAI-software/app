@@ -12,6 +12,8 @@ import {
 import { config } from '../../../config/env';
 import { createServer } from '../server';
 import { createAuthRoutes, hasVerifiedGoogleEmail } from './auth.routes';
+import { GoogleOAuthStateService } from '../../../application/google-oauth-state.service';
+import type { GoogleOAuthChallenge } from '../../../ports/google-oauth-state.port';
 
 describe('hasVerifiedGoogleEmail', () => {
   it('accepts only Google identities with a verified email', () => {
@@ -45,6 +47,16 @@ describe('auth routes', () => {
   let baseUrl: string;
 
   beforeAll(() => {
+    const challenges = new Map<string, GoogleOAuthChallenge>();
+    const oauthStates = new GoogleOAuthStateService({
+      issue: async (challenge) => { challenges.set(challenge.stateHash, challenge); return true; },
+      claim: async (stateHash, now) => {
+        const challenge = challenges.get(stateHash);
+        if (!challenge || challenge.expiresAt <= now) return null;
+        challenges.delete(stateHash);
+        return challenge;
+      },
+    });
     const auth = {
       signup,
       login,
@@ -57,7 +69,7 @@ describe('auth routes', () => {
       deleteAccount: vi.fn(),
       loginOrCreateGoogleUser: vi.fn(),
     } as unknown as AuthService & AuthServiceApi;
-    const app = createServer([createAuthRoutes(auth)], async () => null);
+    const app = createServer([createAuthRoutes(auth, undefined, oauthStates)], async () => null);
     server = app.listen(0);
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
@@ -158,7 +170,7 @@ describe('auth routes', () => {
       expect(start.status).toBe(302);
       const location = new URL(start.headers.get('location') as string);
       const state = location.searchParams.get('state');
-      expect(state).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+      expect(state).toMatch(/^login\.[A-Za-z0-9_-]{43}$/);
 
       const setCookie = start.headers.get('set-cookie') as string;
       expect(setCookie).toContain(`oauth_state=${state}`);
@@ -181,6 +193,11 @@ describe('auth routes', () => {
       });
       expect(validState.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_failed`);
       expect(validState.headers.get('set-cookie')).toContain('oauth_state=;');
+
+      const replay = await fetch(`${baseUrl}/api/auth/google/callback?state=${state}`, {
+        redirect: 'manual', headers: { cookie: `oauth_state=${state}` },
+      });
+      expect(replay.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_state_invalid`);
     } finally {
       config.GOOGLE_CLIENT_ID = previous.clientId;
       config.GOOGLE_CLIENT_SECRET = previous.clientSecret;

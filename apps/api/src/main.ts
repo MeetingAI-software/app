@@ -10,6 +10,8 @@ import { DrizzleDocumentRepository } from './adapters/db/repositories/document.r
 import { DrizzleChatMessageRepository } from './adapters/db/repositories/chat-message.repository';
 import { DrizzleUserRepository } from './adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from './adapters/db/repositories/session.repository';
+import { DrizzleGoogleOAuthStateRepository } from './adapters/db/repositories/google-oauth-state.repository';
+import { GoogleOAuthStateService } from './application/google-oauth-state.service';
 import { DrizzleEmailSendLedgerRepository } from './adapters/db/repositories/email-send-ledger.repository';
 import { DrizzleVerificationTokenRepository } from './adapters/db/repositories/verification-token.repository';
 import { DrizzlePaddleBillingRepository } from './adapters/db/repositories/paddle-billing.repository';
@@ -212,6 +214,7 @@ async function bootstrap() {
   const deletionAuthorization = new DeletionAuthorizationService(
     new DrizzleDeletionAuthorizationRepository(), sessionRepo, userRepo, new GoogleDeletionIdentityAdapter(),
   );
+  const googleOAuthStates = new GoogleOAuthStateService(new DrizzleGoogleOAuthStateRepository());
   const authService = new AuthService(
     userRepo, sessionRepo, passwordHasher, config.SESSION_TTL_DAYS,
     meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter,
@@ -237,7 +240,7 @@ async function bootstrap() {
   const routes = [
     createHealthRoutes(),
     createWaitlistRoutes(waitlistRepo),
-    createAuthRoutes(authService, deletionAuthorization),
+    createAuthRoutes(authService, deletionAuthorization, googleOAuthStates),
     createMeRoutes(usageRepo, billingAccess, config.IN_ROOM_RECORDING_ENABLED),
     createBillingRoutes(
       customerPortal,

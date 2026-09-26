@@ -1,6 +1,6 @@
 import { db } from '../client';
 import { emailVerificationTokens, users } from '../schema';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { UserRepository } from '../../../ports/repositories.port';
 import type { User } from '../../../domain/types';
 import { EmailTakenError, InvalidCredentialsError } from '../../../domain/errors';
@@ -90,8 +90,20 @@ export class DrizzleUserRepository implements UserRepository {
     return row ? { ...toUser(row), authVersion: row.authVersion } : null;
   }
 
-  async linkGoogleId(id: string, googleId: string): Promise<void> {
-    await db.update(users).set({ googleId, emailVerified: true }).where(eq(users.id, id));
+  async linkGoogleId(input: Parameters<UserRepository['linkGoogleId']>[0]): Promise<boolean> {
+    try {
+      const attached = await db.update(users).set({ googleId: input.googleId })
+        .where(and(
+          eq(users.id, input.userId), eq(users.email, normalizeEmail(input.email)),
+          eq(users.emailVerified, true), eq(users.authVersion, input.expectedAuthVersion),
+          isNull(users.googleId),
+        )).returning({ id: users.id });
+      return attached.length === 1;
+    } catch (error) {
+      // The unique google_id constraint chooses a single winner for concurrent links to a sub.
+      if (hasPostgresErrorCode(error, PG_UNIQUE_VIOLATION)) return false;
+      throw error;
+    }
   }
 
   async markEmailVerified(id: string): Promise<void> {

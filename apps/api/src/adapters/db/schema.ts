@@ -173,6 +173,28 @@ export const accountDeletionAuthorizations = pgTable('account_deletion_authoriza
   consumedAt: timestamp('consumed_at', { withTimezone: true }),
 });
 
+// One-time OAuth challenges. State and nonce are stored only as hashes; link challenges bind to a
+// particular logged-in session and credential version. Login challenges have no user binding.
+export const googleOAuthStates = pgTable('google_oauth_states', {
+  stateHash: text('state_hash').primaryKey(),
+  nonceHash: text('nonce_hash').notNull(),
+  purpose: text('purpose').notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  sessionHash: text('session_hash'),
+  authVersion: integer('auth_version'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+}, (t) => ({
+  googleOAuthStatesExpiryIdx: index('google_oauth_states_expiry_idx').on(t.expiresAt),
+}));
+
+// One atomic global budget across API replicas before an OAuth redirect/provider exchange.
+export const googleOAuthBudget = pgTable('google_oauth_budget', {
+  window: text('window').primaryKey(),
+  count: integer('count').notNull(),
+});
+
 // Paddle is the billing source of truth. Customer rows may be created as placeholders when
 // subscription webhooks arrive first; a later customer webhook fills in email/user ownership.
 export const paddleCustomers = pgTable('paddle_customers', {

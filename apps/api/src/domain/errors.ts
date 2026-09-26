@@ -176,6 +176,20 @@ export class GoogleAccountLinkRequiredError extends Error {
   }
 }
 
+export class OAuthCapacityError extends Error {
+  constructor() {
+    super('Google sign-in is temporarily busy; try again later');
+    this.name = 'OAuthCapacityError';
+  }
+}
+
+export class GoogleLinkRejectedError extends Error {
+  constructor() {
+    super('Google account could not be linked to this account');
+    this.name = 'GoogleLinkRejectedError';
+  }
+}
+
 export class InvalidVerificationTokenError extends Error {
   constructor(message = 'Verification token is invalid') {
     super(message);
