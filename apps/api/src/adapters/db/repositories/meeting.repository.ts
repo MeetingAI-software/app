@@ -177,6 +177,51 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     return (row as Meeting) || null;
   }
 
+  async claimUploadSubmission(id: string): Promise<boolean> {
+    const rows = await db.update(meetings)
+      .set({ status: 'processing', updatedAt: new Date() })
+      .where(and(
+        eq(meetings.id, id),
+        eq(meetings.source, 'upload'),
+        eq(meetings.status, 'pending'),
+        isNotNull(meetings.audioStoragePath),
+        isNull(meetings.transcriptionJobId),
+      ))
+      .returning({ id: meetings.id });
+    return rows.length === 1;
+  }
+
+  async bindTranscriptionJob(id: string, jobId: string): Promise<boolean> {
+    const rows = await db.update(meetings)
+      .set({ transcriptionJobId: jobId, updatedAt: new Date() })
+      .where(and(
+        eq(meetings.id, id),
+        eq(meetings.source, 'upload'),
+        eq(meetings.status, 'processing'),
+        isNull(meetings.transcriptionJobId),
+      ))
+      .returning({ id: meetings.id });
+    return rows.length === 1;
+  }
+
+  async failRejectedUploadSubmission(id: string, reason: string): Promise<void> {
+    await db.transaction(async tx => {
+      const [row] = await tx.update(meetings)
+        .set({ status: 'failed', errorMessage: reason, updatedAt: new Date() })
+        .where(and(
+          eq(meetings.id, id),
+          eq(meetings.source, 'upload'),
+          eq(meetings.status, 'processing'),
+          isNull(meetings.transcriptionJobId),
+        ))
+        .returning({ id: meetings.id });
+      if (!row) throw new Error('Upload submission state changed before rejection');
+      await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
+        .where(and(eq(meetingQuotaReservations.meetingId, id),
+          isNull(meetingQuotaReservations.releasedAt)));
+    });
+  }
+
   async updateStatus(
     id: string,
     to: MeetingStatus,
@@ -196,14 +241,19 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     if (to === 'failed') {
       // Failure and release are one commit. A replay cannot release a later, different claim.
       return db.transaction(async tx => {
+        const [prior] = await tx.select({
+          source: meetings.source, status: meetings.status, botId: meetings.botId,
+        }).from(meetings).where(eq(meetings.id, id)).for('update');
         const [row] = await tx.update(meetings).set(updateFields)
           .where(eq(meetings.id, id)).returning();
         if (row) {
           const [charged] = await tx.select({ id: usageLedger.id }).from(usageLedger)
             .where(eq(usageLedger.meetingId, id));
-          // A created bot may have recorded despite a failed transcript or worker. Retain its
-          // claim until measured/conservative settlement; only a pre-bot rejection is free.
-          if (row.source !== 'bot' || !row.botId || charged) {
+          // Only a committed provider-start claim can have paid work behind a failed upload.
+          // Audio storage alone proves nothing: URL signing may fail before submission.
+          const mayHaveSpent = (prior?.source === 'bot' && !!prior.botId)
+            || (prior?.source === 'upload' && prior.status !== 'pending');
+          if (charged || !mayHaveSpent) {
             await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
               .where(and(eq(meetingQuotaReservations.meetingId, id),
                 isNull(meetingQuotaReservations.releasedAt)));

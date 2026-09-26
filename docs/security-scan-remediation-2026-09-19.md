@@ -8,6 +8,7 @@ Alla 66 `findingId` finns i [fyndregistret](#fyndregister-för-samtliga-66-fynd)
 
 ## Genomförd lokal verifiering, ännu inte avslutade fynd
 
+- **N02/G31, lokalt fynd:** `audio_uploaded` gör nu ett atomiskt anspråk på uppladdningsmötet innan ett betalt AssemblyAI-jobb skickas. Adaptern försöker inte om tvetydiga `POST /v2/transcript`; ett returnerat jobb-ID binds högst en gång. Vid okänt utfall eller tvetydigt outbox-svar hålls ljud och mötesreservation för avstämning. Bevisat avslag och fel före anspråket frigör kvoten atomiskt. Riktade tester täcker parallella anspråk, 503, förlorat svar, återspelning, 401, fel före anspråk, outbox-kapplöpning, redan misslyckat möte och legitim GET-retry. Avstämning av föräldralöst jobb och slut-till-slut-prov hos AssemblyAI återstår; se D14.
 - **G10, `csf_0e532d165c4f0cd8ec9f6afd`:** botens slutavräkning använder nu Recalls inspelningstidsstämplar, med botens statusförlopp som reservkälla, i stället för sista talade transkriptsegmentet. Saknad eller ogiltig providertid ger avräkning av hela den beständiga reservationen. Samma avräkning görs vid misslyckad transkribering och botfel; återspelning är idempotent. Adapter-, tjänste- och PGlite-tester täcker tyst inspelning, tomt transkript, saknad metadata, felvägar och återspelning. Ett syntetiskt slut-till-slut-prov mot aktuell Recall-respons och kontroll av kostnadsmodellen återstår innan G10 stängs.
 - **G07 förtydligande:** `failed` frigör en reservation bara före botskapande eller efter att inspelningstiden har slutavräknats. Om en skapad bot kan ha spelat in och slutavräkning misslyckas hålls reservationen kvar för senare avstämning. Det kan blockera ett legitimt nytt möte tills felet rättas; se D12 och D13.
 - **G07, `csf_da1786ccb8f3c089161d9f30`, `csf_67985ad96ca33ba5737c9f36`, `csf_39bbf72f43af1f1037168c45`, `csf_48517ef3093550d5202131da`, `csf_c21fb310b708744502a4865c`:** bot och uppladdning skapar nu mötesrad och beständig reservation i samma transaktion under ett användarradslås, före betalt providerarbete. `pending` räknas; aktiv reservation följer med över månadsbyte. Slutbokföring ersätter reservationen atomiskt och är idempotent per möte; felstatus släpper reservationen. Migreringen reserverar konservativt för äldre pågående möten och konsoliderar historiska ledgerdubletter. PGlite-tester täcker parallella botstarter, bot/uppladdning mot samma budget, månadsbyte, återspelning och frigöring. G09/G10:s betrodda duration, återhämtning av föräldralös `pending` utan känt provider-ID och lastprov över verkliga API-repliker återstår; G07 är därför inte stängt.
@@ -130,6 +131,7 @@ Varje paket anger **säkerhetsinvariant → ändring → negativt bevis**. Fynd-
 | **G28 Promptgräns** | Placera deltagarnamn i uttryckligt obetrott metadatafält, normalisera kontrolltecken/avgränsare och validera genererade ägare mot kanonisk deltagarlista. Testa namn som innehåller instruktionstext. |
 | **G29 Lokal PostgreSQL** | Bind Docker-port till `127.0.0.1` eller använd enbart internt nät; ersätt kända devcredentials om fjärråtkomst behövs. Testa portbindningen från annan värd. |
 | **G30 Recall-botskapande** | Försök inte om ett betalt `POST /bot/` efter tvetydigt svar utan en dokumenterad idempotensnyckel. Behåll reservation vid osäkert providerutfall och stäm av föräldralös bot innan platsen frigörs. Testa 5xx, förlorat svar, definitivt 4xx och fel efter returnerat bot-ID. |
+| **G31 AssemblyAI-jobbskapande** | Gör ett beständigt engångsanspråk per uppladdning före betalt `POST /v2/transcript`; försök inte om tvetydigt svar och bind returnerat jobb-ID atomiskt. Behåll kvoten tills okänt utfall har stämts av. Testa parallella workers, 5xx, förlorat svar och krascher runt ID-lagring. |
 
 ## Fyndregister för samtliga 66 fynd
 
@@ -209,6 +211,7 @@ En rad per findingId och occurrenceId från den bifogade JSON-artefakten. Plats 
 | Nr | Grad | findingId | occurrenceId | Paket | Primär plats | Exakt titel |
 | ---: | --- | --- | --- | --- | --- | --- |
 | 67 | medium | local_recall_post_retry_20260926 | local_occ_recall_post_retry_20260926 | G30 | apps/api/src/adapters/recall/recall-request.ts | Ambiguous Recall bot creation is retried and can launch duplicate paid bots |
+| 68 | medium | local_assemblyai_post_retry_20260926 | local_occ_assemblyai_post_retry_20260926 | G31 | apps/api/src/adapters/assemblyai/assemblyai.adapter.ts | Ambiguous AssemblyAI transcript submission can create duplicate paid jobs |
 
 #### N01 — Ambiguous Recall bot creation is retried and can launch duplicate paid bots (`local_recall_post_retry_20260926`, G30)
 
@@ -216,6 +219,13 @@ En rad per findingId och occurrenceId från den bifogade JSON-artefakten. Plats 
 - **Nuvarande beteende före fix:** `requestRecall` försökte om samma `POST /api/v1/bot/` en gång efter 5xx eller transportfel. Om första anropet skapat en bot men svaret förlorats kunde ett andra anrop skapa en till. Felvägen i starttjänsten markerade dessutom mötet misslyckat och frigjorde kvot utan att veta om en bot var aktiv.
 - **Fixkrav:** försök inte om ett tvetydigt skapandeanrop utan providerstyrd idempotens. Håll reservationen när det är okänt om boten skapats eller dess ID inte kunnat lagras. Frigör bara efter ett definitivt avslag eller verifierad avstämning hos Recall.
 - **Verifiera:** 503, timeout/transportfel och DB-fel efter returnerat bot-ID leder inte till ett andra skapandeanrop eller frigjord plats; definitivt 4xx tillåter legitim återhämtning. Testa provideravstämning med syntetisk bot i driftlik miljö.
+
+#### N02 — Ambiguous AssemblyAI transcript submission can create duplicate paid jobs (`local_assemblyai_post_retry_20260926`, G31)
+
+- **Spår:** `apps/api/src/adapters/assemblyai/assemblyai.adapter.ts` (`submit`), `apps/api/src/application/process-upload-event.service.ts` (`handleAudioUploaded`), `apps/api/src/adapters/db/repositories/meeting.repository.ts`.
+- **Nuvarande beteende före fix:** klienten försökte om betalt `POST /v2/transcript` efter 5xx eller transportfel. Arbetaren försökte också om `audio_uploaded` när svar eller databaslagring försvann före jobb-ID, och ett gammalt jobb-ID kunde skrivas över.
+- **Fixkrav:** endast ett atomiskt, beständigt anspråk per uppladdning får nå skapandeanropet. Försök inte om okänt utfall utan dokumenterad provider-idempotens; bind jobb-ID högst en gång och behåll reservationen tills osäkert utfall har stämts av.
+- **Verifiera:** parallella workers, 503, tappat svar, krasch före/efter jobb-ID och återspelning kan inte skapa ett andra jobb. Kontrollera ett syntetiskt jobb mot AssemblyAI och en manuell återhämtningsväg innan fyndet stängs.
 
 Avstämning: **9 höga + 38 medel + 19 låga = 66 poster**. Gruppindelningen är en arbetsplan, inte en automatisk sammanslagning eller stängning av fynd. Ursprungsskanningen avbröts, så verifiera med en avslutad uppföljning.
 

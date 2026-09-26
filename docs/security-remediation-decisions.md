@@ -94,3 +94,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Kan ett syntetiskt Recall-möte i den använda regionen bekräfta fälten `recordings[].started_at/completed_at`, botens statusförlopp och faktisk debiteringsgrund, även vid tystnad och avbrutet transkript?
 - **Mitt förslag:** Kör ett kort syntetiskt möte och ett felmöte utan kunddata. Jämför providerrespons, intern ledger och leverantörens fakturerade tid. Behåll konservativ avräkning tills en säker kortare regel kan bevisas.
 - **Status:** Väntar på ägarens svar. Ingen provider- eller produktionsändring är gjord.
+
+### D14 — Avstäm föräldralösa AssemblyAI-jobb (G31)
+
+- **Vad betyder det?** Om ett transkriptionsjobb skapas men API-svaret eller lagringen av jobb-ID går förlorad skickar arbetaren inte ett nytt betalt jobb. Mötesreservationen hålls då kvar och användaren kan tillfälligt sakna transkript och ledig kvot.
+- **Vad behöver du avgöra?** Finns en behörig väg hos AssemblyAI för att identifiera ett syntetiskt jobb via intern mötesreferens eller uppladdad ljud-URL, och vem får avstämma ett verkligt oklart jobb innan kvoten frigörs?
+- **Mitt förslag:** Bekräfta leverantörens stöd för idempotens eller sökning. Bygg ett begränsat driftflöde med spårbart beslut för att binda upptäckt jobb-ID eller säkert frigöra en definitivt ej skapad beställning. Prova förlorat svar utan kunddata. Återförsök inte automatiskt efter timeout.
+- **Status:** Väntar på ägarens svar. Ingen provider- eller produktionsändring är gjord.

@@ -108,4 +108,63 @@ describe('durable meeting quota admission', () => {
       .where(eq(meetingQuotaReservations.meetingId, first.id));
     expect(after.releasedAt).not.toBeNull();
   });
+
+  it('admits only one AssemblyAI submission and binds its job once', async () => {
+    const first = await meetingsRepo.reserve(upload(ownerUserId), plan, 2);
+    await meetingsRepo.setUploadInfo(first.id, { audioStoragePath: 'audio/test.webm' });
+    const results = await Promise.all([
+      meetingsRepo.claimUploadSubmission(first.id),
+      new DrizzleMeetingRepository().claimUploadSubmission(first.id),
+    ]);
+    expect(results.sort()).toEqual([false, true]);
+    expect(await meetingsRepo.claimUploadSubmission(first.id)).toBe(false);
+    expect(await meetingsRepo.bindTranscriptionJob(first.id, 'job-1')).toBe(true);
+    expect(await meetingsRepo.bindTranscriptionJob(first.id, 'job-2')).toBe(false);
+    expect((await meetingsRepo.findById(first.id))?.transcriptionJobId).toBe('job-1');
+  });
+
+  it('keeps an uncertain paid upload claim after a failed worker event', async () => {
+    const first = await meetingsRepo.reserve(upload(ownerUserId), plan, 2);
+    await meetingsRepo.setUploadInfo(first.id, { audioStoragePath: 'audio/test.webm' });
+    expect(await meetingsRepo.claimUploadSubmission(first.id)).toBe(true);
+    await meetingsRepo.updateStatus(first.id, 'failed');
+    await meetingsRepo.updateStatus(first.id, 'failed');
+    expect(await meetingsRepo.claimUploadSubmission(first.id)).toBe(false);
+    const [claim] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, first.id));
+    expect(claim.releasedAt).toBeNull();
+  });
+
+  it('keeps a paid claim when an outbox error clears the stored audio path', async () => {
+    const first = await meetingsRepo.reserve(upload(ownerUserId), plan, 2);
+    await meetingsRepo.setUploadInfo(first.id, { audioStoragePath: 'audio/test.webm' });
+    expect(await meetingsRepo.claimUploadSubmission(first.id)).toBe(true);
+    await meetingsRepo.setUploadInfo(first.id, { audioStoragePath: null });
+    await meetingsRepo.updateStatus(first.id, 'failed');
+    const [claim] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, first.id));
+    expect(claim.releasedAt).toBeNull();
+  });
+
+  it('releases an upload rejected before any submission claim despite retained audio', async () => {
+    const first = await meetingsRepo.reserve(upload(ownerUserId), plan, 2);
+    await meetingsRepo.setUploadInfo(first.id, { audioStoragePath: 'audio/test.webm' });
+    await meetingsRepo.updateStatus(first.id, 'failed');
+    const [claim] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, first.id));
+    expect(claim.releasedAt).not.toBeNull();
+    expect(await meetingsRepo.claimUploadSubmission(first.id)).toBe(false);
+  });
+
+  it('releases a definite provider rejection but never reclaims its failed meeting', async () => {
+    const first = await meetingsRepo.reserve(upload(ownerUserId), plan, 2);
+    await meetingsRepo.setUploadInfo(first.id, { audioStoragePath: 'audio/test.webm' });
+    expect(await meetingsRepo.claimUploadSubmission(first.id)).toBe(true);
+    await meetingsRepo.failRejectedUploadSubmission(first.id, 'AssemblyAI submit rejected: 401');
+    const [claim] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, first.id));
+    expect(claim.releasedAt).not.toBeNull();
+    expect((await meetingsRepo.findById(first.id))?.status).toBe('failed');
+    expect(await meetingsRepo.claimUploadSubmission(first.id)).toBe(false);
+  });
 });

@@ -105,6 +105,14 @@ export class BotProviderError extends Error {
   }
 }
 
+/** The transcription request was definitely rejected before a paid job could be created. */
+export class TranscriptionSubmitRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TranscriptionSubmitRejectedError';
+  }
+}
+
 export class DocumentGenerationError extends Error {
   constructor(message: string) {
     super(message);

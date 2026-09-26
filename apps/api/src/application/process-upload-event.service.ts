@@ -10,6 +10,7 @@ import type { TranscriptSegment } from '../domain/types';
 import { assertTransition } from '../domain/state-machine';
 import { mapSpeakers } from '../domain/speaker-mapping';
 import { logger } from '../config/logger';
+import { TranscriptionSubmitRejectedError } from '../domain/errors';
 
 export type UploadEventType = 'audio_uploaded' | 'transcription_ready';
 
@@ -49,22 +50,34 @@ export class ProcessUploadEventService {
 
     const meeting = await this.meetingRepo.findById(payload.meetingId);
     if (!meeting) throw new Error(`Meeting not found: ${payload.meetingId}`);
-    if (!meeting.audioStoragePath) throw new Error(`Meeting ${meeting.id} has no audioStoragePath`);
 
     // Idempotent: if we already submitted, do not create a second transcription job.
     if (meeting.transcriptionJobId) {
       logger.info({ meetingId: meeting.id }, 'audio_uploaded already submitted — skipping');
       return;
     }
-
-    if (meeting.status === 'pending') {
-      assertTransition('pending', 'processing');
-      await this.meetingRepo.updateStatus(meeting.id, 'processing');
-    }
+    if (!meeting.audioStoragePath) throw new Error(`Meeting ${meeting.id} has no audioStoragePath`);
 
     const url = await this.storage.getSignedUrl(meeting.audioStoragePath);
-    const { jobId } = await this.transcription.submit(url, { meetingId: meeting.id });
-    await this.meetingRepo.setUploadInfo(meeting.id, { transcriptionJobId: jobId });
+    // A committed claim is the durable boundary before the paid POST. If the response is lost,
+    // neither an event replay nor another worker may submit a second job without reconciliation.
+    if (!await this.meetingRepo.claimUploadSubmission(meeting.id)) {
+      logger.warn({ meetingId: meeting.id }, 'Transcription submission already claimed; awaiting reconciliation');
+      return;
+    }
+    let jobId: string;
+    try {
+      ({ jobId } = await this.transcription.submit(url, { meetingId: meeting.id }));
+    } catch (err) {
+      if (err instanceof TranscriptionSubmitRejectedError) {
+        await this.meetingRepo.failRejectedUploadSubmission(meeting.id, err.message);
+        return;
+      }
+      throw err;
+    }
+    if (!await this.meetingRepo.bindTranscriptionJob(meeting.id, jobId)) {
+      throw new Error('Transcription job could not be bound to its claimed meeting');
+    }
 
     logger.info({ meetingId: meeting.id, jobId }, 'Transcription submitted for uploaded audio');
   }
