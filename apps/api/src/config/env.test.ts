@@ -64,6 +64,23 @@ describe('production transport URL validation', () => {
 });
 
 describe('in-room recording environment validation', () => {
+  it.each([undefined, 'https://localhost', 'https://127.0.0.1', 'https://10.0.0.1', 'https://[::1]'])
+    ('rejects an unreachable transcription callback origin %s', (origin) => {
+      const result = envSchema.safeParse({
+        ...productionBase,
+        PUBLIC_WEBHOOK_URL: origin,
+        IN_ROOM_RECORDING_ENABLED: 'true',
+        TRANSCRIPTION_PROVIDER: 'assemblyai',
+        ASSEMBLYAI_BASE_URL: 'https://api.eu.assemblyai.com',
+        ASSEMBLYAI_API_KEY: 'eu-key',
+        TRANSCRIPTION_WEBHOOK_SECRET: 'webhook-secret',
+        SUPABASE_URL: 'https://project.supabase.co',
+        SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.some(issue => issue.path[0] === 'PUBLIC_WEBHOOK_URL')).toBe(true);
+    });
+
   it('allows production to boot with the feature disabled and the default AssemblyAI endpoint', () => {
     const result = envSchema.safeParse({
       ...productionBase,

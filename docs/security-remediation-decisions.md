@@ -66,3 +66,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Vem kan bekräfta att migrationskedjan till och med `0021` är körd i drift och att API-rollen kan läsa och skriva i e-postledgern innan en PR slås ihop?
 - **Mitt förslag:** Kör migrationskontrollen före merge och testa ett syntetiskt verifieringsutskick i en säker driftlik miljö. Behåll fail-closed-beteendet om kontrollen misslyckas.
 - **Status:** Väntar på ägarens svar. Ingen produktionsdatabas eller e-postleverantör har ändrats.
+
+### D10 — Verifiera transkriptionscallback i drift (G23)
+
+- **Vad betyder det?** API:t kräver nu en publik HTTPS-basadress för AssemblyAI-callback när in-room-inspelning är på. En giltig URL i konfigurationen bevisar inte att DNS, brandvägg, webhookhemlighet och leverantörens leverans fungerar.
+- **Vad behöver du avgöra?** Är `PUBLIC_WEBHOOK_URL` satt till den faktiska API-adressen i drift, och vem kan köra ett syntetiskt AssemblyAI-jobb som bekräftar callback och slutavräkning utan kunddata?
+- **Mitt förslag:** Kontrollera leverantörens callback-URL och ett fullständigt syntetiskt transkriptionsflöde före merge eller innan in-room-funktionen aktiveras.
+- **Status:** Väntar på ägarens svar. Ingen leverantörs- eller driftkonfiguration har ändrats.
