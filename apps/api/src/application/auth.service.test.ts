@@ -341,7 +341,8 @@ function build(meetingStore: Meeting[] = []) {
   const chat: ChatMessageRepository = { add: vi.fn(), listByMeeting: vi.fn(), countUserMessages: vi.fn(), deleteByMeeting: vi.fn() };
   const usage: UsageRepository = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
   const storage: AudioStoragePort = { upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
-  const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn(), fetchTranscript: vi.fn(), deleteRecording: vi.fn() };
+  const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn(), fetchTranscript: vi.fn(),
+    getRecordedDurationSeconds: vi.fn(), deleteRecording: vi.fn() };
   const billing = { anonymizeCustomerForUser: vi.fn() } as unknown as PaddleBillingRepository;
   // Mutable clock: lets a test step past the resend cooldown without actually waiting a minute.
   const clock = { now: new Date() };

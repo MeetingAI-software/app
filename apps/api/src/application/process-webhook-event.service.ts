@@ -115,6 +115,14 @@ export class ProcessWebhookEventService {
     }
   }
 
+  private async settleBotDuration(meetingId: string, botId: string): Promise<number> {
+    const measured = await this.botAdapter.getRecordedDurationSeconds(botId).catch(() => {
+      logger.warn({ meetingId }, 'Recording duration unavailable; using reserved maximum');
+      return null;
+    });
+    return this.usageRepo.addSeconds(meetingId, measured);
+  }
+
   async processEvent(
     action: 'transcript_ready' | 'transcript_failed' | 'bot_status_change',
     payload: any
@@ -139,10 +147,15 @@ export class ProcessWebhookEventService {
     if (action === 'transcript_failed') {
       // The provider could not produce a transcript. There is nothing to retry on our side.
       const reason = subCode ? `Transcription failed at provider (${subCode})` : 'Transcription failed at provider';
-      if (meeting.status === 'failed' || meeting.status === 'transcribed') {
+      if (meeting.status === 'failed') {
+        await this.settleBotDuration(meeting.id, botId);
         return;
       }
-      await this.meetingRepo.updateStatus(meeting.id, 'failed', { errorMessage: reason });
+      if (meeting.status === 'transcribed') {
+        return;
+      }
+      const durationSeconds = await this.settleBotDuration(meeting.id, botId);
+      await this.meetingRepo.updateStatus(meeting.id, 'failed', { errorMessage: reason, durationSeconds });
       await this.closeLiveTranscript(meeting.id, 'failed');
       logger.error({ meetingId: meeting.id, botId, subCode }, 'Transcription failed at provider');
       return;
@@ -161,37 +174,46 @@ export class ProcessWebhookEventService {
       }
 
       if (meeting.status === nextStatus) {
+        if (nextStatus === 'failed') {
+          await this.settleBotDuration(meeting.id, botId);
+        }
         return;
       }
 
       try {
         assertTransition(meeting.status, nextStatus);
-        console.log(`👷 Transitioning meeting ${meeting.id} status from ${meeting.status} to ${nextStatus}`);
-
-        if (nextStatus === 'failed') {
-          // A terminal failure carries the provider's reason in `sub_code` (e.g.
-          // `meeting_not_found` when the link is wrong or the call never started). Without it
-          // the meeting lands in `failed` with a null errorMessage and the UI has nothing to
-          // tell the user.
-          const reason = subCode
-            ? `Bot could not record the meeting (${subCode})`
-            : 'Bot could not record the meeting';
-          await this.meetingRepo.updateStatus(meeting.id, nextStatus, { errorMessage: reason });
-          await this.closeLiveTranscript(meeting.id, 'failed');
-        } else {
-          await this.meetingRepo.updateStatus(meeting.id, nextStatus);
-        }
-      } catch (err: any) {
-        console.error(`⚠️ Illegal transition attempted from ${meeting.status} to ${nextStatus} for meeting ${meeting.id}:`, err.message);
-      }
-    } else if (action === 'transcript_ready') {
-      // A distinct signed event ID can still replay a completed transcript. Do not fetch, save,
-      // bill or delete media again once the meeting reached a terminal state.
-      if (meeting.status === 'transcribed') {
-        await this.usageRepo.addSeconds(meeting.id, meeting.durationSeconds ?? 0);
+      } catch {
+        logger.warn({ meetingId: meeting.id, from: meeting.status, to: nextStatus },
+          'Ignoring invalid bot status transition');
         return;
       }
-      if (meeting.status === 'failed') return;
+      console.log(`👷 Transitioning meeting ${meeting.id} status from ${meeting.status} to ${nextStatus}`);
+
+      if (nextStatus === 'failed') {
+        // A terminal failure carries the provider's reason in `sub_code` (e.g.
+        // `meeting_not_found` when the link is wrong or the call never started). Without it
+        // the meeting lands in `failed` with a null errorMessage and the UI has nothing to
+        // tell the user.
+        const reason = subCode
+          ? `Bot could not record the meeting (${subCode})`
+          : 'Bot could not record the meeting';
+        const durationSeconds = await this.settleBotDuration(meeting.id, botId);
+        await this.meetingRepo.updateStatus(meeting.id, nextStatus, { errorMessage: reason, durationSeconds });
+        await this.closeLiveTranscript(meeting.id, 'failed');
+      } else {
+        await this.meetingRepo.updateStatus(meeting.id, nextStatus);
+      }
+    } else if (action === 'transcript_ready') {
+      // A distinct signed event ID can still replay a completed transcript. Reconcile usage
+      // idempotently, but do not fetch, save or delete media again in a terminal state.
+      if (meeting.status === 'transcribed') {
+        await this.settleBotDuration(meeting.id, botId);
+        return;
+      }
+      if (meeting.status === 'failed') {
+        await this.settleBotDuration(meeting.id, botId);
+        return;
+      }
       console.log(`👷 Processing transcript_ready for meeting ${meeting.id} (bot: ${botId})`);
       
       // Fetch transcript segments
@@ -200,12 +222,9 @@ export class ProcessWebhookEventService {
       // Save transcript
       await this.transcriptRepo.save(meeting.id, segments, payload);
 
-      // Estimate duration based on segments
-      let durationSeconds = 0;
-      if (segments.length > 0) {
-        const lastSegment = segments[segments.length - 1];
-        durationSeconds = Math.ceil(lastSegment.endMs / 1000);
-      }
+      // Recording time includes silence and is independent of transcript word timestamps.
+      // If Recall timing is unavailable, settle the reserved maximum rather than charging zero.
+      const durationSeconds = await this.settleBotDuration(meeting.id, botId);
 
       // Transition the meeting status step-by-step to transcribed
       let currentStatus = meeting.status;
@@ -244,9 +263,6 @@ export class ProcessWebhookEventService {
       // Done before the summary, which takes seconds: any browser watching the live stream
       // should flip to the finished view as soon as the real transcript exists.
       await this.closeLiveTranscript(meeting.id, 'transcribed');
-
-      // Add to usage ledger
-      await this.usageRepo.addSeconds(meeting.id, durationSeconds);
 
       // Summary. A missing summary must never block markProcessed or the document button.
       let summarySucceeded = false;

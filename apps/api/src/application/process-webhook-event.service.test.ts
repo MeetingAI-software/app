@@ -71,11 +71,12 @@ describe('ProcessWebhookEventService', () => {
     } as unknown as MeetingRepository;
 
     transcriptRepo = { save: vi.fn(), findByMeetingId: vi.fn() } as unknown as TranscriptRepository;
-    usageRepo = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn() } as unknown as UsageRepository;
+    usageRepo = { addSeconds: vi.fn().mockResolvedValue(3600), monthlyTotalSeconds: vi.fn() } as unknown as UsageRepository;
     bot = {
       createBot: vi.fn(),
       getBotStatus: vi.fn(),
       fetchTranscript: vi.fn(),
+      getRecordedDurationSeconds: vi.fn().mockResolvedValue(null),
       deleteRecording: vi.fn(),
     };
     docGen = { generateSummary: vi.fn(), generateDocument: vi.fn() } as unknown as DocumentGeneratorPort;
@@ -126,6 +127,7 @@ describe('ProcessWebhookEventService', () => {
 
     expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'failed', {
       errorMessage: 'Bot could not record the meeting (meeting_not_found)',
+      durationSeconds: 3600,
     });
   });
 
@@ -147,7 +149,26 @@ describe('ProcessWebhookEventService', () => {
 
     expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'failed', {
       errorMessage: 'Transcription failed at provider (no_audio)',
+      durationSeconds: 3600,
     });
+  });
+
+  it('reconciles a failed meeting on repeated failure events', async () => {
+    vi.mocked(meetingRepo.findByBotId).mockResolvedValue(meeting({ status: 'failed' }));
+
+    await service.processEvent('bot_status_change', botEvent('fatal'));
+    await service.processEvent('transcript_failed', botEvent('fatal'));
+
+    expect(usageRepo.addSeconds).toHaveBeenCalledTimes(2);
+    expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed bot event when durable usage settlement fails', async () => {
+    vi.mocked(usageRepo.addSeconds).mockRejectedValue(new Error('database unavailable'));
+
+    await expect(service.processEvent('bot_status_change', botEvent('fatal')))
+      .rejects.toThrow('database unavailable');
+    expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
   });
 
   it('does not fail a meeting that already transcribed', async () => {
@@ -182,17 +203,35 @@ describe('ProcessWebhookEventService', () => {
     expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
   });
 
+  it('charges a long silent bot recording using provider time, not the empty transcript', async () => {
+    vi.mocked(meetingRepo.findByBotId).mockResolvedValue(meeting({ status: 'processing' }));
+    vi.mocked(bot.fetchTranscript).mockResolvedValue([]);
+    vi.mocked(bot.getRecordedDurationSeconds).mockResolvedValue(1800);
+    vi.mocked(usageRepo.addSeconds).mockResolvedValue(1800);
+    vi.mocked(docGen.generateSummary).mockResolvedValue('Empty recording');
+    await service.processEvent('transcript_ready', botEvent('done'));
+    expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', 1800);
+    expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 1800 });
+  });
+
+  it('charges the reserved maximum when provider duration lookup fails', async () => {
+    vi.mocked(meetingRepo.findByBotId).mockResolvedValue(meeting({ status: 'processing' }));
+    vi.mocked(bot.fetchTranscript).mockResolvedValue([]);
+    vi.mocked(bot.getRecordedDurationSeconds).mockRejectedValue(new Error('provider unavailable'));
+    vi.mocked(usageRepo.addSeconds).mockResolvedValue(3600);
+    vi.mocked(docGen.generateSummary).mockResolvedValue('Empty recording');
+    await service.processEvent('transcript_ready', botEvent('done'));
+    expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', null);
+    expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 3600 });
+  });
+
   it.each(['transcribed', 'failed'] as const)
     ('avoids duplicate provider work for a replayed transcript in state %s', async status => {
       vi.mocked(meetingRepo.findByBotId).mockResolvedValue(meeting({ status }));
       await service.processEvent('transcript_ready', botEvent('done'));
       expect(bot.fetchTranscript).not.toHaveBeenCalled();
       expect(transcriptRepo.save).not.toHaveBeenCalled();
-      if (status === 'transcribed') {
-        // The repository settles once; a replay also repairs a crash after status persistence.
-        expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', 0);
-      } else {
-        expect(usageRepo.addSeconds).not.toHaveBeenCalled();
-      }
+      // The repository settles once; a replay also repairs a crash after status persistence.
+      expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', null);
     });
 });

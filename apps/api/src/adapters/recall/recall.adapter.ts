@@ -56,6 +56,28 @@ export class RecallAdapter implements MeetingBotPort {
     return this.guarded('fetch_transcript', () => this.fetchTranscriptRequest(botId));
   }
 
+  getRecordedDurationSeconds(botId: string): Promise<number | null> {
+    return this.guarded('retrieve_bot', async () => {
+      const bot = await this.retrieveBot(botId);
+      // Recall's recording timestamps cover silence as well as speech. Its documented
+      // joining_call -> done status span is a conservative fallback for older bot payloads.
+      const recordings = Array.isArray(bot.recordings) ? bot.recordings : [];
+      if (recordings.length > 0) {
+        let total = 0;
+        for (const recording of recordings) {
+          const seconds = durationBetween(recording?.started_at, recording?.completed_at);
+          if (seconds === null) return null;
+          total += seconds;
+        }
+        return validDuration(total);
+      }
+      const changes = Array.isArray(bot.status_changes) ? bot.status_changes : [];
+      const joined = changes.find((change: unknown) => isStatus(change, 'joining_call'));
+      const done = [...changes].reverse().find((change: unknown) => isStatus(change, 'done'));
+      return durationBetween(joined?.created_at, done?.created_at);
+    });
+  }
+
   deleteRecording(botId: string): Promise<void> {
     return this.guarded('delete_recording', () => requestRecall('delete_recording',
       `${this.getBaseUrl()}/api/v1/bot/${botId}/delete_media/`, { method: 'POST' }, false, true));
@@ -183,4 +205,20 @@ export class RecallAdapter implements MeetingBotPort {
     return normalizeTranscript(payload);
   }
 
+}
+
+function isStatus(value: unknown, code: string): value is { code: string; created_at?: unknown } {
+  return !!value && typeof value === 'object' && (value as { code?: unknown }).code === code;
+}
+
+function validDuration(seconds: number): number | null {
+  return Number.isFinite(seconds) && seconds > 0 && seconds <= 7 * 24 * 3600
+    ? Math.ceil(seconds) : null;
+}
+
+function durationBetween(start: unknown, end: unknown): number | null {
+  if (typeof start !== 'string' || typeof end !== 'string') return null;
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  return validDuration((endMs - startMs) / 1000);
 }

@@ -87,3 +87,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Vem kan med behörig Recall-åtkomst avstämma en syntetisk eller verklig föräldralös bot mot appens `meetingId` och säkert avgöra när reservationen får frigöras?
 - **Mitt förslag:** Bygg ett begränsat driftflöde som söker Recall på intern metadata, granskar status och loggar beslutet innan en föräldralös reservation frisläpps. Testa det med syntetisk bot och förlorat svar. Frigör inte automatiskt en okänd aktiv bot efter en kort timeout.
 - **Status:** Väntar på ägarens svar. Ingen provider- eller produktionsändring är gjord.
+
+### D13 — Verifiera Recall-tid och avräkning vid saknad metadata (G10)
+
+- **Vad betyder det?** Botens inspelningslängd hämtas nu från Recalls tidsstämplar. Om de saknas avräknas den reserverade maximala tiden för att tyst inspelning inte ska ge nollförbrukning. En felande bot kan därför förbruka hela möteskvoten även om den knappt spelade in.
+- **Vad behöver du avgöra?** Kan ett syntetiskt Recall-möte i den använda regionen bekräfta fälten `recordings[].started_at/completed_at`, botens statusförlopp och faktisk debiteringsgrund, även vid tystnad och avbrutet transkript?
+- **Mitt förslag:** Kör ett kort syntetiskt möte och ett felmöte utan kunddata. Jämför providerrespons, intern ledger och leverantörens fakturerade tid. Behåll konservativ avräkning tills en säker kortare regel kan bevisas.
+- **Status:** Väntar på ägarens svar. Ingen provider- eller produktionsändring är gjord.

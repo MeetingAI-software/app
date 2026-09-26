@@ -198,9 +198,17 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       return db.transaction(async tx => {
         const [row] = await tx.update(meetings).set(updateFields)
           .where(eq(meetings.id, id)).returning();
-        if (row) await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
-          .where(and(eq(meetingQuotaReservations.meetingId, id),
-            isNull(meetingQuotaReservations.releasedAt)));
+        if (row) {
+          const [charged] = await tx.select({ id: usageLedger.id }).from(usageLedger)
+            .where(eq(usageLedger.meetingId, id));
+          // A created bot may have recorded despite a failed transcript or worker. Retain its
+          // claim until measured/conservative settlement; only a pre-bot rejection is free.
+          if (row.source !== 'bot' || !row.botId || charged) {
+            await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
+              .where(and(eq(meetingQuotaReservations.meetingId, id),
+                isNull(meetingQuotaReservations.releasedAt)));
+          }
+        }
         return row as Meeting;
       });
     }

@@ -60,6 +60,12 @@ export class FakeBotAdapter implements MeetingBotPort {
     return bot.segments;
   }
 
+  async getRecordedDurationSeconds(botId: string): Promise<number | null> {
+    const bot = this.bots.get(botId);
+    if (!bot) return null;
+    return Math.ceil(Math.max(0, ...bot.segments.map(segment => segment.endMs)) / 1000);
+  }
+
   async deleteRecording(botId: string): Promise<void> {
     // Fake deletion: delete from in-memory bots or just log
     console.log(`🗑️  [fake] deleteRecording called for bot ${botId}`);
