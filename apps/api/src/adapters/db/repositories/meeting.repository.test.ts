@@ -175,6 +175,36 @@ describe('DrizzleMeetingRepository', () => {
       expect(transcriptRepo.save).toHaveBeenCalledTimes(1);
       expect((await repo.findById(target.id))?.status).toBe('transcribed');
     });
+
+    it('does not reopen a failure when a claimed transcript arrives after reconciliation', async () => {
+      const target = await insertMeeting({ botId: 'bot-late', status: 'bot_joining' });
+      let finishFetch!: (segments: []) => void;
+      const pendingFetch = new Promise<[]>(resolve => { finishFetch = resolve; });
+      const bot = {
+        fetchTranscript: vi.fn().mockReturnValue(pendingFetch),
+        getRecordedDurationSeconds: vi.fn().mockResolvedValue(8),
+        deleteRecording: vi.fn(),
+      };
+      const transcriptRepo = { save: vi.fn() };
+      const usageRepo = { addSeconds: vi.fn().mockResolvedValue(8) };
+      const docGen = { generateSummary: vi.fn().mockResolvedValue('Summary') };
+      const service = new ProcessWebhookEventService(
+        new DrizzleMeetingRepository(), transcriptRepo as never, usageRepo as never,
+        bot as never, docGen as never,
+      );
+      const processing = service.processEvent('transcript_ready', {
+        bot_id: 'bot-late', meeting_id: target.id,
+      });
+      await vi.waitFor(() => expect(bot.fetchTranscript).toHaveBeenCalledOnce());
+      await new DrizzleMeetingRepository().updateStatus(target.id, 'failed', {
+        errorMessage: 'Reconciled terminal failure',
+      });
+      finishFetch([]);
+      await expect(processing).rejects.toThrow();
+      expect((await repo.findById(target.id))?.status).toBe('failed');
+      expect(docGen.generateSummary).not.toHaveBeenCalled();
+      expect(bot.deleteRecording).not.toHaveBeenCalled();
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -400,8 +430,32 @@ describe('DrizzleMeetingRepository', () => {
   });
 
   describe('updateStatus', () => {
+    it('rejects a stale event after another repository marks the meeting failed', async () => {
+      const meeting = await insertMeeting({ status: 'bot_joining' });
+      const otherReplica = new DrizzleMeetingRepository();
+      await otherReplica.updateStatus(meeting.id, 'failed', { errorMessage: 'reconciled' });
+
+      await expect(repo.updateStatus(meeting.id, 'recording')).rejects.toThrow();
+      const current = await repo.findById(meeting.id);
+      expect(current?.status).toBe('failed');
+      expect(current?.errorMessage).toBe('reconciled');
+    });
+
+    it('does not let a late failure replace a completed transcript', async () => {
+      const meeting = await insertMeeting({ status: 'transcribed' });
+      await expect(repo.updateStatus(meeting.id, 'failed', { errorMessage: 'late failure' })).rejects.toThrow();
+      expect((await repo.findById(meeting.id))?.status).toBe('transcribed');
+    });
+
+    it('treats a replayed failure as a no-op without replacing its reason', async () => {
+      const meeting = await insertMeeting({ status: 'failed', errorMessage: 'first reason' });
+      const replay = await repo.updateStatus(meeting.id, 'failed', { errorMessage: 'late reason' });
+      expect(replay.errorMessage).toBe('first reason');
+      expect(replay.updatedAt).toEqual(meeting.updatedAt);
+    });
+
     it('changes status and advances updatedAt', async () => {
-      const m = await insertMeeting({ updatedAt: new Date(Date.now() - HOUR) });
+      const m = await insertMeeting({ status: 'bot_joining', updatedAt: new Date(Date.now() - HOUR) });
 
       const updated = await repo.updateStatus(m.id, 'recording');
 
@@ -424,7 +478,7 @@ describe('DrizzleMeetingRepository', () => {
     });
 
     it('leaves fields alone when no patch is given', async () => {
-      const m = await insertMeeting({ botId: 'keep-me', durationSeconds: 30 });
+      const m = await insertMeeting({ status: 'processing', botId: 'keep-me', durationSeconds: 30 });
 
       const updated = await repo.updateStatus(m.id, 'transcribed');
 
@@ -434,7 +488,7 @@ describe('DrizzleMeetingRepository', () => {
 
     // A missing WHERE would pass every single-row test above while rewriting the whole table.
     it('touches only the target row', async () => {
-      const target = await insertMeeting({ shareToken: 'target' });
+      const target = await insertMeeting({ shareToken: 'target', status: 'bot_joining' });
       const other = await insertMeeting({ shareToken: 'other' });
 
       await repo.updateStatus(target.id, 'recording');

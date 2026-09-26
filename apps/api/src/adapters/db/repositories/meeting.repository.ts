@@ -6,6 +6,7 @@ import type { Meeting, MeetingPlatform, MeetingSource, MeetingStatus } from '../
 import crypto from 'crypto';
 import type { PlanEntitlements } from '../../../domain/billing';
 import { CapExceededError } from '../../../domain/errors';
+import { assertTransition } from '../../../domain/state-machine';
 
 export class DrizzleMeetingRepository implements MeetingRepository {
   async reserve(input: Parameters<MeetingRepository['reserve']>[0],
@@ -277,33 +278,34 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       if (patch.errorMessage !== undefined) updateFields.errorMessage = patch.errorMessage;
     }
 
-    if (to === 'failed') {
-      // Failure and release are one commit. A replay cannot release a later, different claim.
-      return db.transaction(async tx => {
-        const [prior] = await tx.select({
-          source: meetings.source, status: meetings.status, botId: meetings.botId,
-        }).from(meetings).where(eq(meetings.id, id)).for('update');
-        const [row] = await tx.update(meetings).set(updateFields)
-          .where(eq(meetings.id, id)).returning();
-        if (row) {
-          const [charged] = await tx.select({ id: usageLedger.id }).from(usageLedger)
-            .where(eq(usageLedger.meetingId, id));
-          // Only a committed provider-start claim can have paid work behind a failed upload.
-          // Audio storage alone proves nothing: URL signing may fail before submission.
-          const mayHaveSpent = (prior?.source === 'bot' && !!prior.botId)
-            || (prior?.source === 'upload' && prior.status !== 'pending');
-          if (charged || !mayHaveSpent) {
-            await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
-              .where(and(eq(meetingQuotaReservations.meetingId, id),
-                isNull(meetingQuotaReservations.releasedAt)));
-          }
+    // Every transition is checked against the locked current row, not a status cached by a
+    // webhook worker or another API replica. Terminal states cannot be reopened by late events.
+    return db.transaction(async tx => {
+      const [prior] = await tx.select().from(meetings)
+        .where(eq(meetings.id, id)).for('update');
+      if (!prior) throw new Error('Meeting no longer exists');
+      // Replayed failures are harmless. Keep the first terminal reason and timestamp, and
+      // never apply a late webhook patch to a terminal record.
+      if (prior.status === 'failed' && to === 'failed') return prior as Meeting;
+      assertTransition(prior.status as MeetingStatus, to);
+      const [row] = await tx.update(meetings).set(updateFields)
+        .where(eq(meetings.id, id)).returning();
+      if (to === 'failed') {
+        // Failure and release are one commit. A replay cannot release a later, different claim.
+        const [charged] = await tx.select({ id: usageLedger.id }).from(usageLedger)
+          .where(eq(usageLedger.meetingId, id));
+        // Only a committed provider-start claim can have paid work behind a failed upload.
+        // Audio storage alone proves nothing: URL signing may fail before submission.
+        const mayHaveSpent = (prior.source === 'bot' && !!prior.botId)
+          || (prior.source === 'upload' && prior.status !== 'pending');
+        if (charged || !mayHaveSpent) {
+          await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
+            .where(and(eq(meetingQuotaReservations.meetingId, id),
+              isNull(meetingQuotaReservations.releasedAt)));
         }
-        return row as Meeting;
-      });
-    }
-    const [row] = await db.update(meetings).set(updateFields)
-      .where(eq(meetings.id, id)).returning();
-    return row as Meeting;
+      }
+      return row as Meeting;
+    });
   }
 
   async setSummary(id: string, summary: string): Promise<void> {
