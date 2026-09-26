@@ -108,6 +108,28 @@ export class SweepJob {
       captureError(err);
     }
 
+    // Failed bot recordings still exist at Recall even when no upload path exists locally.
+    // The marker is written only after Recall acknowledges deletion; a provider or DB error
+    // leaves the bot ID available for the next sweep. Recall accepts repeated deletion.
+    try {
+      const failedBotMedia = await this.meetingRepo.findFailedBotMediaOlderThan(1);
+      logger.info({ count: failedBotMedia.length }, 'Sweep found failed bot recordings');
+      for (const meeting of failedBotMedia) {
+        if (!meeting.botId) continue;
+        try {
+          await this.botAdapter.deleteRecording(meeting.botId);
+          await this.meetingRepo.markBotMediaDeleted(meeting.id, meeting.botId);
+          logger.info({ meetingId: meeting.id }, 'Sweep deleted failed bot recording');
+        } catch (mErr: any) {
+          logger.error({ meetingId: meeting.id }, 'Failed to delete failed bot recording');
+          captureError(mErr, { meetingId: meeting.id });
+        }
+      }
+    } catch (err: any) {
+      logger.error('Error cleaning up failed bot recordings');
+      captureError(err);
+    }
+
     // 2. Clean up stuck active meetings older than 15 minutes
     try {
       const stuckMeetings = await this.meetingRepo.findStuckActiveOlderThan!(15);

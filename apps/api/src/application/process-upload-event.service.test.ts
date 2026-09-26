@@ -63,6 +63,8 @@ describe('ProcessUploadEventService', () => {
       claimUploadSubmission: vi.fn().mockResolvedValue(true),
       bindTranscriptionJob: vi.fn().mockResolvedValue(true),
       failRejectedUploadSubmission: vi.fn(),
+      findFailedBotMediaOlderThan: vi.fn(),
+      markBotMediaDeleted: vi.fn(),
       updateStatus: vi.fn(),
       setSummary: vi.fn(),
       setUploadInfo: vi.fn(),

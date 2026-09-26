@@ -8,6 +8,7 @@ export const meetings = pgTable('meetings', {
   status: text('status').notNull().default('pending'),
   source: text('source').notNull().default('bot'),                 // Day 3: 'bot' | 'upload'
   botId: text('bot_id'),
+  botMediaDeletedAt: timestamp('bot_media_deleted_at', { withTimezone: true }),
   durationSeconds: integer('duration_seconds'),
   errorMessage: text('error_message'),
   summary: text('summary'),
