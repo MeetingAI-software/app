@@ -38,3 +38,24 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Är variabeln satt till den adressen för produktion och eventuella förhandsmiljöer som bygger med produktionsläge?
 - **Mitt förslag:** Kontrollera Vercels miljöinställningar före merge. Sätt adressen till den godkända API-värden för de miljöer som ska kunna byggas. En annan API-värd kräver ett uttryckligt produktbeslut och ändrad allowlist i kod.
 - **Status:** Väntar på ägarens svar. Inga Vercel-inställningar har ändrats.
+
+### D06 — Kontrollera Recall-läge före API-merge (G16)
+
+- **Vad betyder det?** Produktions-API:t startar nu inte med `BOT_PROVIDER=fake`. Det publika Recall-ingestflödet kräver signatur även när en fake-adapter är vald i lokal utveckling.
+- **Vad behöver du avgöra?** Är driftmiljön redan konfigurerad med `BOT_PROVIDER=recall`, API-nyckel, signerande webhookhemligheter och publik HTTPS-webhookadress?
+- **Mitt förslag:** Kontrollera miljövariablerna utan att kopiera hemligheter till PR. Sätt Recall-konfigurationen före merge om botfunktionen ska vara aktiv; håll annars releasen tillbaka tills produktläget är bestämt.
+- **Status:** Väntar på ägarens svar. Inga leverantörsinställningar har ändrats.
+
+### D07 — Bedöm äldre verifieringslänkar i loggar (G18)
+
+- **Vad betyder det?** Tidigare loggtransport skrev hela verifieringslänkar till API-loggar. Nya loggar gör inte det, men äldre loggar kan fortfarande innehålla giltiga engångslänkar.
+- **Vad behöver du avgöra?** Har `EMAIL_PROVIDER=log` använts i en delad miljö, och vem kan granska åtkomst och retention för dessa loggar utan att kopiera länkarna?
+- **Mitt förslag:** Bedöm exponering i drift, rensa eller begränsa gamla loggar enligt befintlig retention och återkalla giltiga token om obehörig åtkomst är möjlig. Kontrollera att produktion använder Resend före merge.
+- **Status:** Väntar på ägarens svar. Ingen loggrensning eller tokenrotation har gjorts.
+
+### D08 — Granska plattformarnas accessloggar för delningslänkar (G19)
+
+- **Vad betyder det?** API-koden redigerar nu delningstoken i egna loggar. Tidigare loggar och plattformarnas accessloggar kan fortfarande innehålla råa URL:er som ger läsåtkomst till ett möte.
+- **Vad behöver du avgöra?** Vilka proxy- och webbaccessloggar sparas hos Railway och Vercel, vem kan läsa dem, och vilka aktiva delningslänkar kan ha hamnat där?
+- **Mitt förslag:** Begränsa URL-loggning och retention där det går, granska åtkomsten utan att exportera token till PR, och rotera berörda aktiva delningstoken om de kan ha exponerats.
+- **Status:** Väntar på ägarens svar. Ingen loggrensning eller tokenrotation har gjorts.

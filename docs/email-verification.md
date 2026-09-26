@@ -57,15 +57,15 @@ Google supplies a verified email claim.
 
 ## Delivery workflows
 
-With `EMAIL_PROVIDER=log`, `LogEmailVerificationMailer` simulates delivery. After a password signup,
-email change, or resend request, find this structured API log message:
+With `EMAIL_PROVIDER=log`, `LogEmailVerificationMailer` suppresses delivery in local development.
+After a password signup, email change, or resend request, it logs only:
 
 ```text
-Email verification message simulated
+Verification email suppressed by development log provider; configure Resend for delivery
 ```
 
-Its structured fields contain `to`, `verificationUrl`, and `expiresAt`. Open `verificationUrl` in the
-browser to exercise the same `/verify-email` flow that a real email recipient would use.
+No address, verification link, or token is written to logs. Use Resend with a test recipient to exercise
+the browser verification flow.
 
 With `EMAIL_PROVIDER=resend`, `ResendEmailVerificationMailer` sends plain-text and HTML versions through
 Resend. Successful delivery logs only the recipient and Resend email ID; the raw token URL is never
@@ -140,9 +140,8 @@ that rule on the API, not only in the frontend.
 
 ## Production requirement
 
-Set `EMAIL_PROVIDER=resend` in production. `LogEmailVerificationMailer` writes the raw verification URL
-to application logs and must remain a local-only transport. Resend mode uses the official Node.js SDK
-and does not log raw verification tokens.
+Set `EMAIL_PROVIDER=resend` in production. Startup rejects the log provider there. Resend mode uses the
+official Node.js SDK and does not log raw verification tokens.
 
 Also verify that:
 

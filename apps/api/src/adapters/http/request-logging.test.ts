@@ -20,6 +20,29 @@ describe('safe request logging', () => {
     expect(sanitizeRequestUrl('/callback?query-key-secret=query-value-secret&state=browser-state'))
       .toBe('/callback?[Redacted]');
     expect(sanitizeRequestUrl('/healthz')).toBe('/healthz');
+    expect(sanitizeRequestUrl('/api/share/synthetic-bearer?view=1'))
+      .toBe('/api/share/:token?[Redacted]');
+    expect(sanitizeRequestUrl('/s/synthetic-bearer')).toBe('/s/:token');
+  });
+
+  it('redacts bearer share paths on both successful and failed requests', async () => {
+    const lines: string[] = [];
+    const stream: DestinationStream = { write: chunk => { lines.push(chunk); } };
+    const router = express.Router();
+    router.get('/api/share/:token', (req, res, next) => {
+      if (req.params.token === 'failure-bearer-secret') return next(new Error('synthetic failure'));
+      return res.status(200).json({ ok: true });
+    });
+    const app = createServer([router], async () => null, { requestLogStream: stream });
+    server = app.listen(0);
+    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    expect((await fetch(`${baseUrl}/api/share/success-bearer-secret`)).status).toBe(200);
+    expect((await fetch(`${baseUrl}/api/share/failure-bearer-secret`)).status).toBe(500);
+    await vi.waitFor(() => expect(lines.length).toBeGreaterThanOrEqual(2));
+    const log = lines.join('');
+    expect(log).not.toContain('success-bearer-secret');
+    expect(log).not.toContain('failure-bearer-secret');
+    expect(log).toContain('/api/share/:token');
   });
 
   it('never writes cookies, secret headers, query values or Set-Cookie values', async () => {

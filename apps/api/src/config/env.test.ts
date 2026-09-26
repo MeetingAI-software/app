@@ -5,7 +5,30 @@ const productionBase = {
   NODE_ENV: 'production',
   DATABASE_URL: 'postgres://test:test@localhost:5432/test',
   WEB_ORIGIN: 'https://www.syncmemos.com',
+  BOT_PROVIDER: 'recall',
+  RECALL_API_KEY: 'synthetic-recall-key',
+  RECALL_BASE_URL: 'https://api.recall.test',
+  RECALL_WEBHOOK_SECRET: 'synthetic-webhook-secret',
+  PUBLIC_WEBHOOK_URL: 'https://api.syncmemos.com',
+  LIVE_TRANSCRIPT_ENABLED: 'false',
+  EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 'synthetic-key', RESEND_FROM: 'no-reply@example.test',
 };
+
+describe('production mail delivery gate', () => {
+  it('rejects a log-only mailer even while registration is closed', () => {
+    const result = envSchema.safeParse({ ...productionBase, EMAIL_PROVIDER: 'log' });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.some(issue => issue.path[0] === 'EMAIL_PROVIDER')).toBe(true);
+  });
+});
+
+describe('fake provider production gate', () => {
+  it('rejects fake mode in production even with public registration disabled', () => {
+    const result = envSchema.safeParse({ ...productionBase, BOT_PROVIDER: 'fake' });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.some(issue => issue.path[0] === 'BOT_PROVIDER')).toBe(true);
+  });
+});
 
 describe('production transport URL validation', () => {
   it.each([

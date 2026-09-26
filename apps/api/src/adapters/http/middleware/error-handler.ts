@@ -37,6 +37,16 @@ import { captureError } from '../../observability/sentry';
 export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
   const reqId = req.headers['x-request-id'];
 
+  // Express/body-parser rejects malformed or oversized JSON before route limiters run. These are
+  // client errors; never log/capture their attacker-controlled body or error message as a 5xx.
+  const parserError = err as Error & { type?: string; status?: number };
+  if (parserError.type === 'entity.parse.failed' && parserError.status === 400) {
+    return res.status(400).json({ error: { code: 'INVALID_JSON', message: 'Invalid JSON body' } });
+  }
+  if (parserError.type === 'entity.too.large' && parserError.status === 413) {
+    return res.status(413).json({ error: { code: 'BODY_TOO_LARGE', message: 'Request body is too large' } });
+  }
+
   // Day 6 §5: server-side failures (5xx) go to Sentry; 4xx are client errors and stay out of it.
   const report5xx = () =>
     captureError(err, {

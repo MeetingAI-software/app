@@ -7,6 +7,7 @@ import { errorHandler } from './middleware/error-handler';
 import { requireUser } from './middleware/require-user';
 import { requireVerifiedEmail } from './middleware/require-verified-email';
 import { originCheck } from './middleware/origin-check';
+import { fixedWindowLimiter } from './middleware/rate-limit';
 import type { User } from '../../domain/types';
 import { config } from '../../config/env';
 
@@ -19,8 +20,9 @@ export interface ServerOptions {
 export function sanitizeRequestUrl(rawUrl: string | undefined): string {
   if (!rawUrl) return '';
   const queryAt = rawUrl.indexOf('?');
-  if (queryAt === -1) return rawUrl;
-  return `${rawUrl.slice(0, queryAt)}?[Redacted]`;
+  const path = queryAt === -1 ? rawUrl : rawUrl.slice(0, queryAt);
+  const redacted = path.replace(/^\/(api\/share|s)\/[^/]+/, '/$1/:token');
+  return queryAt === -1 ? redacted : `${redacted}?[Redacted]`;
 }
 
 function safeRequestLog(req: express.Request) {
@@ -130,6 +132,21 @@ export function createServer(
 
   // §2/§7 CSRF: reject mutating /api requests whose Origin isn't our web app — before auth runs.
   app.use('/api', originCheck);
+
+  // Parse failures never reach route-specific limiters. Two fixed-cardinality gates bound public
+  // authentication and waitlist JSON attempts before the parser, including invalid payloads.
+  const publicJsonIpGate = fixedWindowLimiter({
+    max: 60, windowMs: 60_000, keyOf: req => `public-json:${req.ip ?? ''}`,
+  });
+  const publicJsonGlobalGate = fixedWindowLimiter({
+    max: 1200, windowMs: 60_000, keyOf: () => 'public-json-global',
+  });
+  app.use((req, res, next) => {
+    const path = req.path.toLowerCase();
+    if (req.method !== 'POST' || !(/^\/api\/auth(?:\/|$)/.test(path)
+      || /^\/api\/waitlist\/?$/.test(path))) return next();
+    return publicJsonIpGate(req, res, () => publicJsonGlobalGate(req, res, next));
+  });
 
   // Replace the Day 4 shared-key gate with real per-user auth (public endpoints exempted).
   app.use('/api', (req, res, next) => {
