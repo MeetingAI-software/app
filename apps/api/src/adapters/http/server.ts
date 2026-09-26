@@ -19,8 +19,9 @@ export interface ServerOptions {
 export function sanitizeRequestUrl(rawUrl: string | undefined): string {
   if (!rawUrl) return '';
   const queryAt = rawUrl.indexOf('?');
-  if (queryAt === -1) return rawUrl;
-  return `${rawUrl.slice(0, queryAt)}?[Redacted]`;
+  const path = queryAt === -1 ? rawUrl : rawUrl.slice(0, queryAt);
+  const redacted = path.replace(/^\/(api\/share|s)\/[^/]+/, '/$1/:token');
+  return queryAt === -1 ? redacted : `${redacted}?[Redacted]`;
 }
 
 function safeRequestLog(req: express.Request) {
