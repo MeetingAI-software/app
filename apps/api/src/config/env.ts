@@ -108,6 +108,32 @@ export const envSchema = z.object({
   NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID: z.preprocess(blankToUndefined, z.string().optional()),
   NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID: z.preprocess(blankToUndefined, z.string().optional()),
 }).superRefine((cfg, ctx) => {
+  if (cfg.NODE_ENV === 'production') {
+    const secureUrls = [
+      ['WEB_ORIGIN', cfg.WEB_ORIGIN, '/'],
+      ['RECALL_BASE_URL', cfg.RECALL_BASE_URL, '/'],
+      ['PUBLIC_WEBHOOK_URL', cfg.PUBLIC_WEBHOOK_URL, '/'],
+      ['ASSEMBLYAI_BASE_URL', cfg.ASSEMBLYAI_BASE_URL, '/'],
+      ['SUPABASE_URL', cfg.SUPABASE_URL, '/'],
+      ...(cfg.GOOGLE_CLIENT_ID || cfg.GOOGLE_CLIENT_SECRET
+        ? [['GOOGLE_REDIRECT_URI', cfg.GOOGLE_REDIRECT_URI, '/api/auth/google/callback']]
+        : []),
+    ] as Array<[string, string | undefined, string]>;
+    for (const [key, raw, expectedPath] of secureUrls) {
+      if (!raw) continue;
+      let url: URL;
+      try { url = new URL(raw); } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key],
+          message: `${key} must be a valid HTTPS URL in production` });
+        continue;
+      }
+      if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
+        || url.pathname !== expectedPath) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key],
+          message: `${key} must be an HTTPS URL with the expected path and no credentials, query or fragment in production` });
+      }
+    }
+  }
   if (cfg.NODE_ENV === 'production' && cfg.PUBLIC_REGISTRATION_ENABLED) {
     if (!cfg.LEGAL_POLICIES_PUBLISHED) {
       ctx.addIssue({

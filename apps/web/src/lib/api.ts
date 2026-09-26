@@ -1,3 +1,5 @@
+import { resolveApiOrigin } from './api-origin';
+
 export type MeetingPlatform = 'zoom' | 'google_meet' | 'teams';
 
 export type MeetingSource = 'bot' | 'upload';
@@ -100,7 +102,7 @@ export interface ChatAnswer {
   remaining: number;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_BASE = resolveApiOrigin(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV === 'production');
 
 export interface User {
   id: string;

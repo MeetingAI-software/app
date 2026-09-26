@@ -31,3 +31,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Ska en verifierad adressändring synkroniseras till Paddle genom ett återförsökbart jobb, och vem ska hantera konflikter med äldre eller raderade konton?
 - **Mitt förslag:** Synkronisera kontaktadress först efter bevisad ny adress och behåll kundägaren på oföränderligt användar-ID. Vid konflikt, visa ett tydligt supportärende. Granska äldre kundrader före massuppdatering.
 - **Status:** Väntar på ägarens svar. Kodfixen ger en kontrollerad konflikt i stället för att flytta ägare eller returnera ett generiskt serverfel.
+
+### D05 — Kontrollera webbens API-adress i Vercel (G11)
+
+- **Vad betyder det?** Produktionsbyggen kräver nu `NEXT_PUBLIC_API_URL=https://api.syncmemos.com`. Ett saknat eller annat värde stoppar bygget i stället för att låta webben skicka inloggningsuppgifter till localhost eller ett felaktigt ursprung.
+- **Vad behöver du avgöra?** Är variabeln satt till den adressen för produktion och eventuella förhandsmiljöer som bygger med produktionsläge?
+- **Mitt förslag:** Kontrollera Vercels miljöinställningar före merge. Sätt adressen till den godkända API-värden för de miljöer som ska kunna byggas. En annan API-värd kräver ett uttryckligt produktbeslut och ändrad allowlist i kod.
+- **Status:** Väntar på ägarens svar. Inga Vercel-inställningar har ändrats.

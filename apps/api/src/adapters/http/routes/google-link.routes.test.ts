@@ -92,7 +92,7 @@ describe('active Google account linking', () => {
   }
 
   it('requires current password, then links a matching verified subject once', async () => {
-    beginGoogleLink.mockRejectedValueOnce(new InvalidCredentialsError());
+    beginGoogleLink.mockRejectedValueOnce(new InvalidCredentialsError('bad password'));
     const denied = await begin();
     expect(denied.response.status).toBe(401);
     expect(denied.body.url).toBeUndefined();
