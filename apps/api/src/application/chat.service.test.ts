@@ -21,7 +21,9 @@ describe('ChatService', () => {
 
   beforeEach(() => {
     transcriptRepo = { save: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
-    chatRepo = { add: vi.fn(), listByMeeting: vi.fn(), countUserMessages: vi.fn(), deleteByMeeting: vi.fn() };
+    chatRepo = { claimQuestion: vi.fn().mockResolvedValue({ id: 'claim-1', remaining: 1 }),
+      completeQuestion: vi.fn(), releaseQuestion: vi.fn(),
+      add: vi.fn(), listByMeeting: vi.fn(), countUserMessages: vi.fn(), deleteByMeeting: vi.fn() };
     chatAdapter = { answerQuestion: vi.fn() };
     service = new ChatService(transcriptRepo, chatRepo, chatAdapter, {
       getAccess: vi.fn().mockResolvedValue({
@@ -37,7 +39,7 @@ describe('ChatService', () => {
       vi.mocked(transcriptRepo.getByMeetingId).mockResolvedValue(null);
 
       await expect(service.ask('u1', 'm1', 'What did we decide?')).rejects.toThrow(MeetingNotReadyError);
-      expect(chatRepo.add).not.toHaveBeenCalled();
+      expect(chatRepo.claimQuestion).not.toHaveBeenCalled();
       expect(chatAdapter.answerQuestion).not.toHaveBeenCalled();
     });
 
@@ -45,19 +47,19 @@ describe('ChatService', () => {
       vi.mocked(transcriptRepo.getByMeetingId).mockResolvedValue([]);
 
       await expect(service.ask('u1', 'm1', 'What did we decide?')).rejects.toThrow(MeetingNotReadyError);
-      expect(chatRepo.add).not.toHaveBeenCalled();
+      expect(chatRepo.claimQuestion).not.toHaveBeenCalled();
     });
 
     it('throws CapExceededError (429) when the meeting is at the question cap', async () => {
       vi.mocked(transcriptRepo.getByMeetingId).mockResolvedValue(SEGMENTS);
-      vi.mocked(chatRepo.countUserMessages).mockResolvedValue(CAP);
+      vi.mocked(chatRepo.claimQuestion).mockRejectedValue(new CapExceededError('Question limit reached'));
 
       await expect(service.ask('u1', 'm1', 'One more?')).rejects.toThrow(CapExceededError);
-      expect(chatRepo.add).not.toHaveBeenCalled();
+      expect(chatRepo.completeQuestion).not.toHaveBeenCalled();
       expect(chatAdapter.answerQuestion).not.toHaveBeenCalled();
     });
 
-    it('persists the question, answers it, persists the answer with tokens, and returns remaining', async () => {
+    it('claims the question, answers it, completes the exchange, and returns remaining', async () => {
       vi.mocked(transcriptRepo.getByMeetingId).mockResolvedValue(SEGMENTS);
       vi.mocked(chatRepo.countUserMessages).mockResolvedValue(0);
       vi.mocked(chatRepo.listByMeeting).mockResolvedValue([]);
@@ -70,8 +72,8 @@ describe('ChatService', () => {
       const result = await service.ask('u1', 'm1', 'What did we decide?');
 
       expect(result).toEqual({ answer: 'We ship chat first [00:00].', remaining: 1 });
-      expect(chatRepo.add).toHaveBeenNthCalledWith(1, 'm1', 'user', 'What did we decide?');
-      expect(chatRepo.add).toHaveBeenNthCalledWith(2, 'm1', 'assistant', 'We ship chat first [00:00].', {
+      expect(chatRepo.claimQuestion).toHaveBeenCalledWith('m1', CAP, 'What did we decide?');
+      expect(chatRepo.completeQuestion).toHaveBeenCalledWith('claim-1', 'We ship chat first [00:00].', {
         input: 120,
         output: 40,
       });
@@ -83,7 +85,7 @@ describe('ChatService', () => {
         { role: 'assistant', content: 'Earlier answer [00:01].' },
       ];
       vi.mocked(transcriptRepo.getByMeetingId).mockResolvedValue(SEGMENTS);
-      vi.mocked(chatRepo.countUserMessages).mockResolvedValue(1);
+      vi.mocked(chatRepo.claimQuestion).mockResolvedValue({ id: 'claim-2', remaining: 0 });
       vi.mocked(chatRepo.listByMeeting).mockResolvedValue(history);
       vi.mocked(chatAdapter.answerQuestion).mockResolvedValue({
         answer: 'Follow-up answer [00:02].',
@@ -107,10 +109,11 @@ describe('ChatService', () => {
       vi.mocked(chatAdapter.answerQuestion).mockRejectedValue(new ChatProviderError());
 
       await expect(service.ask('u1', 'm1', 'What did we decide?')).rejects.toThrow(ChatProviderError);
-      expect(chatRepo.add).not.toHaveBeenCalled();
+      expect(chatRepo.completeQuestion).not.toHaveBeenCalled();
+      expect(chatRepo.releaseQuestion).toHaveBeenCalledWith('claim-1');
     });
 
-    it('reads history BEFORE persisting the new question (no self-echo)', async () => {
+    it('reads history after claiming and before publishing the new question', async () => {
       vi.mocked(transcriptRepo.getByMeetingId).mockResolvedValue(SEGMENTS);
       vi.mocked(chatRepo.countUserMessages).mockResolvedValue(0);
       vi.mocked(chatRepo.listByMeeting).mockResolvedValue([]);
@@ -119,8 +122,20 @@ describe('ChatService', () => {
       await service.ask('u1', 'm1', 'q');
 
       const listOrder = vi.mocked(chatRepo.listByMeeting).mock.invocationCallOrder[0];
-      const firstAddOrder = vi.mocked(chatRepo.add).mock.invocationCallOrder[0];
-      expect(listOrder).toBeLessThan(firstAddOrder);
+      const claimOrder = vi.mocked(chatRepo.claimQuestion).mock.invocationCallOrder[0];
+      const completeOrder = vi.mocked(chatRepo.completeQuestion).mock.invocationCallOrder[0];
+      expect(claimOrder).toBeLessThan(listOrder);
+      expect(listOrder).toBeLessThan(completeOrder);
+    });
+
+    it('keeps the claim if answer persistence fails after the paid model call', async () => {
+      vi.mocked(transcriptRepo.getByMeetingId).mockResolvedValue(SEGMENTS);
+      vi.mocked(chatRepo.listByMeeting).mockResolvedValue([]);
+      vi.mocked(chatAdapter.answerQuestion).mockResolvedValue({ answer: 'answer', inputTokens: 1, outputTokens: 1 });
+      vi.mocked(chatRepo.completeQuestion).mockRejectedValue(new Error('database response lost'));
+
+      await expect(service.ask('u1', 'm1', 'question?')).rejects.toThrow('database response lost');
+      expect(chatRepo.releaseQuestion).not.toHaveBeenCalled();
     });
 
     it('never returns a negative remaining', async () => {
@@ -133,6 +148,7 @@ describe('ChatService', () => {
       });
       vi.mocked(transcriptRepo.getByMeetingId).mockResolvedValue(SEGMENTS);
       vi.mocked(chatRepo.countUserMessages).mockResolvedValue(0);
+      vi.mocked(chatRepo.claimQuestion).mockResolvedValue({ id: 'claim-3', remaining: 0 });
       vi.mocked(chatRepo.listByMeeting).mockResolvedValue([]);
       vi.mocked(chatAdapter.answerQuestion).mockResolvedValue({ answer: 'x', inputTokens: 0, outputTokens: 0 });
 

@@ -101,3 +101,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Finns en behörig väg hos AssemblyAI för att identifiera ett syntetiskt jobb via intern mötesreferens eller uppladdad ljud-URL, och vem får avstämma ett verkligt oklart jobb innan kvoten frigörs?
 - **Mitt förslag:** Bekräfta leverantörens stöd för idempotens eller sökning. Bygg ett begränsat driftflöde med spårbart beslut för att binda upptäckt jobb-ID eller säkert frigöra en definitivt ej skapad beställning. Prova förlorat svar utan kunddata. Återförsök inte automatiskt efter timeout.
 - **Status:** Väntar på ägarens svar. Ingen provider- eller produktionsändring är gjord.
+
+### D15 — Avstäm fastnade chattanspråk och providerkostnad (G13)
+
+- **Vad betyder det?** En chattfråga reserverar nu en plats innan modellen anropas. Om processen dör efter anspråket kan platsen ligga kvar utan synligt svar. Ett providerfel släpper platsen för användaren, men en leverantör kan ha fakturerat ett anrop vars svar gick förlorat. Under rullande utrullning kan en äldre API-replika fortfarande ignorera det nya anspråket och nå modellen utanför gränsen.
+- **Vad behöver du avgöra?** Hur kan ett syntetiskt misslyckat chattanrop och dess faktiska kostnad verifieras hos Gemini och Claude, vem får frigöra ett fastnat anspråk och kan chattanrop pausas tills alla API-repliker kör den nya versionen?
+- **Mitt förslag:** Lägg till ett begränsat driftflöde som listar gamla osynliga anspråk, avstämmer providerutfall och loggar beslut innan frigöring. Kontrollera om leverantörerna stöder idempotens för generering; annars undvik automatiskt omförsök efter tvetydigt svar. Spärra chatttrafik under blandad utrullning eller driftsätt atomiskt så att ingen äldre replika tar emot frågor efter aktivering.
+- **Status:** Väntar på ägarens svar. Ingen provider- eller produktionsändring är gjord.

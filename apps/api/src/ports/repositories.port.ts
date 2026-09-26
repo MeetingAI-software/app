@@ -97,6 +97,12 @@ export interface UsageRepository {
 }
 
 export interface ChatMessageRepository {
+  /** Atomically reserve one paid question before the model call. */
+  claimQuestion(meetingId: string, limit: number, question: string): Promise<{ id: string; remaining: number }>;
+  /** Publish both sides of a completed exchange in one transaction. */
+  completeQuestion(id: string, answer: string, tokens: { input: number; output: number }): Promise<void>;
+  /** Release a claim only when the model call did not return an answer. */
+  releaseQuestion(id: string): Promise<void>;
   add(meetingId: string, role: 'user' | 'assistant', content: string,
       tokens?: { input: number; output: number }): Promise<void>;
   listByMeeting(meetingId: string): Promise<ChatMessage[]>;     // oldest first

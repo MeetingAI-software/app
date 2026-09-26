@@ -102,7 +102,7 @@ export const documents = pgTable('documents', {
 export const chatMessages = pgTable('chat_messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   meetingId: uuid('meeting_id').notNull().references(() => meetings.id),
-  role: text('role').notNull(),                 // 'user' | 'assistant'
+  role: text('role').notNull(),                 // 'pending_user' | 'user' | 'assistant'
   content: text('content').notNull(),
   inputTokens: integer('input_tokens').notNull().default(0),
   outputTokens: integer('output_tokens').notNull().default(0),

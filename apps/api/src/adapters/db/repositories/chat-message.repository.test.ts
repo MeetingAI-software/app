@@ -3,6 +3,9 @@ import { eq } from 'drizzle-orm';
 import { db, migrateOnce, truncateAll } from '../pglite-harness';
 import { chatMessages, meetings, users } from '../schema';
 import { DrizzleChatMessageRepository } from './chat-message.repository';
+import { CapExceededError } from '../../../domain/errors';
+import { ChatService } from '../../../application/chat.service';
+import { PLAN_ENTITLEMENTS } from '../../../domain/billing';
 
 // Real Postgres (PGlite) stands in for the live-DATABASE_URL singleton. See pglite-harness.ts for
 // why the factory closes over `db` rather than importing inside itself.
@@ -74,6 +77,93 @@ describe('DrizzleChatMessageRepository', () => {
       const [row] = await db.select().from(chatMessages).where(eq(chatMessages.meetingId, meetingA));
       expect(row.inputTokens).toBe(0);
       expect(row.outputTokens).toBe(0);
+    });
+  });
+
+  describe('paid question admission', () => {
+    it('never starts a second paid model call while the first answer is pending', async () => {
+      let modelStarted!: () => void;
+      let returnAnswer!: (value: { answer: string; inputTokens: number; outputTokens: number }) => void;
+      const started = new Promise<void>(resolve => { modelStarted = resolve; });
+      const answer = new Promise<{ answer: string; inputTokens: number; outputTokens: number }>(
+        resolve => { returnAnswer = resolve; });
+      const model = { answerQuestion: vi.fn(() => { modelStarted(); return answer; }) };
+      const service = new ChatService(
+        { getByMeetingId: vi.fn().mockResolvedValue([
+          { startMs: 0, endMs: 1000, speaker: 'A', text: 'Test transcript' },
+        ]), save: vi.fn(), deleteByMeeting: vi.fn() },
+        repo,
+        model,
+        { getAccess: vi.fn().mockResolvedValue({
+          plan: 'free', status: 'none', hasPaidAccess: false,
+          entitlements: { ...PLAN_ENTITLEMENTS.free, chatQuestionsPerMeeting: 2 },
+          subscription: null,
+        }) },
+      );
+
+      const first = service.ask('owner', meetingA, 'first?');
+      await started;
+      await expect(service.ask('owner', meetingA, 'second?')).rejects.toThrow(CapExceededError);
+      expect(model.answerQuestion).toHaveBeenCalledTimes(1);
+      returnAnswer({ answer: 'first answer', inputTokens: 3, outputTokens: 2 });
+      await expect(first).resolves.toEqual({ answer: 'first answer', remaining: 1 });
+      expect(await repo.listByMeeting(meetingA)).toHaveLength(2);
+    });
+
+    it('admits only one concurrent claim for the last question across repository instances', async () => {
+      const results = await Promise.allSettled([
+        repo.claimQuestion(meetingA, 1, 'first?'),
+        new DrizzleChatMessageRepository().claimQuestion(meetingA, 1, 'second?'),
+      ]);
+
+      expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.find(result => result.status === 'rejected');
+      expect(rejected).toMatchObject({ reason: expect.any(CapExceededError) });
+      expect(await repo.countUserMessages(meetingA)).toBe(1);
+      expect(await repo.listByMeeting(meetingA)).toEqual([]);
+    });
+
+    it('serializes questions even when two entitlements remain', async () => {
+      const first = await repo.claimQuestion(meetingA, 2, 'first?');
+      await expect(new DrizzleChatMessageRepository().claimQuestion(meetingA, 2, 'second?'))
+        .rejects.toThrow('already being answered');
+      await repo.completeQuestion(first.id, 'first answer', { input: 1, output: 1 });
+      const second = await repo.claimQuestion(meetingA, 2, 'second?');
+      expect(second.remaining).toBe(0);
+    });
+
+    it('hides a pending question, then publishes both messages on completion', async () => {
+      const claim = await repo.claimQuestion(meetingA, 2, 'private question?');
+      expect(claim.remaining).toBe(1);
+      expect(await repo.countUserMessages(meetingA)).toBe(1);
+      expect(await repo.listByMeeting(meetingA)).toEqual([]);
+
+      await repo.completeQuestion(claim.id, 'answer', { input: 12, output: 3 });
+      expect(await repo.listByMeeting(meetingA)).toEqual([
+        { role: 'user', content: 'private question?' },
+        { role: 'assistant', content: 'answer' },
+      ]);
+      expect(await repo.countUserMessages(meetingA)).toBe(1);
+      await expect(repo.completeQuestion(claim.id, 'duplicate', { input: 1, output: 1 }))
+        .rejects.toThrow('unavailable');
+      expect(await repo.listByMeeting(meetingA)).toHaveLength(2);
+    });
+
+    it('releases only an unfinished claim after a failed model call', async () => {
+      const claim = await repo.claimQuestion(meetingA, 1, 'failed question?');
+      await repo.releaseQuestion(claim.id);
+      expect(await repo.countUserMessages(meetingA)).toBe(0);
+      const retry = await repo.claimQuestion(meetingA, 1, 'retry?');
+      await repo.completeQuestion(retry.id, 'answer', { input: 1, output: 1 });
+      await repo.releaseQuestion(retry.id);
+      expect(await repo.countUserMessages(meetingA)).toBe(1);
+    });
+
+    it('keeps a crashed pending claim against the cap until reconciled', async () => {
+      await repo.claimQuestion(meetingA, 1, 'unknown outcome?');
+      await expect(new DrizzleChatMessageRepository().claimQuestion(meetingA, 1, 'another?'))
+        .rejects.toThrow(CapExceededError);
+      expect(await repo.listByMeeting(meetingA)).toEqual([]);
     });
   });
 
