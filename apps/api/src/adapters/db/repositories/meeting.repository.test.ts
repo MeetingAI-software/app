@@ -216,6 +216,16 @@ describe('DrizzleMeetingRepository', () => {
       expect(await repo.findByBotId('bot-nope')).toBeNull();
     });
 
+    it('rejects a bot ID bound to a different owner while allowing unbound meetings', async () => {
+      const first = await insertMeeting({ botId: 'shared-bot' });
+      const second = await insertMeeting({ ownerUserId: bob });
+      await expect(repo.updateStatus(second.id, 'bot_joining', { botId: 'shared-bot' }))
+        .rejects.toThrow();
+      expect((await repo.findByBotId('shared-bot'))?.id).toBe(first.id);
+      expect((await repo.findByIdForUser(second.id, bob))?.botId).toBeNull();
+      await insertMeeting({ ownerUserId: bob });
+    });
+
     it('finds only an enabled, unexpired share token', async () => {
       const m = await insertMeeting({
         shareToken: 'share-me', shareEnabled: true, shareExpiresAt: new Date(Date.now() + HOUR),

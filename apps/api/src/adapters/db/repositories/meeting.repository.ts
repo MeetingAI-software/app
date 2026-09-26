@@ -105,11 +105,15 @@ export class DrizzleMeetingRepository implements MeetingRepository {
   }
 
   async findByBotId(botId: string): Promise<Meeting | null> {
-    const [row] = await db
+    const rows = await db
       .select()
       .from(meetings)
-      .where(eq(meetings.botId, botId));
-    return (row as Meeting) || null;
+      .where(eq(meetings.botId, botId))
+      .limit(2);
+    // Fail closed even if this code runs against a database that has not yet applied the
+    // uniqueness migration. Arbitrarily picking one row could mutate another account.
+    if (rows.length > 1) throw new Error('Recall bot binding is ambiguous');
+    return (rows[0] as Meeting) || null;
   }
 
   async findByShareToken(token: string): Promise<Meeting | null> {

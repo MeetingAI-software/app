@@ -24,7 +24,7 @@ export const meetings = pgTable('meetings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   meetingsStatusIdx: index('meetings_status_idx').on(t.status),
-  meetingsBotIdIdx: index('meetings_bot_id_idx').on(t.botId),
+  meetingsBotIdUq: uniqueIndex('meetings_bot_id_uq').on(t.botId),
   meetingsOwnerUserIdIdx: index('meetings_owner_user_id_idx').on(t.ownerUserId),
   meetingsShareExpiryIdx: index('meetings_share_expiry_idx').on(t.shareEnabled, t.shareExpiresAt),
 }));
