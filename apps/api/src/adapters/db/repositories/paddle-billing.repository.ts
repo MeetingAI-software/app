@@ -1,6 +1,6 @@
 import { and, desc, eq, lte, isNull } from 'drizzle-orm';
 import { db } from '../client';
-import { paddleCustomers, paddleSubscriptions, users } from '../schema';
+import { paddleCustomers, paddleSubscriptions } from '../schema';
 import type { PaddleBillingRepository } from '../../../ports/repositories.port';
 
 export class DrizzlePaddleBillingRepository implements PaddleBillingRepository {
@@ -27,23 +27,21 @@ export class DrizzlePaddleBillingRepository implements PaddleBillingRepository {
     };
   }
 
-  async findCustomerByEmail(inputEmail: string) {
-    const email = inputEmail.trim().toLowerCase();
-    const [customer] = await db.select({ customerId: paddleCustomers.customerId })
-      .from(paddleCustomers)
-      .where(eq(paddleCustomers.email, email))
-      .orderBy(desc(paddleCustomers.updatedAt))
-      .limit(1);
-    if (!customer) return null;
-
-    const subscriptions = await db.select({ subscriptionId: paddleSubscriptions.subscriptionId })
-      .from(paddleSubscriptions)
-      .where(eq(paddleSubscriptions.customerId, customer.customerId));
-
-    return {
-      customerId: customer.customerId,
-      subscriptionIds: subscriptions.map((item) => item.subscriptionId),
-    };
+  async attachCustomerToUser(input: { customerId: string; email: string; userId: string }): Promise<boolean> {
+    const email = input.email.trim().toLowerCase();
+    const attached = await db.insert(paddleCustomers).values({
+      customerId: input.customerId,
+      email,
+      userId: input.userId,
+    }).onConflictDoUpdate({
+      target: paddleCustomers.customerId,
+      set: { userId: input.userId, email, updatedAt: new Date() },
+      setWhere: and(isNull(paddleCustomers.userId), isNull(paddleCustomers.anonymizedAt)),
+    }).returning({ customerId: paddleCustomers.customerId });
+    if (attached.length > 0) return true;
+    const [existing] = await db.select({ userId: paddleCustomers.userId, anonymizedAt: paddleCustomers.anonymizedAt })
+      .from(paddleCustomers).where(eq(paddleCustomers.customerId, input.customerId));
+    return existing?.userId === input.userId && existing.anonymizedAt === null;
   }
 
   async listSubscriptionsForUser(userId: string) {
@@ -66,15 +64,13 @@ export class DrizzlePaddleBillingRepository implements PaddleBillingRepository {
 
   async upsertCustomer(input: { customerId: string; email: string }): Promise<void> {
     const email = input.email.trim().toLowerCase();
-    const [user] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
 
     await db.insert(paddleCustomers).values({
       customerId: input.customerId,
       email,
-      userId: user?.id ?? null,
     }).onConflictDoUpdate({
       target: paddleCustomers.customerId,
-      set: { email, userId: user?.id ?? null, updatedAt: new Date() },
+      set: { email, updatedAt: new Date() },
       // Enforced in the same write, so a delayed webhook or checkout upsert cannot race a
       // read-before-write check and restore identity after account erasure.
       setWhere: isNull(paddleCustomers.anonymizedAt),

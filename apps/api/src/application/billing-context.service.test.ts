@@ -5,7 +5,7 @@ import { BillingContextService } from './billing-context.service';
 function repository(): PaddleBillingRepository {
   return {
     findCustomerForUser: vi.fn(),
-    findCustomerByEmail: vi.fn(),
+    attachCustomerToUser: vi.fn(),
     upsertCustomer: vi.fn(),
     upsertSubscription: vi.fn(),
     listSubscriptionsForUser: vi.fn(),

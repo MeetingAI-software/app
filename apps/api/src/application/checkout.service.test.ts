@@ -4,19 +4,18 @@ import type { PaddleCheckoutPort } from '../ports/paddle-checkout.port';
 import {
   InvalidBillingPriceError,
   InvalidBillingQuantityError,
+  PaddleOwnershipConflictError,
   SubscriptionAlreadyActiveError,
 } from '../domain/errors';
 import { CheckoutService } from './checkout.service';
 
-function setup(options: { customerId?: string; recoveredCustomerId?: string; status?: string } = {}) {
+function setup(options: { customerId?: string; status?: string; bindingAllowed?: boolean } = {}) {
   const billingRepo = {
     listSubscriptionsForUser: vi.fn().mockResolvedValue(options.status ? [{ status: options.status }] : []),
     findCustomerForUser: vi.fn().mockResolvedValue(options.customerId
       ? { customerId: options.customerId, subscriptionIds: [] }
       : null),
-    findCustomerByEmail: vi.fn().mockResolvedValue(options.recoveredCustomerId
-      ? { customerId: options.recoveredCustomerId, subscriptionIds: [] }
-      : null),
+    attachCustomerToUser: vi.fn().mockResolvedValue(options.bindingAllowed !== false),
     upsertCustomer: vi.fn(),
   } as unknown as PaddleBillingRepository;
   const userRepo = {
@@ -45,7 +44,9 @@ describe('CheckoutService', () => {
 
     await expect(service.createForUser('user-1', 'pri_solo')).resolves.toBe('txn_1');
     expect(checkout.createCustomer).toHaveBeenCalledWith('person@example.com', 'user-1');
-    expect(billingRepo.upsertCustomer).toHaveBeenCalledWith({ customerId: 'ctm_new', email: 'person@example.com' });
+    expect(billingRepo.attachCustomerToUser).toHaveBeenCalledWith({
+      customerId: 'ctm_new', email: 'person@example.com', userId: 'user-1',
+    });
     expect(checkout.createTransaction).toHaveBeenCalledWith({
       customerId: 'ctm_new', priceId: 'pri_solo', quantity: 1, appUserId: 'user-1',
     });
@@ -60,24 +61,9 @@ describe('CheckoutService', () => {
     });
   });
 
-  it('reclaims an orphaned Paddle customer when the same email registers again', async () => {
-    const { service, billingRepo, checkout } = setup({ recoveredCustomerId: 'ctm_recovered' });
-
-    await service.createForUser('user-1', 'pri_solo');
-
-    expect(billingRepo.findCustomerByEmail).toHaveBeenCalledWith('person@example.com');
-    expect(billingRepo.upsertCustomer).toHaveBeenCalledWith({
-      customerId: 'ctm_recovered', email: 'person@example.com',
-    });
-    expect(checkout.createCustomer).not.toHaveBeenCalled();
-    expect(checkout.createTransaction).toHaveBeenCalledWith({
-      customerId: 'ctm_recovered', priceId: 'pri_solo', quantity: 1, appUserId: 'user-1',
-    });
-  });
-
-  it('blocks checkout when a reclaimed customer still has paid access', async () => {
-    const { service, checkout } = setup({ recoveredCustomerId: 'ctm_recovered', status: 'active' });
-    await expect(service.createForUser('user-1', 'pri_solo')).rejects.toThrow(SubscriptionAlreadyActiveError);
+  it('stops before transaction if the provider customer cannot be bound to the user', async () => {
+    const { service, checkout } = setup({ bindingAllowed: false });
+    await expect(service.createForUser('user-1', 'pri_solo')).rejects.toThrow(PaddleOwnershipConflictError);
     expect(checkout.createTransaction).not.toHaveBeenCalled();
   });
 
@@ -112,6 +98,7 @@ describe('CheckoutService', () => {
   it('prevents a second checkout while a paid subscription is active', async () => {
     const { service, checkout } = setup({ status: 'active' });
     await expect(service.createForUser('user-1', 'pri_solo')).rejects.toThrow(SubscriptionAlreadyActiveError);
+    expect(checkout.createCustomer).not.toHaveBeenCalled();
     expect(checkout.createTransaction).not.toHaveBeenCalled();
   });
 });

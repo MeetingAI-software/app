@@ -25,6 +25,7 @@ import {
   VerificationNotPersistedError,
   WeakPasswordError,
   FeatureUnavailableError,
+  GoogleAccountLinkRequiredError,
 } from '../domain/errors';
 import { logger } from '../config/logger';
 import type { EmailSendBudget } from './email-send-budget.service';
@@ -189,10 +190,9 @@ export class AuthService implements AuthServiceApi {
       // 2. Try finding by email
       const existing = await this.users.findByEmailWithHash(email);
       if (existing) {
-        // Link existing user to Google ID
-        await this.users.linkGoogleId(existing.id, googleId);
-        const { passwordHash: _omit, ...existingUser } = existing;
-        user = { ...existingUser, emailVerified: true, hasGoogleLogin: true };
+        // A verified Google email proves control of the mailbox, not ownership of the app account
+        // or its pre-existing password/sessions. Linking is a separate authenticated action.
+        throw new GoogleAccountLinkRequiredError();
       } else {
         if (!allowRegistration) {
           throw new FeatureUnavailableError('New account registration is not available');
@@ -202,11 +202,8 @@ export class AuthService implements AuthServiceApi {
         logger.info({ userId: user.id }, 'User signed up via Google OAuth');
       }
     } else {
-      if (!user.emailVerified) {
-        // Repair legacy OAuth accounts created before verification status was persisted correctly.
-        await this.users.markEmailVerified(user.id);
-        user = { ...user, emailVerified: true };
-      }
+      // A linked Google subject may have changed the app email since linking. Sign-in with the
+      // subject remains valid, but it cannot verify a different current mailbox as a side effect.
       logger.info({ userId: user.id }, 'User logged in via Google OAuth');
     }
     return this.startSession(user);

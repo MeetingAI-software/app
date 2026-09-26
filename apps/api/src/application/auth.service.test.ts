@@ -20,6 +20,7 @@ import {
   VerificationNotPersistedError,
   WeakPasswordError,
   FeatureUnavailableError,
+  GoogleAccountLinkRequiredError,
 } from '../domain/errors';
 import type { EmailVerificationToken, User, Session, Meeting } from '../domain/types';
 import type {
@@ -546,14 +547,15 @@ describe('AuthService', () => {
   });
 
   describe('Google OAuth', () => {
-    it('blocks creation while still allowing an existing account to link', async () => {
+    it('blocks creation and requires explicit linking for an existing account', async () => {
       await expect(ctx.service.loginOrCreateGoogleUser('new-google@example.com', 'google-new', false))
         .rejects.toBeInstanceOf(FeatureUnavailableError);
       expect(ctx.users.size()).toBe(0);
 
       const { user } = await ctx.service.signup('existing-google@example.com', 'a-good-password');
-      const linked = await ctx.service.loginOrCreateGoogleUser(user.email, 'google-existing', false);
-      expect(linked.user.id).toBe(user.id);
+      await expect(ctx.service.loginOrCreateGoogleUser(user.email, 'google-existing', false))
+        .rejects.toBeInstanceOf(GoogleAccountLinkRequiredError);
+      expect((await ctx.users.findById(user.id))?.hasGoogleLogin).toBe(false);
     });
 
     it('creates new Google users with a verified email', async () => {
@@ -563,16 +565,17 @@ describe('AuthService', () => {
       await expect(ctx.users.findById(result.user.id)).resolves.toMatchObject({ emailVerified: true });
     });
 
-    it('marks an existing password account verified when linking Google', async () => {
+    it('does not upgrade an attacker-held password account by matching a Google email', async () => {
       const { user } = await ctx.service.signup('linked@example.com', 'a-good-password');
 
-      const result = await ctx.service.loginOrCreateGoogleUser(user.email, 'google-2');
-
-      expect(result.user).toMatchObject({ id: user.id, emailVerified: true });
-      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ emailVerified: true });
+      await expect(ctx.service.loginOrCreateGoogleUser(user.email, 'google-2'))
+        .rejects.toBeInstanceOf(GoogleAccountLinkRequiredError);
+      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({
+        emailVerified: false, hasGoogleLogin: false,
+      });
     });
 
-    it('repairs verification status for a legacy Google account', async () => {
+    it('does not verify a changed address through a pre-existing Google subject', async () => {
       const legacy = await ctx.users.create({
         email: 'legacy-google@example.com',
         googleId: 'google-legacy',
@@ -581,8 +584,8 @@ describe('AuthService', () => {
 
       const result = await ctx.service.loginOrCreateGoogleUser(legacy.email, 'google-legacy');
 
-      expect(result.user.emailVerified).toBe(true);
-      await expect(ctx.users.findById(legacy.id)).resolves.toMatchObject({ emailVerified: true });
+      expect(result.user.emailVerified).toBe(false);
+      await expect(ctx.users.findById(legacy.id)).resolves.toMatchObject({ emailVerified: false });
     });
   });
 

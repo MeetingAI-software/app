@@ -171,10 +171,9 @@ export interface PaddleBillingRepository {
     customerId: string;
     subscriptionIds: string[];
   } | null>;
-  findCustomerByEmail(email: string): Promise<{
-    customerId: string;
-    subscriptionIds: string[];
-  } | null>;
+  /** Bind only a newly created or explicitly unowned customer to the authenticated app user. */
+  attachCustomerToUser(input: { customerId: string; email: string; userId: string }): Promise<boolean>;
+  /** Synchronize provider contact details without changing the local owner. */
   upsertCustomer(input: {
     customerId: string;
     email: string;
