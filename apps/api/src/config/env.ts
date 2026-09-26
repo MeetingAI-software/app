@@ -112,6 +112,10 @@ export const envSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['BOT_PROVIDER'],
       message: 'Fake bot provider is unavailable in production' });
   }
+  if (cfg.NODE_ENV === 'production' && cfg.EMAIL_PROVIDER === 'log') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['EMAIL_PROVIDER'],
+      message: 'Log email provider is unavailable in production' });
+  }
   if (cfg.NODE_ENV === 'production') {
     const secureUrls = [
       ['WEB_ORIGIN', cfg.WEB_ORIGIN, '/'],

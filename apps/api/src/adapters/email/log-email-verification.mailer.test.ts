@@ -3,7 +3,7 @@ import type { Logger } from 'pino';
 import { LogEmailVerificationMailer } from './log-email-verification.mailer';
 
 describe('LogEmailVerificationMailer', () => {
-  it('writes a complete simulated verification email to structured logs', async () => {
+  it('never writes a bearer link, token or address to logs', async () => {
     const info = vi.fn();
     const mailer = new LogEmailVerificationMailer({ info } as unknown as Pick<Logger, 'info'>);
     const expiresAt = new Date('2026-07-26T12:00:00.000Z');
@@ -14,13 +14,8 @@ describe('LogEmailVerificationMailer', () => {
       expiresAt,
     });
 
-    expect(info).toHaveBeenCalledWith(
-      {
-        to: 'person@example.com',
-        verificationUrl: 'https://app.example.com/verify-email?token=secret-token',
-        expiresAt: expiresAt.toISOString(),
-      },
-      'Email verification message simulated',
-    );
+    expect(info).toHaveBeenCalledOnce();
+    expect(JSON.stringify(info.mock.calls)).not.toContain('secret-token');
+    expect(JSON.stringify(info.mock.calls)).not.toContain('person@example.com');
   });
 });

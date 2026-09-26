@@ -45,3 +45,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Är driftmiljön redan konfigurerad med `BOT_PROVIDER=recall`, API-nyckel, signerande webhookhemligheter och publik HTTPS-webhookadress?
 - **Mitt förslag:** Kontrollera miljövariablerna utan att kopiera hemligheter till PR. Sätt Recall-konfigurationen före merge om botfunktionen ska vara aktiv; håll annars releasen tillbaka tills produktläget är bestämt.
 - **Status:** Väntar på ägarens svar. Inga leverantörsinställningar har ändrats.
+
+### D07 — Bedöm äldre verifieringslänkar i loggar (G18)
+
+- **Vad betyder det?** Tidigare loggtransport skrev hela verifieringslänkar till API-loggar. Nya loggar gör inte det, men äldre loggar kan fortfarande innehålla giltiga engångslänkar.
+- **Vad behöver du avgöra?** Har `EMAIL_PROVIDER=log` använts i en delad miljö, och vem kan granska åtkomst och retention för dessa loggar utan att kopiera länkarna?
+- **Mitt förslag:** Bedöm exponering i drift, rensa eller begränsa gamla loggar enligt befintlig retention och återkalla giltiga token om obehörig åtkomst är möjlig. Kontrollera att produktion använder Resend före merge.
+- **Status:** Väntar på ägarens svar. Ingen loggrensning eller tokenrotation har gjorts.

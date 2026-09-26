@@ -38,6 +38,7 @@ describe('optional and defaulted environment values', () => {
       BOT_PROVIDER: 'recall', RECALL_API_KEY: 'synthetic-key',
       RECALL_BASE_URL: 'https://api.recall.test', RECALL_WEBHOOK_SECRET: 'synthetic-secret',
       PUBLIC_WEBHOOK_URL: 'https://api.example.test', LIVE_TRANSCRIPT_ENABLED: 'false',
+      EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 'synthetic-key', RESEND_FROM: 'no-reply@example.test',
     }).success).toBe(true);
   });
 

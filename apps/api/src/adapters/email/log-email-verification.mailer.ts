@@ -5,18 +5,13 @@ import type {
   VerificationEmailMessage,
 } from '../../ports/email-verification-mailer.port';
 
-/** Development delivery adapter: simulates an email by writing its link to structured logs. */
+/** Development-only sink. Never copy a bearer verification link into application logs. */
 export class LogEmailVerificationMailer implements EmailVerificationMailer {
   constructor(private readonly log: Pick<Logger, 'info'> = logger) {}
 
-  async sendVerificationEmail(message: VerificationEmailMessage): Promise<void> {
+  async sendVerificationEmail(_message: VerificationEmailMessage): Promise<void> {
     this.log.info(
-      {
-        to: message.to,
-        verificationUrl: message.verificationUrl,
-        expiresAt: message.expiresAt.toISOString(),
-      },
-      'Email verification message simulated',
+      'Verification email suppressed by development log provider; configure Resend for delivery',
     );
   }
 }
