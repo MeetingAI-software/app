@@ -13,6 +13,9 @@ export const EMAIL_SEND_BUDGET_WINDOW_MS = 24 * 60 * 60 * 1000;
 export interface EmailSendBudget {
   /** Claims one send, or throws EmailSendBudgetExhaustedError. Call BEFORE spending the email. */
   reserve(trigger: EmailSendTrigger, userId: string | null): Promise<void>;
+  /** Atomic admission for the only path that can issue a verification link. */
+  reserveAndIssue(input: { trigger: EmailSendTrigger; userId: string;
+    tokenHash: string; expiresAt: Date; cooldownMs: number }): Promise<{ email: string } | null>;
   /** Non-consuming probe, for callers that must decide before doing any other work. */
   hasRemaining(): Promise<boolean>;
 }
@@ -56,6 +59,24 @@ export class EmailSendBudgetService implements EmailSendBudget {
       logger.warn({ trigger, budget: this.dailyBudget }, 'Verification email suppressed: daily send budget exhausted');
       throw new EmailSendBudgetExhaustedError();
     }
+  }
+
+  async reserveAndIssue(input: { trigger: EmailSendTrigger; userId: string;
+    tokenHash: string; expiresAt: Date; cooldownMs: number }): Promise<{ email: string } | null> {
+    const now = this.now();
+    let result: Awaited<ReturnType<EmailSendLedgerRepository['tryReserveAndIssue']>>;
+    try {
+      result = await this.ledger.tryReserveAndIssue({
+        ...input, now, since: new Date(now.getTime() - EMAIL_SEND_BUDGET_WINDOW_MS),
+        limit: this.dailyBudget,
+      });
+    } catch (err) {
+      this.reportLedgerFault(err, 'Verification send admission unavailable; send blocked');
+      throw new EmailSendBudgetExhaustedError();
+    }
+    if (result.status === 'budget') throw new EmailSendBudgetExhaustedError();
+    if (result.status !== 'issued') return null;
+    return { email: result.email };
   }
 
   async hasRemaining(): Promise<boolean> {

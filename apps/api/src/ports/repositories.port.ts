@@ -173,6 +173,11 @@ export interface EmailSendLedgerRepository {
   /** Claim one send in a transaction, or return false when the shared budget is exhausted. */
   tryReserve(input: { userId: string | null; trigger: EmailSendTrigger;
     since: Date; now: Date; limit: number }): Promise<boolean>;
+  /** Claim the global send slot, account cooldown and replacement token in one transaction. */
+  tryReserveAndIssue(input: { userId: string; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number; cooldownMs: number;
+    tokenHash: string; expiresAt: Date }): Promise<{ status: 'issued'; email: string }
+      | { status: 'cooldown' | 'budget' | 'already_verified' }>;
   record(input: { userId: string | null; trigger: EmailSendTrigger }): Promise<void>;
   /** Retention janitor, mirroring SessionRepository.deleteExpired. Returns the count removed. */
   deleteOlderThan(cutoff: Date): Promise<number>;

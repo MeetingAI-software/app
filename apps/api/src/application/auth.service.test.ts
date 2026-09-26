@@ -281,7 +281,26 @@ class FakeVerificationMailer implements EmailVerificationMailer {
 class FakeEmailSendLedgerRepo implements EmailSendLedgerRepository {
   readonly rows: { userId: string | null; trigger: EmailSendTrigger; createdAt: Date }[] = [];
 
-  constructor(private readonly now: () => Date) {}
+  constructor(private readonly now: () => Date,
+    private readonly users: FakeUserRepo, private readonly tokens: FakeVerificationTokenRepo) {}
+
+  async tryReserveAndIssue(input: { userId: string; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number; cooldownMs: number;
+    tokenHash: string; expiresAt: Date }) {
+    const user = await this.users.findById(input.userId);
+    if (!user || user.emailVerified) return { status: 'already_verified' as const };
+    const previous = await this.tokens.findForUser(input.userId);
+    if (input.trigger === 'resend' && previous
+      && previous.createdAt.getTime() > input.now.getTime() - input.cooldownMs) {
+      return { status: 'cooldown' as const };
+    }
+    if (this.rows.filter(row => row.createdAt >= input.since).length >= input.limit) {
+      return { status: 'budget' as const };
+    }
+    const issued = await this.tokens.replaceForUser(input);
+    this.rows.push({ userId: input.userId, trigger: input.trigger, createdAt: input.now });
+    return { status: 'issued' as const, email: issued.email };
+  }
 
   async countSince(since: Date) {
     return this.rows.filter((row) => row.createdAt.getTime() >= since.getTime()).length;
@@ -352,7 +371,7 @@ function build(meetingStore: Meeting[] = []) {
   const verificationTokenRepo = new FakeVerificationTokenRepo(users, sessions, nowFn);
   const verificationTokens = new EmailVerificationTokenService(verificationTokenRepo, { now: nowFn });
   const verificationMailer = new FakeVerificationMailer();
-  const sendLedger = new FakeEmailSendLedgerRepo(nowFn);
+  const sendLedger = new FakeEmailSendLedgerRepo(nowFn, users, verificationTokenRepo);
   const sendBudget = new EmailSendBudgetService(sendLedger, TEST_SEND_BUDGET, { now: nowFn });
   const verificationDelivery = new EmailVerificationDeliveryService(
     verificationTokens,
