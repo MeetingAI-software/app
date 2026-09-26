@@ -67,10 +67,6 @@ function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-function msg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 /**
  * The auth brain (Day 5 §3/§6). Owns account lifecycle and sessions; knows nothing about HTTP,
  * cookies, or Postgres — those live in adapters. Session TTL and every collaborator are injected,
@@ -125,7 +121,7 @@ export class AuthService implements AuthServiceApi {
       // the verification notice instead of returning an error that encourages a duplicate signup.
       // An exhausted send budget lands here too, deliberately: throwing would leave a ghost account
       // whose retry 409s, which is strictly worse than an unverified one they can resend from.
-      logger.error({ userId: user.id, err: msg(err) }, 'Initial verification email delivery failed');
+      logger.error({ userId: user.id }, 'Initial verification email delivery failed');
     }
     return this.startSession(user, user.authVersion);
   }
@@ -271,7 +267,7 @@ export class AuthService implements AuthServiceApi {
       // user permanently. Bounded instead by the per-account route limiter and the global budget.
       await this.verificationDelivery.sendTo(updated, 'change_email');
     } catch (err) {
-      logger.error({ userId, err: msg(err) }, 'Verification email delivery after address change failed');
+      logger.error({ userId }, 'Verification email delivery after address change failed');
     }
     return updated;
   }
