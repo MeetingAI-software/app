@@ -155,12 +155,9 @@ export class AuthService implements AuthServiceApi {
   }
 
   async resendVerification(email: string): Promise<void> {
-    // Before the lookup, not inside the send. This route returns early for unknown and already
-    // verified addresses, so a budget error raised further down would surface only for real
-    // unverified accounts — a free enumeration oracle, exactly what the neutral 200 exists to
-    // prevent. Exhaustion is a global condition, so answering it identically for every caller
-    // leaks nothing about any account.
-    if (!(await this.sendBudget.hasRemaining())) throw new EmailSendBudgetExhaustedError();
+    // The response stays neutral even if the budget fills between this probe and the atomic
+    // reservation. A budget error only for real accounts would disclose account existence.
+    if (!(await this.sendBudget.hasRemaining())) return;
 
     const user = await this.users.findByEmailWithHash(email);
     if (!user || user.emailVerified) return;
@@ -170,7 +167,12 @@ export class AuthService implements AuthServiceApi {
       logger.info({ userId: user.id }, 'Verification resend suppressed by cooldown');
       return;
     }
-    await this.verificationDelivery.sendTo(user, 'resend');
+    try {
+      await this.verificationDelivery.sendTo(user, 'resend');
+    } catch (err) {
+      if (err instanceof EmailSendBudgetExhaustedError) return;
+      throw err;
+    }
   }
 
   async login(email: string, password: string): Promise<AuthResult> {

@@ -147,13 +147,14 @@ export type EmailSendTrigger = 'signup' | 'resend' | 'change_email';
  * `countSince` takes the window start rather than computing it, so the service owns the clock and
  * the window constant — which is what keeps the budget testable without a database.
  *
- * Read-then-write is only near-atomic, which is fine at one replica: the gap is a single Postgres
- * round-trip, so overshoot is a row or two against 70 emails of headroom. If numReplicas ever
- * exceeds 1, replace this with an atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count`.
+ * Admission must serialize the rolling-window count and insert across all API replicas.
  */
 export interface EmailSendLedgerRepository {
   /** Rows created at or after `since`. */
   countSince(since: Date): Promise<number>;
+  /** Claim one send in a transaction, or return false when the shared budget is exhausted. */
+  tryReserve(input: { userId: string | null; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number }): Promise<boolean>;
   record(input: { userId: string | null; trigger: EmailSendTrigger }): Promise<void>;
   /** Retention janitor, mirroring SessionRepository.deleteExpired. Returns the count removed. */
   deleteOlderThan(cutoff: Date): Promise<number>;
