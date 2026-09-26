@@ -1,4 +1,5 @@
 import type { TranscriptSegment } from '../../domain/types';
+import { normalizeSpeakerLabel } from '../../domain/speaker-label';
 
 /**
  * Timestamps arrive as `{ absolute: ISO-8601, relative: seconds }` objects. Older payloads
@@ -27,12 +28,6 @@ export interface SpeakerSource {
  * third-party text that ends up on the public share page — bound it. Truncate rather than
  * reject: an absurd display name must never cost the user their transcript.
  */
-const MAX_SPEAKER_LENGTH = 120;
-
-function capSpeaker(value: string): string {
-  return value.trim().slice(0, MAX_SPEAKER_LENGTH);
-}
-
 /**
  * Speaker labelling, shared by the post-call and live paths so an unnamed participant gets the
  * same `Speaker N` label in both. Stateful: the returned function remembers which anonymous
@@ -45,13 +40,13 @@ export function createSpeakerResolver(): (raw: SpeakerSource) => string {
 
   return (raw: SpeakerSource): string => {
     const rawSpeaker = raw.speaker;
-    if (typeof rawSpeaker === 'string' && rawSpeaker.trim()) {
-      return capSpeaker(rawSpeaker);
+    if (typeof rawSpeaker === 'string' && normalizeSpeakerLabel(rawSpeaker)) {
+      return normalizeSpeakerLabel(rawSpeaker);
     }
 
     const participantName = raw.participant?.name;
-    if (typeof participantName === 'string' && participantName.trim()) {
-      return capSpeaker(participantName);
+    if (typeof participantName === 'string' && normalizeSpeakerLabel(participantName)) {
+      return normalizeSpeakerLabel(participantName);
     }
 
     const rawId = raw.speaker_id ?? raw.participant?.id;
