@@ -6,7 +6,7 @@ import { processPaddleEvent } from './process-paddle-event';
 function repository(): PaddleBillingRepository {
   return {
     findCustomerForUser: vi.fn(),
-    findCustomerByEmail: vi.fn(),
+    attachCustomerToUser: vi.fn(),
     upsertCustomer: vi.fn(),
     upsertSubscription: vi.fn(),
     listSubscriptionsForUser: vi.fn(),
@@ -14,7 +14,7 @@ function repository(): PaddleBillingRepository {
 }
 
 describe('processPaddleEvent', () => {
-  it('links customer data by normalized repository upsert', async () => {
+  it('synchronizes customer contact data without assigning ownership', async () => {
     const repo = repository();
     await processPaddleEvent({
       eventType: 'customer.updated',

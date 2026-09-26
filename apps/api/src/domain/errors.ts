@@ -34,6 +34,13 @@ export class PaddleNotConfiguredError extends Error {
   }
 }
 
+export class PaddleOwnershipConflictError extends Error {
+  constructor() {
+    super('Billing customer ownership requires support');
+    this.name = 'PaddleOwnershipConflictError';
+  }
+}
+
 export class BillingMutationsDisabledError extends Error {
   constructor(message = 'Billing changes are temporarily unavailable. Existing subscriptions can still be managed in Settings.') {
     super(message);
@@ -159,6 +166,13 @@ export class WeakPasswordError extends Error {          // → HTTP 400
   constructor(message: string) {
     super(message);
     this.name = 'WeakPasswordError';
+  }
+}
+
+export class GoogleAccountLinkRequiredError extends Error {
+  constructor() {
+    super('Sign in to the existing account before linking Google');
+    this.name = 'GoogleAccountLinkRequiredError';
   }
 }
 

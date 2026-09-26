@@ -1,8 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { db, migrateOnce, truncateAll } from '../pglite-harness';
-import { emailVerificationTokens, users } from '../schema';
+import { emailVerificationTokens, sessions, users } from '../schema';
 import { DrizzleVerificationTokenRepository } from './verification-token.repository';
+import { DrizzleUserRepository } from './user.repository';
+import { DrizzleSessionRepository } from './session.repository';
 
 vi.mock('../client', () => ({ db }));
 
@@ -129,10 +131,61 @@ describe('DrizzleVerificationTokenRepository', () => {
   // link works, and it must work exactly once.
   // ---------------------------------------------------------------------------
   describe('consumeAndVerify', () => {
+    it('rejects a token for a former address even after changing back to that address', async () => {
+      const userRepo = new DrizzleUserRepository();
+      await repo.replaceForUser({ userId, tokenHash: 'old-address', expiresAt: future() });
+      await userRepo.updateEmail(userId, 'other@example.com', 1);
+      await userRepo.updateEmail(userId, 'person@example.com', 1);
+
+      expect((await repo.consumeAndVerify({ tokenHash: 'old-address', now: new Date(), passwordHash: 'new-hash' })).status)
+        .toBe('invalid');
+      const [unchanged] = await db.select().from(users).where(eq(users.id, userId));
+      expect(unchanged.emailVersion).toBe(3);
+      expect(unchanged.emailVerified).toBe(false);
+    });
+
+    it('checks the version at consumption even if an obsolete token row survives', async () => {
+      await repo.replaceForUser({ userId, tokenHash: 'stale-row', expiresAt: future() });
+      await db.update(users).set({ email: 'other@example.com', emailVersion: 2 })
+        .where(eq(users.id, userId));
+      await db.update(users).set({ email: 'person@example.com', emailVersion: 3 })
+        .where(eq(users.id, userId));
+
+      expect((await repo.consumeAndVerify({ tokenHash: 'stale-row', now: new Date(), passwordHash: 'new-hash' })).status)
+        .toBe('invalid');
+      const [unchanged] = await db.select().from(users).where(eq(users.id, userId));
+      expect(unchanged.emailVerified).toBe(false);
+    });
+
+    it('issues for the current address and verifies only that version', async () => {
+      const userRepo = new DrizzleUserRepository();
+      await userRepo.updateEmail(userId, 'new@example.com', 1);
+      expect(await repo.replaceForUser({ userId, tokenHash: 'new-address', expiresAt: future() }))
+        .toEqual({ email: 'new@example.com' });
+      const [issued] = await rowsForUser(userId);
+      expect(issued).toMatchObject({ emailAtIssue: 'new@example.com', emailVersion: 2 });
+      expect((await repo.consumeAndVerify({ tokenHash: 'new-address', now: new Date(), passwordHash: 'new-hash' })).status)
+        .toBe('verified');
+    });
+
+    it('rejects legacy unbound tokens left by an earlier schema', async () => {
+      await db.insert(emailVerificationTokens).values({
+        userId, tokenHash: 'legacy', expiresAt: future(),
+      });
+      expect((await repo.consumeAndVerify({ tokenHash: 'legacy', now: new Date(), passwordHash: 'new-hash' })).status)
+        .toBe('invalid');
+      const [unchanged] = await db.select().from(users).where(eq(users.id, userId));
+      expect(unchanged.emailVerified).toBe(false);
+    });
+
     it('verifies the user and marks the token consumed', async () => {
+      const sessionRepo = new DrizzleSessionRepository();
+      await sessionRepo.create({
+        userId, tokenHash: 'old-session', expiresAt: future(), authVersion: 1,
+      });
       await repo.replaceForUser({ userId, tokenHash: 'live', expiresAt: future() });
 
-      const result = await repo.consumeAndVerify({ tokenHash: 'live', now: new Date() });
+      const result = await repo.consumeAndVerify({ tokenHash: 'live', now: new Date(), passwordHash: 'new-hash' });
 
       expect(result.status).toBe('verified');
       if (result.status === 'verified') {
@@ -142,29 +195,39 @@ describe('DrizzleVerificationTokenRepository', () => {
       // The flag is actually persisted, not just returned.
       const [stored] = await db.select().from(users).where(eq(users.id, userId));
       expect(stored.emailVerified).toBe(true);
+      expect(stored.passwordHash).toBe('new-hash');
+      expect(stored.authVersion).toBe(2);
+      expect(await db.select().from(sessions).where(eq(sessions.userId, userId))).toHaveLength(0);
       expect((await repo.findByTokenHash('live'))?.consumedAt).toBeInstanceOf(Date);
+
+      // Simulate a password login that checked the old hash before verification committed, then
+      // inserted its session afterward. Its old epoch cannot authenticate.
+      await sessionRepo.create({
+        userId, tokenHash: 'late-old-session', expiresAt: future(), authVersion: 1,
+      });
+      expect(await sessionRepo.findByTokenHash('late-old-session')).toBeNull();
     });
 
     // Single use is the security property. A link that works twice is a link that works for whoever
     // finds it in a forwarded email.
     it('refuses a second use of the same token', async () => {
       await repo.replaceForUser({ userId, tokenHash: 'once', expiresAt: future() });
-      await repo.consumeAndVerify({ tokenHash: 'once', now: new Date() });
+      await repo.consumeAndVerify({ tokenHash: 'once', now: new Date(), passwordHash: 'new-hash' });
 
-      const second = await repo.consumeAndVerify({ tokenHash: 'once', now: new Date() });
+      const second = await repo.consumeAndVerify({ tokenHash: 'once', now: new Date(), passwordHash: 'new-hash' });
 
       expect(second.status).toBe('used');
     });
 
     it('reports invalid for a hash that does not exist', async () => {
-      const result = await repo.consumeAndVerify({ tokenHash: 'ghost', now: new Date() });
+      const result = await repo.consumeAndVerify({ tokenHash: 'ghost', now: new Date(), passwordHash: 'new-hash' });
       expect(result.status).toBe('invalid');
     });
 
     it('reports expired for a token past its TTL, and does not verify the user', async () => {
       await repo.replaceForUser({ userId, tokenHash: 'stale', expiresAt: past() });
 
-      const result = await repo.consumeAndVerify({ tokenHash: 'stale', now: new Date() });
+      const result = await repo.consumeAndVerify({ tokenHash: 'stale', now: new Date(), passwordHash: 'new-hash' });
 
       expect(result.status).toBe('expired');
       const [stored] = await db.select().from(users).where(eq(users.id, userId));
@@ -178,14 +241,14 @@ describe('DrizzleVerificationTokenRepository', () => {
       const now = new Date();
       await repo.replaceForUser({ userId, tokenHash: 'edge', expiresAt: now });
 
-      expect((await repo.consumeAndVerify({ tokenHash: 'edge', now })).status).toBe('expired');
+      expect((await repo.consumeAndVerify({ tokenHash: 'edge', now, passwordHash: 'new-hash' })).status).toBe('expired');
     });
 
     it('reports already_verified when the account was verified by another route', async () => {
       const oauth = await makeUser('oauth@example.com', true);
       await repo.replaceForUser({ userId: oauth, tokenHash: 'redundant', expiresAt: future() });
 
-      const result = await repo.consumeAndVerify({ tokenHash: 'redundant', now: new Date() });
+      const result = await repo.consumeAndVerify({ tokenHash: 'redundant', now: new Date(), passwordHash: 'new-hash' });
 
       expect(result.status).toBe('already_verified');
     });
@@ -245,7 +308,7 @@ describe('DrizzleVerificationTokenRepository', () => {
 
       await repo.deleteExpired(now);
 
-      expect((await repo.consumeAndVerify({ tokenHash: 'spendable', now })).status).toBe('verified');
+      expect((await repo.consumeAndVerify({ tokenHash: 'spendable', now, passwordHash: 'new-hash' })).status).toBe('verified');
     });
   });
 

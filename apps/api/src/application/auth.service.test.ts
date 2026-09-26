@@ -20,6 +20,7 @@ import {
   VerificationNotPersistedError,
   WeakPasswordError,
   FeatureUnavailableError,
+  GoogleAccountLinkRequiredError,
 } from '../domain/errors';
 import type { EmailVerificationToken, User, Session, Meeting } from '../domain/types';
 import type {
@@ -48,16 +49,20 @@ const sha256 = (t: string) => crypto.createHash('sha256').update(t).digest('hex'
 // ---- Stateful fakes for the two repos AuthService fully owns ----
 class FakeUserRepo implements UserRepository {
   private seq = 0;
-  private byId = new Map<string, User & { passwordHash: string | null; googleId?: string | null }>();
+  private byId = new Map<string, User & {
+    passwordHash: string | null; googleId?: string | null; emailVersion: number; authVersion: number;
+  }>();
   private byEmail = new Map<string, string>();
   private byGoogleId = new Map<string, string>();
-  async create(input: Parameters<UserRepository['create']>[0]): Promise<User> {
+  async create(input: Parameters<UserRepository['create']>[0]): ReturnType<UserRepository['create']> {
     const email = input.email.trim().toLowerCase();
     if (this.byEmail.has(email)) throw new EmailTakenError('taken');
     const rec = {
       id: `u${++this.seq}`,
       email,
       emailVerified: input.emailVerified ?? false,
+      emailVersion: 1,
+      authVersion: 1,
       passwordHash: input.passwordHash ?? null,
       googleId: input.googleId ?? null,
       organizationName: input.organizationName ?? null,
@@ -69,7 +74,7 @@ class FakeUserRepo implements UserRepository {
     this.byEmail.set(email, rec.id);
     if (input.googleId) this.byGoogleId.set(input.googleId, rec.id);
     return {
-      id: rec.id, email: rec.email, emailVerified: rec.emailVerified,
+      id: rec.id, email: rec.email, emailVerified: rec.emailVerified, authVersion: rec.authVersion,
       hasPassword: Boolean(rec.passwordHash), hasGoogleLogin: Boolean(rec.googleId), createdAt: rec.createdAt,
       organizationName: rec.organizationName,
       businessUseConfirmedAt: rec.businessUseConfirmedAt,
@@ -83,6 +88,7 @@ class FakeUserRepo implements UserRepository {
       id: r.id, email: r.email, emailVerified: r.emailVerified,
       hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId),
       createdAt: r.createdAt, passwordHash: r.passwordHash, googleId: r.googleId,
+      authVersion: r.authVersion,
     } : null;
   }
   async findByGoogleId(googleId: string) {
@@ -91,6 +97,7 @@ class FakeUserRepo implements UserRepository {
     return r ? {
       id: r.id, email: r.email, emailVerified: r.emailVerified,
       hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId), createdAt: r.createdAt,
+      authVersion: r.authVersion,
     } : null;
   }
   async linkGoogleId(id: string, googleId: string) {
@@ -112,19 +119,26 @@ class FakeUserRepo implements UserRepository {
       hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId), createdAt: r.createdAt,
     } : null;
   }
-  async updatePassword(id: string, passwordHash: string) {
+  async updatePassword(id: string, passwordHash: string, expectedAuthVersion: number) {
     const r = this.byId.get(id);
-    if (r) r.passwordHash = passwordHash;
+    if (!r) throw new Error('missing user');
+    if (r.authVersion !== expectedAuthVersion) throw new InvalidCredentialsError('Credentials changed');
+    r.passwordHash = passwordHash;
+    return ++r.authVersion;
   }
-  async updateEmail(id: string, email: string): Promise<User> {
+  async updateEmail(id: string, email: string, expectedAuthVersion: number): Promise<User> {
     const normalized = email.trim().toLowerCase();
     const owner = this.byEmail.get(normalized);
     if (owner && owner !== id) throw new EmailTakenError('taken');
     const r = this.byId.get(id);
     if (!r) throw new Error('no such user');
+    if (r.authVersion !== expectedAuthVersion) throw new InvalidCredentialsError('Credentials changed');
     this.byEmail.delete(r.email);
     r.email = normalized;
     r.emailVerified = false;
+    if (r.googleId) this.byGoogleId.delete(r.googleId);
+    r.googleId = null;
+    r.emailVersion += 1;
     this.byEmail.set(normalized, id);
     return {
       id: r.id, email: r.email, emailVerified: r.emailVerified,
@@ -136,17 +150,26 @@ class FakeUserRepo implements UserRepository {
     if (r) { this.byEmail.delete(r.email); this.byId.delete(id); }
   }
   size() { return this.byId.size; }
+  addressVersion(id: string) { return this.byId.get(id)?.emailVersion; }
+  authVersion(id: string) { return this.byId.get(id)?.authVersion; }
 }
 
 class FakeSessionRepo implements SessionRepository {
   private seq = 0;
-  byHash = new Map<string, Session>();
-  async create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<Session> {
-    const s = { id: `s${++this.seq}`, userId: input.userId, expiresAt: input.expiresAt, createdAt: new Date() };
+  byHash = new Map<string, Session & { authVersion: number }>();
+  constructor(private readonly users: FakeUserRepo) {}
+  async create(input: { userId: string; tokenHash: string; expiresAt: Date; authVersion?: number }): Promise<Session> {
+    const s = {
+      id: `s${++this.seq}`, userId: input.userId, expiresAt: input.expiresAt,
+      authVersion: input.authVersion ?? 1, createdAt: new Date(),
+    };
     this.byHash.set(input.tokenHash, s);
     return s;
   }
-  async findByTokenHash(h: string) { return this.byHash.get(h) ?? null; }
+  async findByTokenHash(h: string) {
+    const session = this.byHash.get(h);
+    return session && session.authVersion === this.users.authVersion(session.userId) ? session : null;
+  }
   async deleteByTokenHash(h: string) { this.byHash.delete(h); }
   async deleteAllForUser(userId: string) {
     for (const [h, s] of this.byHash) if (s.userId === userId) this.byHash.delete(h);
@@ -164,19 +187,29 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
   private byHash = new Map<string, EmailVerificationToken>();
 
   // Shares the suite's clock so `createdAt` moves with it — the resend cooldown reads that field.
-  constructor(private readonly users: FakeUserRepo, private readonly now: () => Date = () => new Date()) {}
+  constructor(
+    private readonly users: FakeUserRepo,
+    private readonly sessions: FakeSessionRepo,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   async replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }) {
+    const user = await this.users.findById(input.userId);
+    const emailVersion = this.users.addressVersion(input.userId);
+    if (!user || emailVersion === undefined) throw new Error('missing user');
     for (const [hash, token] of this.byHash) {
       if (token.userId === input.userId) this.byHash.delete(hash);
     }
     this.byHash.set(input.tokenHash, {
       id: `v${++this.seq}`,
       userId: input.userId,
+      emailAtIssue: user.email,
+      emailVersion,
       expiresAt: input.expiresAt,
       consumedAt: null,
       createdAt: this.now(),
     });
+    return { email: user.email };
   }
 
   async findByTokenHash(tokenHash: string) {
@@ -202,7 +235,7 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
     return before - this.byHash.size;
   }
 
-  async consumeAndVerify(input: { tokenHash: string; now: Date }) {
+  async consumeAndVerify(input: { tokenHash: string; now: Date; passwordHash: string }) {
     const token = this.byHash.get(input.tokenHash);
     if (!token) return { status: 'invalid' as const };
     if (token.consumedAt) return { status: 'used' as const };
@@ -211,8 +244,13 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
     token.consumedAt = input.now;
     const user = await this.users.findById(token.userId);
     if (!user) throw new Error('missing user');
+    if (token.emailAtIssue !== user.email || token.emailVersion !== this.users.addressVersion(user.id)) {
+      return { status: 'invalid' as const };
+    }
     if (user.emailVerified) return { status: 'already_verified' as const };
 
+    await this.users.updatePassword(user.id, input.passwordHash, this.users.authVersion(user.id)!);
+    await this.sessions.deleteAllForUser(user.id);
     await this.users.markEmailVerified(user.id);
     const verified = await this.users.findById(user.id);
     if (!verified) throw new Error('missing user');
@@ -288,7 +326,7 @@ function makeMeeting(over: Partial<Meeting>): Meeting {
 
 function build(meetingStore: Meeting[] = []) {
   const users = new FakeUserRepo();
-  const sessions = new FakeSessionRepo();
+  const sessions = new FakeSessionRepo(users);
   const hasher = new Argon2Hasher();
   const meetings = meetingRepoOver(meetingStore);
   const transcripts: TranscriptRepository = { save: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
@@ -301,7 +339,7 @@ function build(meetingStore: Meeting[] = []) {
   // Mutable clock: lets a test step past the resend cooldown without actually waiting a minute.
   const clock = { now: new Date() };
   const nowFn = () => clock.now;
-  const verificationTokenRepo = new FakeVerificationTokenRepo(users, nowFn);
+  const verificationTokenRepo = new FakeVerificationTokenRepo(users, sessions, nowFn);
   const verificationTokens = new EmailVerificationTokenService(verificationTokenRepo, { now: nowFn });
   const verificationMailer = new FakeVerificationMailer();
   const sendLedger = new FakeEmailSendLedgerRepo(nowFn);
@@ -445,7 +483,7 @@ describe('AuthService', () => {
     it('does not issue or deliver another token for an already verified user', async () => {
       const { user } = await ctx.service.signup('verified@example.com', 'a-good-password');
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
-      await ctx.service.verifyEmail(token);
+      await ctx.service.verifyEmail(token, 'new-safe-password');
 
       await ctx.service.resendVerification(user.email);
 
@@ -469,25 +507,30 @@ describe('AuthService', () => {
 
   describe('verifyEmail', () => {
     it('atomically consumes the token and marks the user as verified', async () => {
-      const { user } = await ctx.service.signup('verify@example.com', 'a-good-password');
+      const { user, sessionToken } = await ctx.service.signup('verify@example.com', 'a-good-password');
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
 
-      const verified = await ctx.service.verifyEmail(token);
+      const verified = await ctx.service.verifyEmail(token, 'new-safe-password');
 
       expect(verified).toMatchObject({ id: user.id, emailVerified: true });
       await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ emailVerified: true });
+      expect(await ctx.service.getUserForToken(sessionToken)).toBeNull();
+      await expect(ctx.service.login(user.email, 'a-good-password'))
+        .rejects.toBeInstanceOf(InvalidCredentialsError);
+      await expect(ctx.service.login(user.email, 'new-safe-password'))
+        .resolves.toMatchObject({ user: { id: user.id, emailVerified: true } });
     });
 
     it('rejects an already consumed token', async () => {
       await ctx.service.signup('used@example.com', 'a-good-password');
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
-      await ctx.service.verifyEmail(token);
+      await ctx.service.verifyEmail(token, 'new-safe-password');
 
-      await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(UsedVerificationTokenError);
+      await expect(ctx.service.verifyEmail(token, 'new-safe-password')).rejects.toBeInstanceOf(UsedVerificationTokenError);
     });
 
     it('rejects an unknown token', async () => {
-      await expect(ctx.service.verifyEmail('unknown-token'))
+      await expect(ctx.service.verifyEmail('unknown-token', 'new-safe-password'))
         .rejects.toBeInstanceOf(InvalidVerificationTokenError);
     });
 
@@ -496,7 +539,7 @@ describe('AuthService', () => {
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
       ctx.verificationTokenRepo.expire(token);
 
-      await expect(ctx.service.verifyEmail(token))
+      await expect(ctx.service.verifyEmail(token, 'new-safe-password'))
         .rejects.toBeInstanceOf(ExpiredVerificationTokenError);
     });
 
@@ -505,7 +548,7 @@ describe('AuthService', () => {
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
       await ctx.users.markEmailVerified(user.id);
 
-      await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(EmailAlreadyVerifiedError);
+      await expect(ctx.service.verifyEmail(token, 'new-safe-password')).rejects.toBeInstanceOf(EmailAlreadyVerifiedError);
     });
 
     // What Supabase's transaction pooler actually did to us: the transaction reported success and
@@ -524,7 +567,7 @@ describe('AuthService', () => {
         },
       });
 
-      await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(VerificationNotPersistedError);
+      await expect(ctx.service.verifyEmail(token, 'new-safe-password')).rejects.toBeInstanceOf(VerificationNotPersistedError);
       await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ emailVerified: false });
     });
   });
@@ -546,14 +589,15 @@ describe('AuthService', () => {
   });
 
   describe('Google OAuth', () => {
-    it('blocks creation while still allowing an existing account to link', async () => {
+    it('blocks creation and requires explicit linking for an existing account', async () => {
       await expect(ctx.service.loginOrCreateGoogleUser('new-google@example.com', 'google-new', false))
         .rejects.toBeInstanceOf(FeatureUnavailableError);
       expect(ctx.users.size()).toBe(0);
 
       const { user } = await ctx.service.signup('existing-google@example.com', 'a-good-password');
-      const linked = await ctx.service.loginOrCreateGoogleUser(user.email, 'google-existing', false);
-      expect(linked.user.id).toBe(user.id);
+      await expect(ctx.service.loginOrCreateGoogleUser(user.email, 'google-existing', false))
+        .rejects.toBeInstanceOf(GoogleAccountLinkRequiredError);
+      expect((await ctx.users.findById(user.id))?.hasGoogleLogin).toBe(false);
     });
 
     it('creates new Google users with a verified email', async () => {
@@ -563,16 +607,17 @@ describe('AuthService', () => {
       await expect(ctx.users.findById(result.user.id)).resolves.toMatchObject({ emailVerified: true });
     });
 
-    it('marks an existing password account verified when linking Google', async () => {
+    it('does not upgrade an attacker-held password account by matching a Google email', async () => {
       const { user } = await ctx.service.signup('linked@example.com', 'a-good-password');
 
-      const result = await ctx.service.loginOrCreateGoogleUser(user.email, 'google-2');
-
-      expect(result.user).toMatchObject({ id: user.id, emailVerified: true });
-      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ emailVerified: true });
+      await expect(ctx.service.loginOrCreateGoogleUser(user.email, 'google-2'))
+        .rejects.toBeInstanceOf(GoogleAccountLinkRequiredError);
+      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({
+        emailVerified: false, hasGoogleLogin: false,
+      });
     });
 
-    it('repairs verification status for a legacy Google account', async () => {
+    it('does not verify a changed address through a pre-existing Google subject', async () => {
       const legacy = await ctx.users.create({
         email: 'legacy-google@example.com',
         googleId: 'google-legacy',
@@ -581,8 +626,8 @@ describe('AuthService', () => {
 
       const result = await ctx.service.loginOrCreateGoogleUser(legacy.email, 'google-legacy');
 
-      expect(result.user.emailVerified).toBe(true);
-      await expect(ctx.users.findById(legacy.id)).resolves.toMatchObject({ emailVerified: true });
+      expect(result.user.emailVerified).toBe(false);
+      await expect(ctx.users.findById(legacy.id)).resolves.toMatchObject({ emailVerified: false });
     });
   });
 
@@ -635,12 +680,12 @@ describe('AuthService', () => {
     it('changes the email after verifying the password', async () => {
       const { user } = await ctx.service.signup('leo@example.com', 'a-good-password');
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
-      await ctx.service.verifyEmail(token);
-      const updated = await ctx.service.changeEmail(user.id, 'a-good-password', 'Leo-New@Example.com');
+      await ctx.service.verifyEmail(token, 'new-safe-password');
+      const updated = await ctx.service.changeEmail(user.id, 'new-safe-password', 'Leo-New@Example.com');
       expect(updated.email).toBe('leo-new@example.com');
       expect(updated.emailVerified).toBe(false);
       expect(ctx.verificationMailer.sent.at(-1)?.to).toBe('leo-new@example.com');
-      await expect(ctx.service.login('leo-new@example.com', 'a-good-password')).resolves.toBeTruthy();
+      await expect(ctx.service.login('leo-new@example.com', 'new-safe-password')).resolves.toBeTruthy();
     });
 
     it('rejects a wrong password', async () => {

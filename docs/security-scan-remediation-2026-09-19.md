@@ -1,0 +1,193 @@
+# Åtgärdsplan för Codex Security-skanning 2026-09-19
+
+## Underlag och status
+
+Underlag: användarens `findings.json` från avbruten djupskanning `f4a8317d-7fa1-49e0-83a3-bc375c7c5dc0` av commit `603094d78fe0c8f01208f69636e955768fe27663`. Artefakten innehåller **66 fynd: 9 höga, 38 medelhöga och 19 låga**. Skärmbilden användes först för orientering; JSON-artefakten är källan till fullständiga titlar, ID:n och föreslagna åtgärder. Båda är **indata**, inte instruktioner att ändra kod eller stänga fynd. Detta dokument är en implementeringsplan, inte en utförd kodfix eller oberoende bekräftelse av varje angreppsväg.
+
+Alla 66 `findingId` finns i [fyndregistret](#fyndregister-för-samtliga-66-fynd). Fynd som ser lika ut behåller egna ID:n men kan dela kodfix och testbevis. Innan en fix markeras färdig ska den fullständiga posten i JSON, inklusive angreppsväg, plats, förutsättningar och motkontroller, kontrolleras mot aktuell kod. En avslutad uppföljningsskanning behövs eftersom ursprungsskanningen avbröts.
+
+## Genomförd lokal verifiering, ännu inte avslutade fynd
+
+- **G01, `csf_439b9e98c28e25790c47381f` och `csf_1e236855dd22a27716814192`:** automatiskt länkbeslut på enbart Google-e-post har tagits bort. Ett okänt `sub` som kolliderar med befintligt konto avvisas och det kontot verifieras inte som bieffekt. Befintligt `sub` kan inte längre verifiera en senare ändrad appadress. Negativa tjänstetester passerar. Den valda aktiva länkningsvägen återstår innan paketet är klart.
+- **G02, `csf_4c8930c6e6f9d3c86f078f70`:** länkar binds till adress och monoton adressversion. Adressbyte ogiltigförklarar länken atomiskt; gammal länk fungerar inte efter byte tillbaka. Adressägaren sätter nytt lösenord vid verifiering och transaktionen återkallar sessioner, tidigare lösenord och Google-koppling samt höjer autentiseringsversion. Sena sessioner från gammal inloggning avvisas. PGlite-migration, negativa repositorytester och legitima inloggningstester passerar. Kapplöpning med redan påbörjad kontoradering och produktionens databas behöver fortfarande granskas före stängning.
+- **G04, `csf_f6b5ecf0373456bf51c8494d`:** kundägare flyttas inte längre vid e-postmatchning eller `customer.updated`-webhook. Bindning av en uttryckligen oägd, icke anonymiserad kund använder atomisk compare-and-set. Tester för återanvänd adress, parallella anspråk, anonymiserad kund och Paddle-adresskonflikt passerar. Äldre ägarmappningar och unik användare–kund-koppling måste granskas; Paddle-adresskonflikt kräver beslut D04. Därför är fyndet ännu inte markerat färdigt.
+
+## Föreslagen genomförandeordning
+
+1. **Omedelbar drift-/hemlighetsbedömning:** G18 och G20 (exponerade credentials och verifieringstoken); granska faktisk exponering innan rotation, loggsanering eller driftsändring. G08 och G11 ska också hindras från att skicka hemligheter över okrypterade/oväntade ursprung.
+2. **Kontointegritet:** G01–G04 och G12. Börja med Google-koppling, verifieringstoken och Paddle-ägarskap; hantera befintliga kopplingar och sessioner uttryckligen.
+3. **Tillgänglighet och betalda resurser:** G05–G07, G09–G10, G13–G15. Bygg atomisk admission före providerarbete, uppladdning, lösenordshashning och e-postutskick.
+4. **Övriga produktgränser:** G16–G17 och G19, G21–G28. Håll varje scanner-ID spårbart till kodändring och negativt test.
+5. **Avslut:** kör migrations-/regressionstester, repo-kontroller och en avslutad uppföljningsskanning. Bedöm kvarstående fynd separat.
+
+## De sju fynden från skärmbilden
+
+`F01`–`F07` är lokala arbets-ID:n. Rubrikerna och scanner-ID:n nedan är nu hämtade ur JSON. Fler fynd inom samma område finns i registret och åtgärdspaketen.
+
+### F01 — Email verification and Google sign-in can upgrade attacker-held pre-verification credentials (`csf_439b9e98c28e25790c47381f`, G01)
+
+- **Spår:** `apps/api/src/application/auth.service.ts` (`loginOrCreateGoogleUser`, `verifyEmail`), `apps/api/src/adapters/http/routes/auth.routes.ts` (Google callback), `apps/api/src/adapters/db/repositories/user.repository.ts` (`linkGoogleId`).
+- **Nuvarande beteende:** ett Google-ID som inte hittas länkas till ett befintligt konto med samma e-postadress; `linkGoogleId` sätter samtidigt `emailVerified=true` och inloggning startar en session. Detta kräver en uttrycklig identitets- och ägarskapsbedömning.
+- **Fixkrav:** låt aldrig enbart matchande e-postadress automatiskt koppla en ny Google-identitet till ett befintligt konto eller uppgradera dess verifieringsstatus. Kräv att den befintliga kontoinnehavaren först autentiserar sig och avsiktligt initierar länkningen; knyt OAuth `state` till just den sessionen, kontrollera Googles verifierade `sub`/e-postanspråk, och gör kopplingen atomisk med unikhetskrav. Okända Google-ID:n ska följa en separat registreringsväg som bevarar B2B-/villkorsgrinden.
+- **Verifiera:** en Google-identitet med samma e-post som ett befintligt lösenordskonto får varken session för det kontot, nytt `googleId` eller ändrad `emailVerified` utan godkänd kontolänkning. Testa parallella länkningsförsök och gamla sessioner. Granska befintliga kopplingar före eventuell sanering; anta inte att alla historiska kopplingar är obehöriga.
+
+### F02 — Pending recording starts bypass bot, upload, and monthly recording quotas (`csf_da1786ccb8f3c089161d9f30`, G07)
+
+- **Spår:** `apps/api/src/application/usage-meter.service.ts` (`assertCanStartMeeting`), `apps/api/src/application/start-meeting.service.ts`, `apps/api/src/adapters/http/routes/upload.routes.ts`, `apps/api/src/adapters/db/repositories/meeting.repository.ts` (`countActiveForUser`), `apps/api/src/adapters/db/repositories/usage.repository.ts`.
+- **Nuvarande beteende:** aktiv boträkning utesluter status `pending`; månadsförbrukning läses från redan bokförda sekunder, medan bot- och uppladdningsjobb skapas senare. Samtidiga starter kan därför bedöma samma lediga kapacitet.
+- **Fixkrav:** skapa en atomisk, användarbunden reservation innan bot eller uppladdning startas. Räkna `pending` och andra pågående tillstånd, även när providern ännu inte har svarat. Boka upp relevant maxkostnad mot månadsgränsen och frigör eller avräkna exakt en gång vid fel, avbrytande och slutligt utfall. Samma beständiga kontroll ska gälla båda källorna och flera API-repliker. Definiera återhämtning av föräldralösa reservationer.
+- **Verifiera:** parallella botstarter, parallella uppladdningar och en blandning av dem kan inte överskrida samtidighets- eller månadsgräns. Testa krasch mellan reservation och provideranrop, avbruten uppladdning, webhook-omspelning och månadsbyte.
+
+### F03 — A verification token for an old address verifies a replacement address (`csf_4c8930c6e6f9d3c86f078f70`, G02)
+
+- **Spår:** `apps/api/src/application/auth.service.ts` (`changeEmail`, `verifyEmail`), `apps/api/src/adapters/db/repositories/user.repository.ts` (`updateEmail`), `apps/api/src/adapters/db/repositories/verification-token.repository.ts` (`consumeAndVerify`, `replaceForUser`).
+- **Nuvarande beteende:** token lagras per användare, medan `updateEmail` ändrar adress och nollställer verifieringsflaggan separat. `consumeAndVerify` verifierar användarraden utan att jämföra token med den aktuella e-postadressen.
+- **Fixkrav:** bind varje token till den normaliserade e-postadress eller adressversion som gällde vid utfärdandet. Byt adress och ogiltigförklara gamla token i samma databastransaktion. Vid konsumtion måste atomiskt kontrolleras att token är giltig, oanvänd och bunden till kontots **nuvarande** adress/version innan `emailVerified` sätts. Ta hänsyn till token som skickas efter ett misslyckat e-postutskick och flera snabba adressbyten.
+- **Verifiera:** en länk skickad till gammal adress verifierar aldrig en ny; ny länk fungerar; återanvändning, parallell konsumtion och byte tillbaka till en tidigare adress kringgår inte versionskontrollen.
+
+### F04 — Google email auto-linking promotes attacker-controlled credentials (`csf_1e236855dd22a27716814192`, G01)
+
+- **Spår:** samma Google-flöde som F01, särskilt `auth.service.ts` och `user.repository.ts`.
+- **Nuvarande beteende:** matchande e-post används som länkbeslut och `linkGoogleId` ändrar både Google-ID och verifieringsstatus.
+- **Fixkrav:** inför den explicita länkningen i F01 och kontrollera särskilt pre-registrering där en angripare behåller lösenordsinloggning efter att en annan person kopplat sin Google-identitet. Tillåt inte att callbacken byter eller lägger till inloggningsmetod på ett annat konto genom enbart e-postmatchning.
+- **Verifiera:** kontoövertagandescenarier för befintligt lösenordskonto, tidigare Google-konto, adressändring och konflikter om `sub` är negativa. Behåll fyndets riktiga ID och eget verifieringsbevis även om koden delas med F01.
+
+### F05 — Rotating authentication emails can exhaust the API through limiter growth and Argon2 work (`csf_bd04721bf06e79d6d7d7810a`, G05)
+
+- **Spår:** `apps/api/src/adapters/http/routes/auth.routes.ts` (signup, change-email, resend och limiterare), `apps/api/src/application/auth.service.ts`, `apps/api/src/application/email-send-budget.service.ts`, `apps/api/src/adapters/http/middleware/rate-limit.ts`.
+- **Nuvarande beteende:** login- och resend-nycklar byggs av IP plus rå, angriparvald e-post före schema-validering. Vid fler än 10 000 aktiva nycklar sveper limiteraren kartan men infogar ändå nya nycklar. Giltiga okända login-adresser utlöser dessutom dyr dummy-Argon2-verifiering.
+- **Fixkrav:** lägg lågkardinalitetsgräns per IP och globalt **före** e-postnyckel, databasuppslag och Argon2. Begränsa parallella hashjobb och kölängd. Validera/normalisera nyckelmaterial, lagra en begränsad digest och gör kartans kapacitet hård efter svep (avvisa eller eviktera). Behåll separat kontogräns mot lösenordsgissning och använd delad atomisk lagring vid flera repliker.
+- **Verifiera:** syntetiska försök med roterande adresser och IP:n kan inte förbruka obegränsade resurser; okänd och känd adress ger inte en ny existensorakel; legitim återhämtning från felstavad adress fungerar.
+
+### F06 — Long silent audio uploads bypass recording-duration and monthly quotas (`csf_48c283b7a6c146fa6c8a5055`, G09)
+
+- **Spår:** `apps/api/src/adapters/http/routes/upload.routes.ts`, `apps/api/src/application/process-upload-event.service.ts`, `apps/api/src/application/usage-meter.service.ts`.
+- **Nuvarande beteende:** filstorlek och containerformat kontrolleras före lagring, men avslutad uppladdningsförbrukning beräknas från transkriberade segment. En lång tyst fil kan ge få eller inga segment och då bokföras som mycket kort eller 0 sekunder.
+- **Fixkrav:** mät faktisk ljud-/containerduration med en betrodd parser före dyr lagring/transkribering; tillämpa planens maximala möteslängd och reservation enligt F02. Vid slutbokföring, använd verifierad mediaduration eller en dokumenterad, säker avräkningsregel som inte blir 0 för tyst ljud. Sätt övre gräns även för parserns CPU/minne och hantera trasiga eller manipulerade headers säkert.
+- **Verifiera:** lång tyst fil, långa pauser, flera ljudformat, VBR, kort fil med falsk durationsmetadata och felaktig container avvisas eller debiteras enligt samma gränser som normalt tal.
+
+### F07 — Reusing a former email address can take over another user's Paddle customer (`csf_f6b5ecf0373456bf51c8494d`, G04)
+
+- **Spår:** `apps/api/src/application/checkout.service.ts`, Paddle-kundrepositoryt, `apps/api/src/application/auth.service.ts` (`changeEmail`).
+- **Nuvarande beteende enligt fyndet:** adressändring frigör tidigare e-post; återhämtning av Paddle-kund via e-post kan då koppla en redan ägd kund till ett annat appkonto.
+- **Fixkrav:** bind Paddle-kund till oföränderligt internt användar-ID i serverstyrd metadata. Tillåt återhämtning endast för uttryckligen oägda och icke anonymiserade rader, med atomisk `WHERE user_id IS NULL`-kontroll; avvisa en annan befintlig ägare. Håll synkronisering av kontaktadress separat från ägarbyte och säkra unik användar–kund-mappning.
+- **Verifiera:** A byter från adress X till Y; B registrerar och verifierar X. B får inte A:s Paddle-kund, prenumeration, portal eller checkout-behörighet. Testa även samtidiga återhämtningsförsök och anonymiserade kunder.
+
+## Åtgärdspaket för alla fynd
+
+Varje paket anger **säkerhetsinvariant → ändring → negativt bevis**. Fynd-ID:n återfinns i registret nedan. Läs den enskilda JSON-postens fulla angreppsväg innan implementation; särskilt driftförutsättningar kan ändra om ett fynd är åtgärdbart.
+
+| Paket | Åtgärd och bevis |
+| --- | --- |
+| **G01 Google-koppling** | Koppla aldrig ett befintligt konto på enbart e-postmatchning. Kräv sessionsbunden, avsiktlig koppling; bind Google `sub` och aktuell verifierad e-post till rätt användare i en atomisk uppdatering. Testa förregistrerat angriparkonto, lösenord kvar efter länkning, adressbyte och annat Google-`sub`. |
+| **G02 E-posttoken** | Lagra normaliserad adress/adressversion med token, byt adress och återkalla gamla token atomiskt, kontrollera bindningen vid konsumtion. Testa gammal länk efter byte, byte tillbaka, parallella verifieringar och misslyckad leverans. |
+| **G03 OAuth-state** | Gör state serverlagrad, tidsbegränsad och engångskonsumerad före Google-tokenutbyte; sätt IP/global limiter, concurrencygräns och timeout på start/callback. Testa replay med giltig cookie och parallella callbacks. |
+| **G04 Paddle-ägarskap** | Bind kund och prenumeration till oföränderligt appanvändar-ID. Återta bara oägd, icke anonymiserad kund med atomisk compare-and-set; ändrad e-post ändrar metadata, inte ägare. Testa gammal adress som tas över av nytt konto samt samtidiga återtaganden. |
+| **G05 Login-admission** | Sätt IP- och global gräns före identifierarnyckel, DB och Argon2; separat kontogräns mot distribuerad gissning. Gör nyckelkartan hårt begränsad, normalisera/digesta identifierare och begränsa samtidiga hashjobb/kö. Testa varierande giltiga och ogiltiga adresser, full karta och flera repliker. |
+| **G06 E-postbudget** | Reservera globalt skickutrymme och kontots resend-cooldown atomiskt i beständig lagring före leverans; neka vid ledgerfel. Bara vinnande resend får byta token och skicka. Testa parallella anrop när en plats återstår, providerfel och retry utan dubbelt utskick. |
+| **G07 Mötesreservation** | Reservera samtidighetsplats och månadens maximala kostnad atomiskt före bot/uppladdning; inkludera `pending`. Slutavräkna/frigör exakt en gång och återställ övergivna reservationer. Testa parallella botar, uppladdningar, mix, krascher och webhook-replay. |
+| **G08 Produktions-URL:er** | Kräv HTTPS vid start för tjänste-, webhook-, webb- och OAuth-URL:er som bär credentials eller personuppgifter; avvisa inbäddade credentials och otillåtna scheman. Testa att osäker produktionkonfiguration stoppar uppstart. |
+| **G09 Uppladdad ljudduration** | Mät faktisk mediaduration resursbegränsat före lagring/betald transkribering; avvisa över planlängd, reservera accepterad duration och fakturera även tyst ljud. Testa tystnad, manipulerad metadata, formatvariationer och avbrutna jobb. |
+| **G10 Botduration** | Använd betrodd Recall-inspelnings-/samtalsduration i avräkningen, inte sista transkriptsegmentet. Behåll konservativ reservation om metadata saknas. Testa långa nästan tysta botmöten och tomma transkript. |
+| **G11 Webbens API-ursprung** | Ta bort localhost-fallback i produktionsbygge; kräv godkänt HTTPS-API-ursprung och bygg CSP från samma validerade värde. Testa saknad/felaktig variabel och att lösenord aldrig skickas till loopback i produktion. |
+| **G12 Kontouppräkning** | Bedöm signup/change-email-svarens kontoläckage; använd konsekventa svar/timing där affärsflödet tillåter det och behåll säker, autentiserad återhämtning. Testa känd/okänd adress och verifiera att e-post inte skickas till fel mottagare. |
+| **G13 Chatkvot** | Reservera frågeplats per möte atomiskt före LLM-anrop; bind svar till reservation och avräkna/frigör vid fel. Testa parallella frågor när en plats återstår och providerretry. |
+| **G14 Dokumentgenerering** | Ge regenerering beständig plan-/kostnadsbudget, slå samman identiska samtidiga jobb och återanvänd nyligen genererat dokument där det är säkert. Testa parallell upprepning och providerfel. |
+| **G15 Paddle-anrop** | Begränsa användarens och hela tjänstens samtidiga Paddle-anrop före providerförfrågan; använd idempotens för skapande och säkert återbruk av portalsession. Testa hög frekvens och provideravbrott. |
+| **G16 Fake webhook** | Tillåt aldrig publik osignerad Recall-ingest i produktion. Flytta fake-events till test/loopback eller autentisera separat; avvisa fake-läge vid icke lokal driftsättning, sätt kögränser och kontrollera bot-/mötesbindning. Testa osignerade anrop i varje produktionskonfiguration. |
+| **G17 Recall-bindning** | Slå upp möte via lagrat kanoniskt `botId`, kontrollera att metadata-`meetingId` matchar, och bär verifierat internt ID genom kö/retry. Testa korsägda ID:n, omspelning och terminala tillstånd. |
+| **G18 Log-mailer** | Förbjud `EMAIL_PROVIDER=log` i produktion och rå verifierings-URL/token i allmänna loggar; kräv riktig mailprovider. Bedöm befintliga loggar och rotera fortfarande giltiga token vid påvisad exponering. Testa startup-gate och loggredigering. |
+| **G19 Delningslänkar i logg** | Redigera `/api/share/:token` före varje API-/proxy-/webblogg och feltelemetri; använd statisk route-mall. Granska gamla loggar och rotera aktiva delningstoken om de exponerats. Testa success- och felväg. |
+| **G20 Miljöhemligheter** | Behandla värden i `apps/api/.env` som exponerade tills utredning visar annat; återkalla/rotera berörda credentials via kontrollerad driftprocess, flytta till hemlighetshanterare och exkludera filen från arkiv. Låt secret scan granska ignorerade env-filer utan att skriva ut värden. Inkludera aldrig hemligheterna i PR eller detta dokument. |
+| **G21 Provider-/transkriptloggar** | Ersätt råa SDK-fel, segment, ord och promptfragment med allowlistade koder, operationer, index och request-ID; redigera även Sentry/breadcrumbs. Testa känsliga syntetiska texter mot alla logg-/felvägar. |
+| **G22 Multipartgränser** | Begränsa `fields`, `parts`, fältstorlek/-namn, indexdjup, total tid och inläsningshastighet; tillåt exakt `participantNames` som skalärt fält. Fördela upload-slot så långsam body inte blockerar alla. Testa glesa index, många fält och slow body. |
+| **G23 AssemblyAI-callback** | Kräv publik HTTPS-webhook och komplett verifiering när betald uppladdning körs i produktion, oberoende av botprovider; alternativt autentiserad polling till samma idempotenta bokföringsväg. Testa felkonfiguration och utebliven callback. |
+| **G24 Transcript-URL/SSRF** | Behandla provider-URL som obetrodd: godkänd HTTPS-host, egresskontroll mot interna/reserverade adresser, omvalidering av redirect/DNS och svarsstorleksgräns; föredra autentiserat provider-API. Testa intern URL och redirectkedja. |
+| **G25 Felaktig JSON** | Hantera parserns 400/413 före generiskt 500/Sentry och sätt lågkardinalitetsgräns före body parsing på publika rutter. Testa upprepade trasiga payloads utan feltelemetrispam. |
+| **G26 Felaktiga mötes-ID:n** | Validera UUID centralt före databasfrågor och ge samma 404 som för saknad resurs. Testa feltypade ID:n över alla mötesrutter utan 5xx. |
+| **G27 Logout** | Visa lyckad utloggning först efter bekräftad serverrevokering; behåll tydligt retry-läge vid fel och töm browser-cookie i API:ets cleanup. Testa DB-fel så UI aldrig påstår att en aktiv token är återkallad. |
+| **G28 Promptgräns** | Placera deltagarnamn i uttryckligt obetrott metadatafält, normalisera kontrolltecken/avgränsare och validera genererade ägare mot kanonisk deltagarlista. Testa namn som innehåller instruktionstext. |
+| **G29 Lokal PostgreSQL** | Bind Docker-port till `127.0.0.1` eller använd enbart internt nät; ersätt kända devcredentials om fjärråtkomst behövs. Testa portbindningen från annan värd. |
+
+## Fyndregister för samtliga 66 fynd
+
+En rad per findingId och occurrenceId från den bifogade JSON-artefakten. Plats är första angivna platsen; kontrollera alla locations och attackPath i originalposten. **Status för alla rader: öppen** tills individuell kod- och testverifiering har dokumenterats.
+
+| Nr | Grad | findingId | occurrenceId | Paket | Primär plats | Exakt titel |
+| ---: | --- | --- | --- | --- | --- | --- |
+| 01 | high | csf_bd04721bf06e79d6d7d7810a | occ_8765d7ea432c0b61ff0f3862 | G05 | apps/api/src/adapters/http/middleware/rate-limit.ts | Rotating authentication emails can exhaust the API through limiter growth and Argon2 work |
+| 02 | medium | csf_0676bcee2bf96755fb7f97bb | occ_905f3a04bf1c822f3c6b2685 | G13 | apps/api/src/application/chat.service.ts | Concurrent chat questions bypass the per-meeting paid question cap |
+| 03 | high | csf_da1786ccb8f3c089161d9f30 | occ_11a123d1876ca558aa17bd02 | G07 | apps/api/src/application/usage-meter.service.ts | Pending recording starts bypass bot, upload, and monthly recording quotas |
+| 04 | medium | csf_b52f7a27f18a57cd34cc75be | occ_4699b11d9c712612693818aa | G16 | apps/api/src/adapters/recall/recall-webhook.verifier.ts | Default fake-provider mode accepts unsigned public Recall webhook events |
+| 05 | high | csf_f6b5ecf0373456bf51c8494d | occ_bfdad51534252a089f4d13a2 | G04 | apps/api/src/application/checkout.service.ts | Reusing a former email address can take over another user's Paddle customer |
+| 06 | medium | csf_fdc2048b637449ec6e3d5acc | occ_2820a0a012ce22c967b986fc | G18 | apps/api/src/config/env.ts | Production-permitted log mailer exposes email-verification credentials |
+| 07 | low | csf_ec8e7e949a0ff4d51d82879b | occ_db023c06b43ad6b3b16b77cd | G12 | apps/api/src/adapters/http/routes/auth.routes.ts | Signup and change-email disclose whether an address is registered |
+| 08 | high | csf_439b9e98c28e25790c47381f | occ_0beb8e451c7d99dc0dfd7004 | G01 | apps/api/src/application/auth.service.ts | Email verification and Google sign-in can upgrade attacker-held pre-verification credentials |
+| 09 | medium | csf_757f3690ac363f77e9bbe299 | occ_914f50b10434cd0f95b7f491 | G01 | apps/api/src/application/auth.service.ts | Google login can verify an unrelated email stored on a linked account |
+| 10 | medium | csf_30aea20ca7a7f625c74b16a9 | occ_a494f557463168283167fc68 | G02 | apps/api/src/application/auth.service.ts | An old verification link can verify a newly selected email address |
+| 11 | medium | csf_bbc43f6a8ad47102c7f42f3e | occ_2b4082a52d8a21e812bc0e5c | G19 | apps/api/src/adapters/http/server.ts | Request logs expose live meeting-share bearer tokens |
+| 12 | low | csf_75e1257101d5737277a25d0b | occ_64f3d4ba0175fc5dc76f1b1d | G22 | apps/api/src/adapters/http/routes/upload.routes.ts | A slow multipart body can monopolize the shared upload slot |
+| 13 | medium | csf_5deeedd7e119e7dc54c390cf | occ_f1948188bbb705e1d6e9b9a4 | G06 | apps/api/src/application/email-send-budget.service.ts | Concurrent verification sends can exceed the global daily email budget |
+| 14 | medium | csf_26e5a76d17eabe28142ecf52 | occ_8df9a188dcf363d01f5dbe50 | G21 | apps/api/src/adapters/chat-retry.ts | Raw LLM provider errors can disclose meeting content in application logs |
+| 15 | medium | csf_b7522674c0c35f0784c5898d | occ_8d7d4809a3f42fbf02bb8c6d | G22 | apps/api/src/adapters/http/routes/upload.routes.ts | Sparse multipart participant index can exhaust the API heap |
+| 16 | medium | csf_0e532d165c4f0cd8ec9f6afd | occ_dc991d2ca87dd050f397fac9 | G10 | apps/api/src/application/usage-meter.service.ts | Mostly silent bot meetings bypass monthly recording allowances |
+| 17 | high | csf_48c283b7a6c146fa6c8a5055 | occ_b2b9c0115284d6ce65bb3082 | G09 | apps/api/src/adapters/http/routes/upload.routes.ts | Long silent audio uploads bypass recording-duration and monthly quotas |
+| 18 | low | csf_70bb7086a1a294ed6130b96e | occ_516c89cb2ffe275686ad1c59 | G29 | docker-compose.yml | Development PostgreSQL is published beyond loopback with known credentials |
+| 19 | medium | csf_da50b0901ef31da369c7a57a | occ_4c01c63892e8eb66a7f9a692 | G14 | apps/api/src/adapters/http/routes/meetings.routes.ts | Repeated document regeneration can exhaust paid LLM capacity |
+| 20 | medium | csf_ffcd78fbdc98eb59c975d815 | occ_941f10feb9dca88ac84fa00b | G08 | apps/api/src/config/env.ts | Production accepts cleartext service URLs that carry privileged credentials and verification tokens |
+| 21 | low | csf_543f7a61e85ebebd050ba4ff | occ_f7efba5c27466b6616cff14e | G25 | apps/api/src/adapters/http/server.ts | Malformed public JSON requests bypass route limits and generate internal-error telemetry |
+| 22 | low | csf_cc5105ae18c8a2dfb458623e | occ_aa4eea516a56a574601c161c | G03 | apps/api/src/adapters/http/routes/auth.routes.ts | Replayable OAuth state permits unthrottled outbound Google token exchanges |
+| 23 | low | csf_4585c78cefa5ef42616efec8 | occ_7d8e9f15e441013b71ca3b8c | G15 | apps/api/src/adapters/http/routes/billing.routes.ts | Authenticated billing endpoints make unbounded Paddle API calls |
+| 24 | medium | csf_f9718e42f823b66b25ac7f96 | occ_9b06fd094e1085739d5b5b23 | G21 | apps/api/src/adapters/recall/transcript.normalizer.ts | Malformed transcript entries expose meeting content in application logs |
+| 25 | high | csf_438e959a323528e648494093 | occ_d69121cea92aa6cf46c98acf | G22 | apps/api/src/adapters/http/routes/upload.routes.ts | Unbounded multipart fields can exhaust API memory before upload authorization |
+| 26 | medium | csf_1c5eecda57379f9690412a9c | occ_74299f5e779bf0fff9613048 | G23 | apps/api/src/config/env.ts | Production can submit unmetered AssemblyAI jobs without a completion callback |
+| 27 | low | csf_556d602e3125c79e5cff851d | occ_11e8a715b6c8a9b9d581bd1c | G06 | apps/api/src/application/email-send-budget.service.ts | Verification email budget fails open on ledger faults |
+| 28 | medium | csf_87c595a734ba824a7814fbb0 | occ_5959e319987e88312dfa2357 | G20 | apps/api/.env | Production-grade credentials are stored in a plaintext application environment file |
+| 29 | low | csf_04abe859604e093a17c4bdd7 | occ_a3e83d1840044c2518ce7a05 | G11 | apps/web/src/lib/api.ts | A production build without API configuration sends passwords to localhost |
+| 30 | medium | csf_63942e49f45b2dca138e08d3 | occ_3f012bb157289595fecf7703 | G27 | apps/web/src/components/AppShell.tsx | Failed logout is presented as successful while the session remains active |
+| 31 | medium | csf_bc641006b173493dfcea94fb | occ_e7f625dae4cd26e564fbb98d | G17 | apps/api/src/application/process-webhook-event.service.ts | Recall webhook identifiers are not bound before cross-tenant meeting mutations |
+| 32 | low | csf_89c3e833c327de870f8584b8 | occ_40c52a81847fa95b763e9b55 | G24 | apps/api/src/adapters/recall/recall.adapter.ts | Provider-controlled transcript URLs can make the API fetch internal resources |
+| 33 | medium | csf_93692756e12fa3b8dc8ac10c | occ_b7d9cf0214c30eca037e69b9 | G21 | apps/api/src/adapters/claude/chat-prompts.ts | Raw provider diagnostics and malformed transcript records can expose meeting text in logs |
+| 34 | low | csf_71f47c9a3a52e16c896cda4f | occ_3d2da455610d365b42a9292b | G06 | apps/api/src/adapters/http/routes/auth.routes.ts | Parallel resend requests can invalidate fresh verification links and send multiple emails |
+| 35 | medium | csf_9ce39275c6ef521bba72036d | occ_c44534bf220810963477110f | G05 | apps/api/src/adapters/http/routes/auth.routes.ts | Login throttling has no account-wide protection against distributed password guessing |
+| 36 | high | csf_9b0ed78143e67712f558a22f | occ_d61ad768ea5f9adb4ac66be9 | G01 | apps/api/src/application/auth.service.ts | Google OAuth linking enables account pre-hijacking and unrelated-email verification |
+| 37 | low | csf_165c55be762b5886ab80c5ec | occ_570ff0ae8faad89ae2006517 | G28 | apps/api/src/adapters/recall/transcript.normalizer.ts | Participant names can inject instructions outside the transcript trust boundary |
+| 38 | medium | csf_bc2f41828489a1226b715d17 | occ_e7c93a9ff7e9a4ab77abcd4d | G05 | apps/api/src/adapters/http/routes/auth.routes.ts | The login limiter has no independent per-source or per-account ceiling |
+| 39 | low | csf_df54914890b8ca8ae0595817 | occ_7332ec4b773c17e5c4a18e62 | G06 | apps/api/src/application/email-send-budget.service.ts | Verification-email budget and resend cooldown claims are non-atomic |
+| 40 | medium | csf_c367e9b84e51c576bbf23455 | occ_81fb08ace18b2b4855bd51ef | G05 | apps/api/src/adapters/http/routes/auth.routes.ts | Unauthenticated login requests can grow the rate-limit map without bound |
+| 41 | low | csf_663e54dad01f7984cc4076dc | occ_7e47fa357c6a956e046776f6 | G13 | apps/api/src/application/chat.service.ts | Parallel chat requests can consume paid answers beyond the plan limit |
+| 42 | medium | csf_67985ad96ca33ba5737c9f36 | occ_aa99dbbef157b7e8a583d1f9 | G07 | apps/api/src/application/usage-meter.service.ts | Parallel meeting starts can launch bots beyond concurrency and monthly caps |
+| 43 | medium | csf_3d7a3266dc484835ca438561 | occ_437369cef176dab4acd2ce57 | G09 | apps/api/src/adapters/http/routes/upload.routes.ts | Uploaded audio bypasses plan duration limits before paid transcription |
+| 44 | medium | csf_7711189a2c233061eba8b3f5 | occ_b1895f08f709a906d81d787f | G21 | apps/api/src/adapters/recall/transcript.normalizer.ts | Malformed transcript elements leak meeting content to application logs |
+| 45 | medium | csf_6e40a55adaf4947c09acff71 | occ_55209ee4c68b54a4a711cdf8 | G16 | apps/api/src/adapters/recall/recall-webhook.verifier.ts | Default fake-provider mode disables webhook authentication in production |
+| 46 | medium | csf_04ef7a72cd4c7827f8044506 | occ_85a1701b67ac6eb26424cebc | G06 | apps/api/src/application/email-send-budget.service.ts | Concurrent requests can exceed the global verification-email budget |
+| 47 | medium | csf_9a803ced951a7f84c8adaef9 | occ_e346a05e7974d8d3c0fe4a24 | G18 | apps/api/src/config/env.ts | Production can log raw email-verification bearer tokens by default |
+| 48 | medium | csf_9e640e701acd188cfeed0a54 | occ_2251dcbbaf7ba4bef8382d27 | G19 | apps/api/src/adapters/http/server.ts | API request logs expose public-share bearer tokens |
+| 49 | medium | csf_abf01f9a6190433e73b00032 | occ_06e7d441611c19a546dbba31 | G22 | apps/api/src/adapters/http/routes/upload.routes.ts | A signed-in user can exhaust API memory with unbounded multipart fields |
+| 50 | medium | csf_ec4eded7c32a75babfbbb980 | occ_4b3b27c843a82d6b75333b2d | G05 | apps/api/src/adapters/http/routes/auth.routes.ts | An anonymous caller can bypass login throttling and saturate password hashing |
+| 51 | medium | csf_ee063fc76cdff358c17fbe3e | occ_5b563afeaa0d3a1724d3398d | G16 | apps/api/src/adapters/recall/recall-webhook.verifier.ts | Fake bot mode exposes an unauthenticated durable webhook queue |
+| 52 | low | csf_39bbf72f43af1f1037168c45 | occ_b68ef7795489d2f935c2bfe7 | G07 | apps/api/src/application/usage-meter.service.ts | Concurrent meeting starts bypass bot and monthly-usage limits |
+| 53 | high | csf_1e236855dd22a27716814192 | occ_715acfbefdc3d1ea5743a8c0 | G01 | apps/api/src/application/auth.service.ts | Google email auto-linking promotes attacker-controlled credentials |
+| 54 | high | csf_4c8930c6e6f9d3c86f078f70 | occ_4378f3177022d6f6fa2eb16e | G02 | apps/api/src/application/auth.service.ts | A verification token for an old address verifies a replacement address |
+| 55 | low | csf_bf58d4438222373c68345aae | occ_b0a2834480838708d62c65cb | G13 | apps/api/src/application/chat.service.ts | Parallel chat requests exceed the per-meeting question entitlement |
+| 56 | medium | csf_08726dc123bba58b8c58bc1b | occ_e112bd359be7cec434a9c705 | G06 | apps/api/src/application/email-send-budget.service.ts | Concurrent verification emails bypass the global daily send budget |
+| 57 | low | csf_6e5243614588c7e356225591 | occ_5b25ba0d45d4d6abd717dff9 | G12 | apps/api/src/adapters/http/routes/auth.routes.ts | Public signup reveals whether an email is registered |
+| 58 | low | csf_e114963616140165f7f9783d | occ_5c44a52954bebd39d148d9b0 | G26 | apps/api/src/adapters/http/routes/meetings.routes.ts | Malformed meeting IDs amplify database errors into monitoring events |
+| 59 | medium | csf_1ed66a34bf682f65496dfa7b | occ_3a544619bea9b72aee5f7a64 | G05 | apps/api/src/adapters/http/middleware/rate-limit.ts | Distinct login emails can exhaust the API through unbounded limiter state |
+| 60 | medium | csf_04731e23b0ee1519ba727faf | occ_793154c1b9acc7bd46c8bace | G16 | apps/api/src/adapters/recall/recall-webhook.verifier.ts | Production fake mode lets unsigned webhook callers fill the durable queue and alter meetings |
+| 61 | medium | csf_48517ef3093550d5202131da | occ_5432bd5e4e5cc6eb712425ca | G07 | apps/api/src/application/usage-meter.service.ts | Parallel meeting starts bypass bot concurrency and monthly usage caps |
+| 62 | medium | csf_c43c455f12af4553884ac106 | occ_aee6af5ddd56feb78cd8d4e3 | G02 | apps/api/src/adapters/http/server.ts | Changing email can verify an address the account holder does not control |
+| 63 | low | csf_5b6748f456323915c635137f | occ_c1c006ecf702a1c6236bb49d | G06 | apps/api/src/application/email-send-budget.service.ts | Concurrent verification requests can exceed the provider-wide email budget |
+| 64 | medium | csf_57df4d3b3951e3fddfaf0988 | occ_5958a0f68aee19158d0861c1 | G01 | apps/api/src/adapters/http/routes/auth.routes.ts | Pre-registering an email preserves attacker access after the victim links Google |
+| 65 | low | csf_54db5ed02388e5927db66a42 | occ_debfe848b5e0cdee0dcadffb | G13 | apps/api/src/adapters/http/routes/chat.routes.ts | Concurrent chat questions can exceed the per-meeting model budget |
+| 66 | medium | csf_c21fb310b708744502a4865c | occ_dfdc7b1893edeb8dcff19546 | G07 | apps/api/src/adapters/http/routes/meetings.routes.ts | Parallel meeting starts launch paid bots beyond concurrency and monthly caps |
+
+Avstämning: **9 höga + 38 medel + 19 låga = 66 poster**. Gruppindelningen är en arbetsplan, inte en automatisk sammanslagning eller stängning av fynd. Ursprungsskanningen avbröts, så verifiera med en avslutad uppföljning.
+
+## Gemensamma avslutskriterier
+
+- Säkerhetsinvarianten för varje bekräftat fynd uttrycks i kodgranskning och i ett test som skulle fallera med tidigare beteende. Testerna använder syntetiska konton och filer; inga riktiga användaruppgifter krävs.
+- Schemaändringar har migration, bakåtkompatibilitets- och rollbackplan. Särskilt äldre Google-kopplingar och aktiva verifieringstoken hanteras uttryckligen.
+- Gränser för flera repliker verifieras med beständig atomisk lagring eller motsvarande dokumenterad garanti; processlokala limiterare räcker inte som enda kontroll.
+- En integration branch tar in senaste `origin/main` utan omskrivning av delad historik och innehåller inte orelaterade ändringar. Före PR körs `npm test`, `npm run typecheck`, `npm run build`, `npm run security:secrets` och relevant lint/beroendekontroll enligt repoavtalet.
+- En avslutad uppföljningsskanning på PR:ens slutliga commit jämförs mot **alla** importerade scanner-ID:n. Varje kvarstående eller förändrat fynd får en dokumenterad bedömning. Koda eller stäng inte fynd enbart för att de försvinner ur en avbruten skanning.

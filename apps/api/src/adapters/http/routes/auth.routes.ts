@@ -17,10 +17,11 @@ import { OAuth2Client } from 'google-auth-library';
 import { config } from '../../../config/env';
 import type { User } from '../../../domain/types';
 import { DELETION_STATE_PREFIX, type DeletionAuthorizationService } from '../../../application/deletion-authorization.service';
-import { DeletionReauthenticationRequiredError } from '../../../domain/errors';
+import { DeletionReauthenticationRequiredError, GoogleAccountLinkRequiredError } from '../../../domain/errors';
 
 function authUserResponse(user: User) {
-  return { user, emailVerificationRequired: !user.emailVerified };
+  const { authVersion: _authVersion, ...publicUser } = user as User & { authVersion?: number };
+  return { user: publicUser, emailVerificationRequired: !user.emailVerified };
 }
 
 export function hasVerifiedGoogleEmail(payload: {
@@ -275,7 +276,10 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
       );
       setSessionCookie(res, sessionToken, expiresAt);
       return res.redirect(`${config.WEB_ORIGIN}/meetings`);
-    } catch {
+    } catch (error) {
+      if (error instanceof GoogleAccountLinkRequiredError) {
+        return res.redirect(`${config.WEB_ORIGIN}/login?error=account_link_required`);
+      }
       // OAuth library errors may embed authorization codes or provider response details.
       console.error('Google OAuth callback failed');
       return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_error`);
@@ -285,8 +289,11 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
   // --- Email Verification Routes ---
   router.post('/api/auth/verify-email', verifyEmailLimiter, async (req, res, next) => {
     try {
-      const { token } = z.object({ token: z.string().min(1) }).parse(req.body);
-      const user = await auth.verifyEmail(token);
+      const { token, newPassword } = z.object({
+        token: z.string().min(1), newPassword: z.string().min(10),
+      }).parse(req.body);
+      const user = await auth.verifyEmail(token, newPassword);
+      clearSessionCookie(res);
       return res.status(200).json(authUserResponse(user));
     } catch (err) {
       return next(err);

@@ -120,6 +120,20 @@
       "when": 1789134751724,
       "tag": "0016_paddle_anonymization_marker",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790432250729,
+      "tag": "0017_curved_bushwacker",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790432696736,
+      "tag": "0018_lucky_groot",
+      "breakpoints": true
     }
   ]
 }

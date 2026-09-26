@@ -23,6 +23,7 @@ import {
   FeatureUnavailableError,
   PaddleCustomerNotFoundError,
   PaddleNotConfiguredError,
+  PaddleOwnershipConflictError,
   BillingMutationsDisabledError,
   InvalidBillingPriceError,
   InvalidBillingQuantityError,
@@ -82,6 +83,11 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(503).json({
       error: { code: 'PADDLE_NOT_CONFIGURED', message: err.message },
     });
+  }
+
+  if (err instanceof PaddleOwnershipConflictError) {
+    report5xx();
+    return res.status(409).json({ error: { code: 'PADDLE_OWNERSHIP_CONFLICT', message: err.message } });
   }
 
   if (err instanceof BillingMutationsDisabledError) {

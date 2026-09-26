@@ -80,7 +80,7 @@ describe('auth routes', () => {
     return fetch(`${baseUrl}/api/auth/verify-email`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, newPassword: 'a-fresh-password' }),
     });
   }
 
@@ -203,7 +203,7 @@ describe('auth routes', () => {
     };
 
     expect(response.status).toBe(200);
-    expect(verifyEmail).toHaveBeenCalledWith('valid-token');
+    expect(verifyEmail).toHaveBeenCalledWith('valid-token', 'a-fresh-password');
     expect(body.user).toMatchObject({ email: 'person@example.com', emailVerified: true });
     expect(body.emailVerificationRequired).toBe(false);
   });

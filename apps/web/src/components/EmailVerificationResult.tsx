@@ -18,8 +18,8 @@ const CONTENT: Record<VerifyEmailState, {
     icon: 'check_circle',
     iconClass: 'bg-emerald-100 text-emerald-700',
     title: 'Email verified',
-    message: 'Your email address has been verified successfully.',
-    action: { href: '/meetings', label: 'Continue to dashboard' },
+    message: 'Your address is verified. Previous passwords and sessions have been revoked.',
+    action: { href: '/login', label: 'Sign in with your new password' },
   },
   'missing-token': {
     icon: 'link_off',
@@ -47,14 +47,14 @@ const CONTENT: Record<VerifyEmailState, {
     iconClass: 'bg-slate-100 text-slate-700',
     title: 'Verification link was already used',
     message: 'This link cannot be used again. Your email may already be verified.',
-    action: { href: '/meetings', label: 'Continue to dashboard' },
+    action: { href: '/login', label: 'Sign in' },
   },
   'already-verified': {
     icon: 'verified',
     iconClass: 'bg-emerald-100 text-emerald-700',
     title: 'Email already verified',
     message: 'No further action is needed for this email address.',
-    action: { href: '/meetings', label: 'Continue to dashboard' },
+    action: { href: '/login', label: 'Sign in' },
   },
   // The API only sends this when a write was lost on the way to the database. It leaves the token
   // unconsumed, so telling the user to click the same link again is genuinely the fix.
