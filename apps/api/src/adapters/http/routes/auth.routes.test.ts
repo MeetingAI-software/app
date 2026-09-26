@@ -40,6 +40,7 @@ describe('auth routes', () => {
   } as const;
   const signup = vi.fn();
   const login = vi.fn();
+  const logout = vi.fn();
   const getUserForToken = vi.fn();
   const verifyEmail = vi.fn();
   const resendVerification = vi.fn();
@@ -60,7 +61,7 @@ describe('auth routes', () => {
     const auth = {
       signup,
       login,
-      logout: vi.fn(),
+      logout,
       getUserForToken,
       verifyEmail,
       resendVerification,
@@ -77,6 +78,7 @@ describe('auth routes', () => {
   beforeEach(() => {
     signup.mockReset();
     login.mockReset();
+    logout.mockReset();
     getUserForToken.mockReset();
     verifyEmail.mockReset();
     resendVerification.mockReset();
@@ -153,6 +155,23 @@ describe('auth routes', () => {
       user: { emailVerified: false },
       emailVerificationRequired: true,
     });
+  });
+
+  it('does not clear the browser cookie or claim success when session revocation fails', async () => {
+    logout.mockRejectedValue(new Error('database unavailable'));
+    const failed = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST', headers: { origin: config.WEB_ORIGIN, cookie: 'session=still-live' },
+    });
+    expect(failed.status).toBe(500);
+    expect(failed.headers.get('set-cookie')).toBeNull();
+    expect(logout).toHaveBeenCalledWith('still-live');
+
+    logout.mockResolvedValue(undefined);
+    const retried = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST', headers: { origin: config.WEB_ORIGIN, cookie: 'session=still-live' },
+    });
+    expect(retried.status).toBe(204);
+    expect(retried.headers.get('set-cookie')).toContain('session=;');
   });
 
   it('binds Google OAuth to a single-use browser state cookie', async () => {
