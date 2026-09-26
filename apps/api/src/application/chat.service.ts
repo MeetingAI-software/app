@@ -1,6 +1,6 @@
 import type { TranscriptRepository, ChatMessageRepository } from '../ports/repositories.port';
 import type { MeetingChatPort, ChatMessage } from '../ports/chat.port';
-import { MeetingNotReadyError, CapExceededError } from '../domain/errors';
+import { MeetingNotReadyError } from '../domain/errors';
 import { logger } from '../config/logger';
 import type { BillingAccessProvider } from '../domain/billing';
 
@@ -36,31 +36,25 @@ export class ChatService {
       throw new MeetingNotReadyError('Transcript is not ready for this meeting yet');
     }
 
-    // 2. Enforce the per-meeting cap (each question re-reads the whole meeting — it costs money).
-    const asked = await this.chatRepo.countUserMessages(meetingId);
-    if (asked >= maxQuestionsPerMeeting) {
-      throw new CapExceededError('Question limit reached for this meeting');
+    // Claim capacity in Postgres before paid model work. A pending claim is hidden from history
+    // but counts toward the cap, including across API replicas and after a worker crash.
+    const claim = await this.chatRepo.claimQuestion(meetingId, maxQuestionsPerMeeting, question);
+    let result: Awaited<ReturnType<MeetingChatPort['answerQuestion']>>;
+    try {
+      const history = await this.chatRepo.listByMeeting(meetingId);
+      result = await this.chatAdapter.answerQuestion(segments, question, history);
+    } catch (err) {
+      await this.chatRepo.releaseQuestion(claim.id);
+      throw err;
     }
 
-    // 3. Prior turns become the model's conversation memory (oldest first).
-    const history = await this.chatRepo.listByMeeting(meetingId);
-
-    // 4. Answer first, THEN persist the exchange. Writing the question up front made a provider
-    //    outage cost the customer one of their questions for this meeting — the cap counts user
-    //    rows — and left it sitting in the history with nothing under it. A failed question now
-    //    costs nothing and leaves no trace, so retrying is free.
-    const { answer, inputTokens, outputTokens } = await this.chatAdapter.answerQuestion(
-      segments,
-      question,
-      history
-    );
-    await this.chatRepo.add(meetingId, 'user', question);
-    await this.chatRepo.add(meetingId, 'assistant', answer, {
-      input: inputTokens,
-      output: outputTokens,
+    // A persistence fault after a successful model call may have committed ambiguously. Keep
+    // the claim rather than admitting another paid question; reconciliation can recover it.
+    await this.chatRepo.completeQuestion(claim.id, result.answer, {
+      input: result.inputTokens, output: result.outputTokens,
     });
-
-    const remaining = Math.max(0, maxQuestionsPerMeeting - (asked + 1));
+    const { answer, inputTokens, outputTokens } = result;
+    const remaining = claim.remaining;
 
     logger.info(
       { meetingId, inputTokens, outputTokens, remaining },
