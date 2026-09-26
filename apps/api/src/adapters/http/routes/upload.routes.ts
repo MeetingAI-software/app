@@ -21,7 +21,8 @@ export function createUploadRoutes(
   meetingRepo: MeetingRepository,
   webhookRepo: WebhookEventRepository,
   usageMeter: UsageMeterService,
-  storage: AudioStoragePort
+  storage: AudioStoragePort,
+  options: { parseTimeoutMs?: number } = {},
 ): Router {
   const router = Router();
 
@@ -45,7 +46,19 @@ export function createUploadRoutes(
 
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: config.MAX_UPLOAD_MB * 1024 * 1024, files: 1 },
+    // Busboy enforces these before Multer's append-field can turn a sparse bracket index into
+    // a huge array. The only accepted key is exactly "participantNames" (16 bytes).
+    limits: {
+      fileSize: config.MAX_UPLOAD_MB * 1024 * 1024,
+      files: 1,
+      fields: 1,
+      // Keep one part of headroom for Multer's limit event; the files/fields limits below
+      // still permit only one audio part and one scalar text part.
+      parts: 3,
+      fieldSize: 8192,
+      fieldNameSize: 16,
+      headerPairs: 16,
+    },
     fileFilter: (_req, file, cb) => {
       if (isAudioMime(file.mimetype)) {
         cb(null, true);
@@ -70,10 +83,19 @@ export function createUploadRoutes(
     const close = () => { if (!res.writableFinished) abort(); };
     req.once('aborted', abort);
     res.once('close', close);
+    // A slow client must not own the shared in-memory upload slot indefinitely. This bounds
+    // total multipart parsing time, including a sender that trickles data to avoid idle limits.
+    const parseTimer = setTimeout(() => {
+      controller.abort();
+      req.destroy();
+    }, options.parseTimeoutMs ?? 120_000);
     let parsed = false;
     try {
       await new Promise<void>((resolve, reject) => {
-        upload.single('audio')(req, res, (err: unknown) => err ? reject(err) : resolve());
+        upload.single('audio')(req, res, (err: unknown) => {
+          clearTimeout(parseTimer);
+          err ? reject(err) : resolve();
+        });
       });
       parsed = true;
       controller.signal.throwIfAborted();
@@ -98,6 +120,7 @@ export function createUploadRoutes(
     } finally {
       // Response close only signals cancellation. Parser, storage, DB and cleanup retain their
       // reservation until settled, even if an adapter ignores cancellation. Release exactly once.
+      clearTimeout(parseTimer);
       delete req.file;
       req.off('aborted', abort);
       res.off('close', close);
@@ -106,6 +129,13 @@ export function createUploadRoutes(
   });
 
   async function handleUpload(req: Request, res: Response, signal: AbortSignal): Promise<Response> {
+    const fieldNames = Object.keys(req.body ?? {});
+    if (fieldNames.some((name) => name !== 'participantNames') ||
+        (req.body?.participantNames !== undefined && typeof req.body.participantNames !== 'string')) {
+      return res.status(400).json({
+        error: { code: 'INVALID_UPLOAD_FIELDS', message: 'Only participantNames is accepted as a text field' },
+      });
+    }
     const file = req.file;
     if (!file) {
       return res.status(400).json({ error: { code: 'NO_FILE', message: 'An audio file is required (field "audio")' } });
