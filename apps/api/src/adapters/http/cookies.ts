@@ -74,11 +74,9 @@ function oauthStateCookieOptions(includeMaxAge = true) {
   };
 }
 
-/** Mint a browser-bound, single-use OAuth correlation value. */
-export function setOAuthStateCookie(res: Response): string {
-  const state = crypto.randomBytes(32).toString('base64url');
+/** Bind the server-persisted OAuth challenge to the initiating browser. */
+export function setOAuthStateCookie(res: Response, state: string): void {
   res.cookie(OAUTH_STATE_COOKIE, state, oauthStateCookieOptions());
-  return state;
 }
 
 export function clearOAuthStateCookie(res: Response): void {

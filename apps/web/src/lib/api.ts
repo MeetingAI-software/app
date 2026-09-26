@@ -1,3 +1,5 @@
+import { resolveApiOrigin } from './api-origin';
+
 export type MeetingPlatform = 'zoom' | 'google_meet' | 'teams';
 
 export type MeetingSource = 'bot' | 'upload';
@@ -100,7 +102,7 @@ export interface ChatAnswer {
   remaining: number;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_BASE = resolveApiOrigin(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV === 'production');
 
 export interface User {
   id: string;
@@ -294,6 +296,14 @@ export async function verifyEmail(token: string, newPassword: string): Promise<A
   // Quiet: every failure here is a token verdict (invalid/expired/used), never a lapsed session,
   // so the global 401 redirect must not fire.
   return handleResponseQuiet<AuthUserResponse>(response);
+}
+
+export async function startGoogleLink(currentPassword: string): Promise<{ url: string }> {
+  return handleResponseQuiet<{ url: string }>(await api('/api/auth/google/link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword }),
+  }));
 }
 
 export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthUserResponse> {

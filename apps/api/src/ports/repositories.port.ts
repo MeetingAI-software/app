@@ -106,7 +106,8 @@ export interface UserRepository {
   /** Includes passwordHash — for AuthService only. */
   findByEmailWithHash(email: string): Promise<(User & { passwordHash: string | null; googleId?: string | null; authVersion: number }) | null>;
   findByGoogleId(googleId: string): Promise<(User & { authVersion: number }) | null>;
-  linkGoogleId(id: string, googleId: string): Promise<void>;
+  linkGoogleId(input: { userId: string; googleId: string; email: string;
+    expectedAuthVersion: number }): Promise<boolean>;
   markEmailVerified(id: string): Promise<void>;
   findById(id: string): Promise<User | null>;
   updatePassword(id: string, passwordHash: string, expectedAuthVersion: number): Promise<number>;

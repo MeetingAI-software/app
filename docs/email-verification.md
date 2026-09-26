@@ -53,7 +53,7 @@ Google supplies a verified email claim.
    npm run dev -w web
    ```
 
-`NEXT_PUBLIC_API_URL` is optional for the frontend and defaults to `http://localhost:3000`.
+`NEXT_PUBLIC_API_URL` defaults to `http://localhost:3000` only in local development and tests. Production builds require `https://api.syncmemos.com`; the same validated origin is used for requests and CSP.
 
 ## Delivery workflows
 

@@ -12,3 +12,7 @@ Drizzle decides which migrations to run from the latest applied timestamp. Conse
 Before a future production release, verify a restorable backup and the actual migration ledger. Apply the current journal before deploying the API; do not manually apply both 0011 SQL files. After additive migration, roll application code back only to a compatible version, leaving columns and migration records intact. Verify the chosen commit and closed-mode behavior after any deployment or rollback.
 
 Migrations 0017–0018 add address and authentication versions. Existing verification tokens have null address bindings and are rejected by the new API; users must request a fresh link. Existing sessions and users start at authentication version 1. Completing verification increments the user version, making old sessions invalid. Deploy migrations before the API and web changes; validate the actual production migration ledger and backup separately.
+
+Migrations 0019–0020 add one-time Google OAuth challenges and a shared start budget. An API deployment without these tables fails closed on new Google sign-in and linking. Existing Google-linked accounts and sessions are not rewritten. Apply the migrations before deploying the API and check the production ledger and backup.
+
+Migration 0021 adds shared login-attempt counters. Production login fails closed if this table is missing or unavailable, before looking up a user or hashing a password. Apply the migration before the API deployment. Counters expire by window and are pruned after 24 hours of age.

@@ -149,15 +149,19 @@ describe('DrizzleUserRepository', () => {
       expect((await repo.findById(b.id))?.emailVerified).toBe(false);
     });
 
-    // Linking Google proves control of the mailbox, so it verifies the address as a side effect.
-    it('linkGoogleId stores the id and verifies the address', async () => {
+    it('links Google only to a verified account with the expected address and auth version', async () => {
       const user = await repo.create({ email: 'link@example.com', passwordHash: 'h' });
+      const link = (email: string, expectedAuthVersion = 1) => repo.linkGoogleId({
+        userId: user.id, googleId: 'sub-linked', email, expectedAuthVersion,
+      });
 
-      await repo.linkGoogleId(user.id, 'sub-linked');
-
-      const raw = await rawById(user.id);
-      expect(raw.googleId).toBe('sub-linked');
-      expect(raw.emailVerified).toBe(true);
+      expect(await link('link@example.com')).toBe(false);
+      await repo.markEmailVerified(user.id);
+      expect(await link('wrong@example.com')).toBe(false);
+      expect(await link('link@example.com', 2)).toBe(false);
+      expect(await link('link@example.com')).toBe(true);
+      expect(await link('link@example.com')).toBe(false);
+      expect(await rawById(user.id)).toMatchObject({ googleId: 'sub-linked', emailVerified: true });
     });
 
     it('updatePassword changes only the target’s hash', async () => {

@@ -21,6 +21,7 @@ import {
   WeakPasswordError,
   FeatureUnavailableError,
   GoogleAccountLinkRequiredError,
+  GoogleLinkRejectedError,
 } from '../domain/errors';
 import type { EmailVerificationToken, User, Session, Meeting } from '../domain/types';
 import type {
@@ -100,13 +101,13 @@ class FakeUserRepo implements UserRepository {
       authVersion: r.authVersion,
     } : null;
   }
-  async linkGoogleId(id: string, googleId: string) {
-    const r = this.byId.get(id);
-    if (r) {
-      r.googleId = googleId;
-      r.emailVerified = true;
-      this.byGoogleId.set(googleId, id);
-    }
+  async linkGoogleId(input: Parameters<UserRepository['linkGoogleId']>[0]) {
+    const r = this.byId.get(input.userId);
+    if (!r || !r.emailVerified || r.googleId || r.email !== input.email.trim().toLowerCase()
+      || r.authVersion !== input.expectedAuthVersion || this.byGoogleId.has(input.googleId)) return false;
+    r.googleId = input.googleId;
+    this.byGoogleId.set(input.googleId, input.userId);
+    return true;
   }
   async markEmailVerified(id: string) {
     const r = this.byId.get(id);
@@ -589,6 +590,32 @@ describe('AuthService', () => {
   });
 
   describe('Google OAuth', () => {
+    it('requires the current password and a verified address before starting a link', async () => {
+      const { user } = await ctx.service.signup('link@example.com', 'a-good-password');
+      await expect(ctx.service.beginGoogleLink(user.id, 'wrong-password'))
+        .rejects.toBeInstanceOf(InvalidCredentialsError);
+      await expect(ctx.service.beginGoogleLink(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(GoogleLinkRejectedError);
+      await ctx.users.markEmailVerified(user.id);
+      expect(await ctx.service.beginGoogleLink(user.id, 'a-good-password')).toBe(1);
+    });
+
+    it('links only the same verified address and unchanged credential version', async () => {
+      const { user } = await ctx.service.signup('link-owner@example.com', 'a-good-password');
+      await ctx.users.markEmailVerified(user.id);
+      const version = await ctx.service.beginGoogleLink(user.id, 'a-good-password');
+      await expect(ctx.service.completeGoogleLink(user.id, 'google-1', 'other@example.com', version))
+        .rejects.toBeInstanceOf(GoogleLinkRejectedError);
+      await ctx.service.changePassword(user.id, 'a-good-password', 'a-new-password');
+      await expect(ctx.service.completeGoogleLink(user.id, 'google-1', user.email, version))
+        .rejects.toBeInstanceOf(GoogleLinkRejectedError);
+      const current = await ctx.service.beginGoogleLink(user.id, 'a-new-password');
+      await ctx.service.completeGoogleLink(user.id, 'google-1', user.email, current);
+      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ hasGoogleLogin: true });
+      await expect(ctx.service.completeGoogleLink(user.id, 'google-2', user.email, current))
+        .rejects.toBeInstanceOf(GoogleLinkRejectedError);
+    });
+
     it('blocks creation and requires explicit linking for an existing account', async () => {
       await expect(ctx.service.loginOrCreateGoogleUser('new-google@example.com', 'google-new', false))
         .rejects.toBeInstanceOf(FeatureUnavailableError);

@@ -45,6 +45,12 @@ describe('immutable migration lineages', () => {
         'account_deletion_authorizations.session_id', 'account_deletion_authorizations.state_hash',
         'account_deletion_authorizations.nonce_hash', 'account_deletion_authorizations.grant_hash',
         'paddle_customers.anonymized_at',
+        'users.email_version', 'users.auth_version',
+        'google_oauth_states.state_hash', 'google_oauth_states.nonce_hash',
+        'google_oauth_states.session_hash', 'google_oauth_states.auth_version',
+        'google_oauth_budget.window', 'google_oauth_budget.count',
+        'login_attempt_budgets.scope', 'login_attempt_budgets.window',
+        'login_attempt_budgets.count',
       ]));
       const indexes = await client.query<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE tablename='meetings'");
       expect(indexes.rows.map(row => row.indexname)).toContain('meetings_share_expiry_idx');

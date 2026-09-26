@@ -26,6 +26,7 @@ import {
   WeakPasswordError,
   FeatureUnavailableError,
   GoogleAccountLinkRequiredError,
+  GoogleLinkRejectedError,
 } from '../domain/errors';
 import { logger } from '../config/logger';
 import type { EmailSendBudget } from './email-send-budget.service';
@@ -215,6 +216,20 @@ export class AuthService implements AuthServiceApi {
     return this.startSession(user, user.authVersion);
   }
 
+  async beginGoogleLink(userId: string, currentPassword: string): Promise<number> {
+    const record = await this.requirePassword(userId, currentPassword);
+    if (!record.emailVerified || record.googleId) throw new GoogleLinkRejectedError();
+    return record.authVersion;
+  }
+
+  async completeGoogleLink(userId: string, googleId: string, verifiedEmail: string,
+    expectedAuthVersion: number): Promise<void> {
+    if (!await this.users.linkGoogleId({
+      userId, googleId, email: verifiedEmail, expectedAuthVersion,
+    })) throw new GoogleLinkRejectedError();
+    logger.info({ userId }, 'Google account linked explicitly');
+  }
+
   async logout(sessionToken: string): Promise<void> {
     await this.sessions.deleteByTokenHash(hashToken(sessionToken));
   }
@@ -329,13 +344,15 @@ export class AuthService implements AuthServiceApi {
   }
 
   /** Load a user + verify a plaintext password against their hash, or throw InvalidCredentialsError. */
-  private async requirePassword(userId: string, password: string): Promise<User & { passwordHash: string; authVersion: number }> {
+  private async requirePassword(userId: string, password: string): Promise<User & {
+    passwordHash: string; authVersion: number; googleId?: string | null;
+  }> {
     const user = await this.users.findById(userId);
     const record = user ? await this.users.findByEmailWithHash(user.email) : null;
     if (!record || !record.passwordHash || !(await this.hasher.verify(password, record.passwordHash))) {
       throw new InvalidCredentialsError('Invalid password');
     }
-    return record as User & { passwordHash: string; authVersion: number };
+    return record as User & { passwordHash: string; authVersion: number; googleId?: string | null };
   }
 
   private async startSession(user: User, authVersion: number): Promise<AuthResult> {
