@@ -183,6 +183,13 @@
       "when": 1790452166251,
       "tag": "0025_bouncy_black_cat",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790459968677,
+      "tag": "0026_abnormal_maginty",
+      "breakpoints": true
     }
   ]
 }
