@@ -42,6 +42,9 @@ export class DrizzleMeetingRepository implements MeetingRepository {
   }
 
   async findByIdForUser(id: string, userId: string): Promise<Meeting | null> {
+    // Postgres UUID comparison throws 22P02 for malformed route parameters. A malformed ID
+    // cannot name a meeting, so take the same not-found path as a valid missing ID.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
     const [row] = await db
       .select()
       .from(meetings)
