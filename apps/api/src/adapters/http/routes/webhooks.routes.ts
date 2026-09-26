@@ -41,8 +41,8 @@ export function createWebhookRoutes(
     res.status(200).json({ received: true });
 
     if (!liveTranscript) return;
-    liveTranscript.processLiveEvent(req.body).catch((err) => {
-      console.error('⚠️ Live transcript ingest failed:', err?.message);
+    liveTranscript.processLiveEvent(req.body).catch(() => {
+      console.error('⚠️ Live transcript ingest failed');
     });
   });
 
