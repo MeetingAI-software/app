@@ -1,5 +1,5 @@
 import { config } from './config/env';
-import { initObservability } from './adapters/observability/sentry';
+import { initObservability, captureError } from './adapters/observability/sentry';
 import { createServer } from './adapters/http/server';
 import { DrizzleMeetingRepository } from './adapters/db/repositories/meeting.repository';
 import { DrizzleTranscriptRepository } from './adapters/db/repositories/transcript.repository';
@@ -283,7 +283,8 @@ async function bootstrap() {
 }
 
 bootstrap().catch(err => {
-  console.error('❌ Bootstrap failed:', err);
+  console.error('❌ Bootstrap failed');
+  captureError(err);
   process.exit(1);
 });
 

@@ -108,12 +108,12 @@ export function createUploadRoutes(
             error: { code: 'FILE_TOO_LARGE', message: `Audio exceeds the ${config.MAX_UPLOAD_MB}MB limit` },
           });
         }
-        return res.status(400).json({ error: { code: 'UPLOAD_ERROR', message: err.message } });
+        return res.status(400).json({ error: { code: 'UPLOAD_ERROR', message: 'Invalid upload' } });
       }
       if (!parsed) {
         // fileFilter rejection (non-audio) or malformed multipart — a client error either way.
         return res.status(400).json({
-          error: { code: 'INVALID_AUDIO', message: err instanceof Error ? err.message : 'Invalid upload' },
+          error: { code: 'INVALID_AUDIO', message: 'Invalid upload' },
         });
       }
       return next(err);
@@ -203,7 +203,7 @@ export function createUploadRoutes(
       // Don't leave the row stuck in 'pending' with no audio behind it.
       await meetingRepo
         .updateStatus(meeting.id, 'failed', {
-          errorMessage: err instanceof Error ? err.message : 'Upload failed',
+          errorMessage: 'Upload failed',
         })
         .catch(() => {
           /* best effort — the original error is what matters */

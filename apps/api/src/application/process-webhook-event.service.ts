@@ -18,6 +18,13 @@ interface EventRefs {
   subCode: string | null;
 }
 
+// Provider status detail is untrusted text. Keep only recognized machine-readable codes in
+// customer-facing failure reasons; anything else could contain meeting speech or credentials.
+const SAFE_PROVIDER_SUB_CODES = new Set(['meeting_not_found', 'no_audio']);
+function safeProviderSubCode(value: string | null): string | null {
+  return value && SAFE_PROVIDER_SUB_CODES.has(value) ? value : null;
+}
+
 /**
  * Pull the identifiers out of a bot-provider webhook payload.
  *
@@ -101,7 +108,7 @@ export class ProcessWebhookEventService {
       this.liveBus?.publish(meetingId, { type: 'done', status });
       await this.liveRepo?.deleteByMeeting(meetingId);
     } catch (err: any) {
-      logger.warn({ meetingId, err: err?.message }, 'Failed to clean up live transcript segments');
+      logger.warn({ meetingId }, 'Failed to clean up live transcript segments');
     }
   }
 
@@ -110,7 +117,7 @@ export class ProcessWebhookEventService {
     try {
       return await this.docGen.generateSummary(segments);
     } catch (err: any) {
-      logger.warn({ err: err?.message }, 'Summary generation failed, retrying once');
+      logger.warn('Summary generation failed, retrying once');
       return await this.docGen.generateSummary(segments);
     }
   }
@@ -128,7 +135,8 @@ export class ProcessWebhookEventService {
     payload: any
   ): Promise<void> {
     const parsedPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
-    const { botId, meetingId, statusCode, subCode } = extractEventRefs(parsedPayload);
+    const { botId, meetingId, statusCode, subCode: rawSubCode } = extractEventRefs(parsedPayload);
+    const subCode = safeProviderSubCode(rawSubCode);
 
     if (!botId) {
       throw new Error('bot_id is missing from payload');
@@ -157,7 +165,7 @@ export class ProcessWebhookEventService {
       const durationSeconds = await this.settleBotDuration(meeting.id, botId);
       await this.meetingRepo.updateStatus(meeting.id, 'failed', { errorMessage: reason, durationSeconds });
       await this.closeLiveTranscript(meeting.id, 'failed');
-      logger.error({ meetingId: meeting.id, botId, subCode }, 'Transcription failed at provider');
+      logger.error({ meetingId: meeting.id, ...(subCode ? { subCode } : {}) }, 'Transcription failed at provider');
       return;
     }
 
@@ -169,7 +177,7 @@ export class ProcessWebhookEventService {
 
       const nextStatus = mapRecallStatusToMeetingStatus(statusCode);
       if (!nextStatus) {
-        console.warn(`⚠️ Unrecognized Recall status code: ${statusCode}, ignoring.`);
+        console.warn('⚠️ Unrecognized Recall status code, ignoring.');
         return;
       }
 
@@ -214,7 +222,7 @@ export class ProcessWebhookEventService {
         await this.settleBotDuration(meeting.id, botId);
         return;
       }
-      console.log(`👷 Processing transcript_ready for meeting ${meeting.id} (bot: ${botId})`);
+      console.log(`👷 Processing transcript_ready for meeting ${meeting.id}`);
       
       // Fetch transcript segments
       const segments = await this.botAdapter.fetchTranscript(botId);
@@ -248,7 +256,7 @@ export class ProcessWebhookEventService {
             }
             console.log(`👷 Step-transitioned meeting ${meeting.id} from ${from} to ${to}`);
           } catch (err: any) {
-            console.error(`⚠️ Error during step-transition from ${from} to ${to}:`, err.message);
+            console.error(`⚠️ Error during step-transition from ${from} to ${to}`);
             throw err;
           }
         }
@@ -273,7 +281,7 @@ export class ProcessWebhookEventService {
         logger.info({ meetingId: meeting.id }, 'Summary generated');
       } catch (err: any) {
         logger.error(
-          { meetingId: meeting.id, err: err?.message },
+          { meetingId: meeting.id },
           'Summary generation failed after retry — leaving summary null and continuing'
         );
       }
@@ -285,12 +293,12 @@ export class ProcessWebhookEventService {
         try {
           await this.botAdapter.deleteRecording(botId);
           logger.info(
-            { meetingId: meeting.id, botId },
+            { meetingId: meeting.id },
             'Recording deleted at provider'
           );
         } catch (err: any) {
           logger.warn(
-            { meetingId: meeting.id, botId, err: err?.message },
+            { meetingId: meeting.id },
             'Failed to delete recording at provider — a sweep job will retry'
           );
         }

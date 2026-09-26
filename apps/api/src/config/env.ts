@@ -365,7 +365,8 @@ const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
   console.error('❌ Environment validation failed:');
-  console.error(JSON.stringify(parsed.error.format(), null, 2));
+  // Zod messages can include rejected values. Environment values may be live credentials.
+  console.error('Invalid settings:', [...new Set(parsed.error.issues.map(issue => issue.path.join('.')))].join(', '));
   process.exit(1);
 }
 

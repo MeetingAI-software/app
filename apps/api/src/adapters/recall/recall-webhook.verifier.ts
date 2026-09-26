@@ -67,8 +67,8 @@ export function verifyRecallSignature(
 
     console.warn('⚠️ Webhook signature verification failed: signature mismatch');
     return false;
-  } catch (err: any) {
-    console.error('❌ Error during webhook signature verification:', err);
+  } catch {
+    console.error('❌ Error during webhook signature verification');
     return false;
   }
 }

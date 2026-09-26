@@ -6,6 +6,10 @@ import type { ProcessWebhookEventService } from '../application/process-webhook-
 import type { ProcessUploadEventService } from '../application/process-upload-event.service';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 
+vi.mock('../adapters/db/client', () => ({
+  db: { select: () => ({ from: () => ({ where: async () => [{ attempts: 5 }] }) }) },
+}));
+
 function makeWorker() {
   const botMeeting = {
     id: 'owned-meeting', source: 'bot', botId: 'stored-bot', status: 'recording',
@@ -17,12 +21,14 @@ function makeWorker() {
     findById: vi.fn().mockResolvedValue(uploadMeeting),
     findByBotId: vi.fn().mockResolvedValue(botMeeting),
     findByTranscriptionJobId: vi.fn().mockResolvedValue(uploadMeeting),
+    updateStatus: vi.fn(),
   } as unknown as MeetingRepository;
+  const webhookRepo = { markProcessed: vi.fn() } as unknown as WebhookEventRepository;
   const worker = new WebhookWorker(
-    {} as WebhookEventRepository, meetingRepo, {} as ProcessWebhookEventService,
+    webhookRepo, meetingRepo, {} as ProcessWebhookEventService,
     {} as ProcessUploadEventService, {} as MeetingBotPort,
   );
-  return { worker, meetingRepo, botMeeting, uploadMeeting };
+  return { worker, meetingRepo, webhookRepo, botMeeting, uploadMeeting };
 }
 
 describe('failed webhook meeting resolution', () => {
@@ -64,5 +70,24 @@ describe('failed webhook meeting resolution', () => {
     })).toBe(uploadMeeting);
     expect(meetingRepo.findById).toHaveBeenCalledTimes(1);
     expect(meetingRepo.findByTranscriptionJobId).toHaveBeenCalledWith('stored-job');
+  });
+
+  it('does not log or persist raw provider text after the last retry', async () => {
+    const marker = 'PRIVATE-MEETING-SPEECH-and-bearer-token';
+    const { worker, meetingRepo, webhookRepo } = makeWorker();
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await worker['handleProcessingFailure']({
+        id: 'event-1', eventType: 'transcript.done',
+        payload: { data: { bot: { id: 'stored-bot', metadata: { meetingId: 'owned-meeting' } } } },
+      }, new Error(marker));
+      expect(JSON.stringify(log.mock.calls)).not.toContain(marker);
+      expect(webhookRepo.markProcessed).toHaveBeenCalledWith('event-1');
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('owned-meeting', 'failed', {
+        errorMessage: 'Processing failed after max retries',
+      });
+    } finally {
+      log.mockRestore();
+    }
   });
 });

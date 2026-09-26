@@ -70,6 +70,7 @@ describe('safe request logging', () => {
         'x-transcription-secret': 'transcription-secret',
         'webhook-signature': 'webhook-signature-secret',
         'paddle-signature': 'paddle-signature-secret',
+        'x-request-id': 'request-id-secret',
       },
       body: '{}',
     });
@@ -85,9 +86,28 @@ describe('safe request logging', () => {
       'paddle-signature-secret',
       'query-secret',
       'oauth-secret',
+      'request-id-secret',
     ]) {
       expect(log).not.toContain(secret);
     }
     expect(log).toContain('/webhooks/log-probe?[Redacted]');
+  });
+
+  it('keeps a valid correlation ID while replacing arbitrary header text', async () => {
+    const lines: string[] = [];
+    const stream: DestinationStream = { write: chunk => { lines.push(chunk); } };
+    const router = express.Router();
+    router.get('/healthz', (_req, res) => res.status(200).end());
+    server = createServer([router], async () => null, { requestLogStream: stream }).listen(0);
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/healthz`;
+    const valid = '12345678-1234-1234-1234-123456789abc';
+    expect((await fetch(url, { headers: { 'x-request-id': valid } })).headers.get('x-request-id')).toBe(valid);
+    const invalid = 'PRIVATE-MEETING-SPEECH-and-bearer-token';
+    const replacement = (await fetch(url, { headers: { 'x-request-id': invalid } })).headers.get('x-request-id');
+    expect(replacement).not.toBe(invalid);
+    expect(replacement).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    await vi.waitFor(() => expect(lines.length).toBeGreaterThanOrEqual(2));
+    expect(lines.join('')).toContain(valid);
+    expect(lines.join('')).not.toContain(invalid);
   });
 });

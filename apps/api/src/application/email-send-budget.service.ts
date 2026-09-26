@@ -96,7 +96,7 @@ export class EmailSendBudgetService implements EmailSendBudget {
   }
 
   private reportLedgerFault(err: unknown, msg: string): void {
-    logger.error({ err: err instanceof Error ? err.message : String(err) }, msg);
+    logger.error(msg);
     if (this.ledgerFaultReported) return;
     this.ledgerFaultReported = true;
     captureError(err, { component: 'email-send-budget' });

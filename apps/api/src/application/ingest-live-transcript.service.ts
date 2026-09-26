@@ -102,7 +102,7 @@ export class IngestLiveTranscriptService {
 
     const meeting = await this.meetingRepo.findByBotId(botId);
     if (!meeting) {
-      logger.debug({ botId }, 'Live transcript event for unknown bot — ignoring');
+      logger.debug('Live transcript event for unknown bot — ignoring');
       return null;
     }
 
@@ -133,7 +133,7 @@ export class IngestLiveTranscriptService {
       logger.info({ meetingId: entry.meetingId }, 'Live transcript started — meeting marked recording');
     } catch (err: any) {
       logger.debug(
-        { meetingId: entry.meetingId, err: err?.message },
+        { meetingId: entry.meetingId },
         'Could not nudge meeting to recording from live transcript',
       );
       // Don't retry on every subsequent utterance.

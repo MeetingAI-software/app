@@ -272,17 +272,17 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   }
 
   if (err instanceof InvalidTransitionError) {
-    console.error(`[RequestId: ${reqId}] Invalid Transition Error:`, err);
+    console.error('Invalid Transition Error');
     report5xx();
     return res.status(500).json({
       error: {
         code: 'INVALID_TRANSITION',
-        message: err.message,
+        message: 'Invalid state transition',
       },
     });
   }
 
-  console.error(`[RequestId: ${reqId}] Internal Server Error:`, err);
+  console.error('Internal Server Error');
   report5xx();
   return res.status(500).json({
     error: {

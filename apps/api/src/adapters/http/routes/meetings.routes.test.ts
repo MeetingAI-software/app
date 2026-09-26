@@ -469,13 +469,15 @@ describe('meeting routes', () => {
 
     it('reports a generator outage as a bad gateway, not a crash', async () => {
       const user = 'unlucky-1';
-      generateDocument.mockRejectedValue(new Error('Gemini timed out'));
+      const marker = 'PRIVATE-MEETING-SPEECH-and-bearer-token';
+      generateDocument.mockRejectedValue(new Error(marker));
 
       const response = await asUser(user).post(`/api/meetings/${ownMeetingOf(user)}/document`);
       const body = await response.json() as { error: { code: string } };
 
       expect(response.status).toBe(502);
       expect(body.error.code).toBe('DOCUMENT_GENERATION_ERROR');
+      expect(JSON.stringify(body)).not.toContain(marker);
       expect(upsertForMeeting).not.toHaveBeenCalled();
     });
 

@@ -8,6 +8,7 @@ import type {
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import type { DocumentGeneratorPort } from '../ports/document-generator.port';
 import type { Meeting, MeetingStatus } from '../domain/types';
+import { logger } from '../config/logger';
 
 function meeting(overrides: Partial<Meeting> = {}): Meeting {
   return {
@@ -151,6 +152,40 @@ describe('ProcessWebhookEventService', () => {
       errorMessage: 'Transcription failed at provider (no_audio)',
       durationSeconds: 3600,
     });
+  });
+
+  it('never stores an unrecognized provider sub-code containing meeting text', async () => {
+    const marker = 'private-meeting-secret';
+    await service.processEvent('bot_status_change', {
+      event: 'bot.fatal',
+      data: {
+        data: { code: 'fatal', sub_code: marker },
+        bot: { id: 'bot-1', metadata: { meetingId: 'm1' } },
+      },
+    });
+    expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'failed', {
+      errorMessage: 'Bot could not record the meeting', durationSeconds: 3600,
+    });
+  });
+
+  it('does not log an unrecognized status or summary provider text', async () => {
+    const marker = 'PRIVATE-MEETING-SPEECH-and-bearer-token';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const logWarn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+    const logError = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    try {
+      await service.processEvent('bot_status_change', botEvent(marker));
+      vi.mocked(meetingRepo.findByBotId).mockResolvedValue(meeting({ status: 'processing' }));
+      vi.mocked(bot.fetchTranscript).mockResolvedValue([{ startMs: 0, endMs: 1000, speaker: 'A', text: marker }]);
+      vi.mocked(docGen.generateSummary).mockRejectedValue(new Error(marker));
+      await service.processEvent('transcript_ready', botEvent('done'));
+      expect(JSON.stringify([warn.mock.calls, logWarn.mock.calls, logError.mock.calls])).not.toContain(marker);
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 3600 });
+    } finally {
+      warn.mockRestore();
+      logWarn.mockRestore();
+      logError.mockRestore();
+    }
   });
 
   it('reconciles a failed meeting on repeated failure events', async () => {

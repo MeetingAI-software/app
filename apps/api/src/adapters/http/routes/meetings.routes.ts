@@ -472,8 +472,8 @@ export function createMeetingRoutes(
       let generated;
       try {
         generated = await documentGenerator.generateDocument(segments, { meetingIsoDate });
-      } catch (err: any) {
-        throw new DocumentGenerationError(`Failed to generate document: ${err.message}`);
+      } catch {
+        throw new DocumentGenerationError('Document generation failed');
       }
 
       // Zod gate

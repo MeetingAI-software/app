@@ -32,14 +32,16 @@ export class WebhookWorker {
     
     this.intervalId = setInterval(() => {
       this.pollAndProcess().catch(err => {
-        console.error('Worker loop error:', err);
+        console.error('Worker loop error');
+        captureError(err);
       });
     }, 2000);
 
     // Reconciler runs every 60s
     this.reconcileIntervalId = setInterval(() => {
       this.reconcileMeetings().catch(err => {
-        console.error('Reconciler error:', err);
+        console.error('Reconciler error');
+        captureError(err);
       });
     }, 60000);
   }
@@ -67,12 +69,12 @@ export class WebhookWorker {
 
       const handler = this.resolveHandler(event.eventType, event.payload);
       if (!handler) {
-        console.log(`   Ignoring event ${event.id} of type ${event.eventType}`);
+        console.log(`   Ignoring event ${event.id}`);
         await this.webhookRepo.markProcessed(event.id);
         return;
       }
 
-      console.log(`👷 Processing event ${event.id} (${event.eventType})`);
+      console.log(`👷 Processing event ${event.id}`);
       try {
         await handler();
         await this.webhookRepo.markProcessed(event.id);
@@ -98,12 +100,12 @@ export class WebhookWorker {
 
   /** Shared retry/backoff/give-up-after-5 for every event type — identical to Day 1. */
   private async handleProcessingFailure(event: { id: string; eventType: string; payload: unknown }, err: any): Promise<void> {
-    console.error(`❌ Error processing event ${event.id}:`, err);
+    console.error(`❌ Error processing event ${event.id}`);
 
     // Provider metadata is not an authority for a meeting ID. Resolve through the stored bot/job
     // binding before tagging telemetry or changing a meeting after the last retry.
     const meeting = await this.resolveMeetingFromPayload(event.eventType, event.payload);
-    captureError(err, { eventId: event.id, ...(meeting ? { meetingId: meeting.id } : {}) });
+    captureError(err, meeting ? { meetingId: meeting.id } : undefined);
 
     const [row] = await db
       .select({ attempts: webhookEvents.attempts })
@@ -117,7 +119,7 @@ export class WebhookWorker {
 
       if (meeting && meeting.status !== 'transcribed' && meeting.status !== 'failed') {
         await this.meetingRepo.updateStatus(meeting.id, 'failed', {
-          errorMessage: err?.message || 'Processing failed after max retries',
+          errorMessage: 'Processing failed after max retries',
         });
       }
     } else {
@@ -166,10 +168,10 @@ export class WebhookWorker {
 
       for (const meeting of stuckMeetings) {
         const botId = meeting.botId!;
-        console.log(`   Reconciling stuck meeting ${meeting.id} (status: ${meeting.status}, bot: ${botId})`);
+        console.log(`   Reconciling stuck meeting ${meeting.id} (status: ${meeting.status})`);
         try {
           const botStatus = await this.botAdapter.getBotStatus(botId);
-          console.log(`   Recall reported bot status: ${botStatus}`);
+          console.log('   Recall bot status checked');
           
           if (botStatus === 'joining') {
             if (meeting.status !== 'bot_joining') {
@@ -180,7 +182,7 @@ export class WebhookWorker {
               await this.meetingRepo.updateStatus(meeting.id, 'recording');
             }
           } else if (botStatus === 'done') {
-            console.log(`   Triggering recovery transcript processing for bot: ${botId}`);
+            console.log(`   Triggering recovery transcript processing for meeting ${meeting.id}`);
             await this.processService.processEvent('transcript_ready', {
               bot_id: botId,
               meeting_id: meeting.id,
@@ -191,12 +193,12 @@ export class WebhookWorker {
             });
           }
         } catch (botErr: any) {
-          console.error(`❌ Reconciler failed to check bot ${botId} status:`, botErr.message);
-          captureError(botErr, { meetingId: meeting.id, botId });
+          console.error(`❌ Reconciler failed to check meeting ${meeting.id}`);
+          captureError(botErr, { meetingId: meeting.id });
         }
       }
     } catch (err: any) {
-      console.error('❌ Reconciler tick error:', err.message);
+      console.error('❌ Reconciler tick error');
       captureError(err);
     }
   }
