@@ -233,6 +233,21 @@ export const googleOAuthExchangeSlots = pgTable('google_oauth_exchange_slots', {
   expiresAt: timestamp('expires_at', { withTimezone: true }),
 });
 
+// Shared billing admission. Leases limit concurrent Paddle workflows across API replicas;
+// budgets count attempts before provider calls, including uncertain outcomes.
+export const paddleBillingSlots = pgTable('paddle_billing_slots', {
+  slot: integer('slot').primaryKey(),
+  token: text('token'),
+  userId: uuid('user_id'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+});
+
+export const paddleBillingBudgets = pgTable('paddle_billing_budgets', {
+  scope: text('scope').notNull(),
+  window: integer('window').notNull(),
+  count: integer('count').notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.scope, t.window] }) }));
+
 // Cross-replica login admission before database user lookup and password hashing. Identifier
 // scopes contain only digests, never submitted addresses or client-supplied strings.
 export const loginAttemptBudgets = pgTable('login_attempt_budgets', {
