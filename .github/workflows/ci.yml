@@ -38,6 +38,8 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+      - name: Install media decoder for upload tests
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: npm ci
       - name: Typecheck
         run: npm run typecheck --workspace api

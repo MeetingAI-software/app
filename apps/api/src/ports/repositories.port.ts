@@ -15,7 +15,8 @@ import type { PlanEntitlements } from '../domain/billing';
 export interface MeetingRepository {
   reserve(input: { ownerUserId: string; source: MeetingSource; meetingUrl?: string;
     platform?: MeetingPlatform; participantNames?: string[];
-    recordingNoticeConfirmedAt?: Date; recordingNoticeVersion?: string },
+    recordingNoticeConfirmedAt?: Date; recordingNoticeVersion?: string;
+    uploadDurationSeconds?: number },
     entitlements: PlanEntitlements, maxConcurrent: number): Promise<Meeting>;
   create(input: { ownerUserId: string; source: MeetingSource; meetingUrl?: string;
     platform?: MeetingPlatform; participantNames?: string[];

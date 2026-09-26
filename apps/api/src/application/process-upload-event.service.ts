@@ -98,7 +98,8 @@ export class ProcessUploadEventService {
     // Idempotent: a replayed webhook must not produce a second transcript.
     if (meeting.status === 'transcribed') {
       // A worker can crash after setting terminal status but before settling its claim.
-      await this.usageRepo.addSeconds(meeting.id, meeting.durationSeconds ?? 0);
+      await this.usageRepo.addSeconds(meeting.id,
+        meeting.durationSeconds && meeting.durationSeconds > 0 ? meeting.durationSeconds : null);
       logger.info({ meetingId: meeting.id }, 'transcription_ready for an already-transcribed meeting — skipping');
       return;
     }
@@ -108,9 +109,12 @@ export class ProcessUploadEventService {
 
     await this.transcriptRepo.save(meeting.id, segments, rawPayload);
 
-    const durationSeconds = segments.length
-      ? Math.ceil(Math.max(...segments.map((s) => s.endMs)) / 1000)
-      : 0;
+    // Admission decoded the actual media and stored this duration before the provider call.
+    // Speech timestamps omit silence; never let an empty transcript erase recording time.
+    // Pre-existing uploads have no trusted decoded duration. Keep them usable while settling
+    // the entire reserved maximum, never the speech-derived length or zero.
+    const durationSeconds = meeting.durationSeconds && meeting.durationSeconds > 0
+      ? meeting.durationSeconds : await this.usageRepo.addSeconds(meeting.id, null);
 
     // Upload path arrives here as 'processing'. Nudge from 'pending' if the events raced.
     let currentStatus = meeting.status;

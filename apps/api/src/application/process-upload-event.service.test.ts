@@ -26,7 +26,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     source: 'upload',
     botId: null,
     ownerUserId: 'u1',
-    durationSeconds: null,
+    durationSeconds: 1800,
     errorMessage: null,
     summary: null,
     shareToken: 'tok',
@@ -168,8 +168,8 @@ describe('ProcessUploadEventService', () => {
 
       const savedSegments = vi.mocked(transcriptRepo.save).mock.calls[0][1] as TranscriptSegment[];
       expect(savedSegments.map((s) => s.speaker)).toEqual(['Alper', 'AbdulRehman']);
-      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 31 });
-      expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', 31);
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 1800 });
+      expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', 1800);
       expect(meetingRepo.setSummary).toHaveBeenCalledWith('m1', 'A short summary.');
       expect(storage.delete).toHaveBeenCalledWith('m1/audio.webm');
     });
@@ -181,7 +181,23 @@ describe('ProcessUploadEventService', () => {
 
       expect(meetingRepo.findByTranscriptionJobId).toHaveBeenCalledWith('job-1');
       expect(meetingRepo.findById).not.toHaveBeenCalled();
-      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 31 });
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 1800 });
+    });
+
+    it('charges the decoded duration even when the transcript is completely silent', async () => {
+      vi.mocked(meetingRepo.findById).mockResolvedValue(meeting());
+      vi.mocked(transcription.fetchResult).mockResolvedValue([]);
+      await service.process('transcription_ready', { jobId: 'job-1', meetingId: 'm1' });
+      expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', 1800);
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 1800 });
+    });
+
+    it('conservatively settles the full reservation for a pre-upgrade upload', async () => {
+      vi.mocked(meetingRepo.findById).mockResolvedValue(meeting({ durationSeconds: null }));
+      vi.mocked(usageRepo.addSeconds).mockResolvedValue(7200);
+      await service.process('transcription_ready', { jobId: 'job-1', meetingId: 'm1' });
+      expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', null);
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 7200 });
     });
 
     it('does NOT delete the audio when the summary fails (GDPR: delete only after summary success)', async () => {
@@ -203,7 +219,7 @@ describe('ProcessUploadEventService', () => {
       expect(storage.delete).not.toHaveBeenCalled();
       // ...but the transcript and status still land.
       expect(transcriptRepo.save).toHaveBeenCalled();
-      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 31 });
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 1800 });
     });
 
     it('treats a storage.delete failure as non-fatal', async () => {

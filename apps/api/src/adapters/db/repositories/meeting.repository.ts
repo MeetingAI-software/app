@@ -8,8 +8,14 @@ import type { PlanEntitlements } from '../../../domain/billing';
 import { CapExceededError } from '../../../domain/errors';
 
 export class DrizzleMeetingRepository implements MeetingRepository {
-  async reserve(input: Parameters<MeetingRepository['create']>[0],
+  async reserve(input: Parameters<MeetingRepository['reserve']>[0],
     entitlements: PlanEntitlements, maxConcurrent: number): Promise<Meeting> {
+    const reservedSeconds = input.source === 'upload'
+      ? input.uploadDurationSeconds : entitlements.maxMeetingSeconds;
+    if (typeof reservedSeconds !== 'number' || !Number.isSafeInteger(reservedSeconds)
+      || reservedSeconds < 1 || reservedSeconds > entitlements.maxMeetingSeconds) {
+      throw new CapExceededError('Upload duration exceeds the plan limit or was not verified');
+    }
     // The owner row is the mutex shared by all API replicas and usage settlement. The meeting
     // and its claim commit together, so even a crash before the provider call consumes capacity.
     return db.transaction(async tx => {
@@ -33,7 +39,7 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       }).from(usageLedger).innerJoin(meetings, eq(usageLedger.meetingId, meetings.id))
         .where(and(eq(meetings.ownerUserId, input.ownerUserId),
           sql`${usageLedger.createdAt} >= date_trunc('month', now())`));
-      if (Number(used.seconds) + Number(active.seconds) + entitlements.maxMeetingSeconds
+      if (Number(used.seconds) + Number(active.seconds) + reservedSeconds
         > entitlements.monthlySecondsCap) {
         throw new CapExceededError('Monthly recording limit reached for your plan');
       }
@@ -44,6 +50,7 @@ export class DrizzleMeetingRepository implements MeetingRepository {
         platform: input.platform ?? 'zoom',
         status: 'pending',
         source: input.source,
+        durationSeconds: input.source === 'upload' ? reservedSeconds : null,
         participantNames: input.participantNames ?? null,
         recordingNoticeConfirmedAt: input.recordingNoticeConfirmedAt ?? null,
         recordingNoticeVersion: input.recordingNoticeVersion ?? null,
@@ -52,7 +59,7 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       await tx.insert(meetingQuotaReservations).values({
         meetingId: row.id,
         ownerUserId: input.ownerUserId,
-        reservedSeconds: entitlements.maxMeetingSeconds,
+        reservedSeconds,
       });
       return row as Meeting;
     });

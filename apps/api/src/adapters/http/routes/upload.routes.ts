@@ -9,6 +9,7 @@ import type { AudioStoragePort } from '../../../ports/audio-storage.port';
 import { parseParticipantNames, isAudioMime, detectAudioFormat } from './upload-inputs';
 import { perUserRouteLimiter, SPEND_LIMITS } from '../middleware/rate-limit';
 import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
+import { AudioDurationError, measureAudioDuration } from './audio-duration';
 
 /**
  * POST /api/meetings/upload — in-room recording upload.
@@ -22,7 +23,7 @@ export function createUploadRoutes(
   webhookRepo: WebhookEventRepository,
   usageMeter: UsageMeterService,
   storage: AudioStoragePort,
-  options: { parseTimeoutMs?: number } = {},
+  options: { parseTimeoutMs?: number; inspectAudio?: typeof measureAudioDuration } = {},
 ): Router {
   const router = Router();
 
@@ -156,12 +157,38 @@ export function createUploadRoutes(
     // Throws ZodError (→ 400) on a malformed participantNames field.
     const participantNames = parseParticipantNames(req.body?.participantNames);
 
+    // Decode actual audio before storage or a paid transcription. Container duration and
+    // spoken transcript timestamps are not evidence of recording time, especially for silence.
+    const maxSeconds = await usageMeter.getUploadMaxSeconds(req.userId!);
+    let durationSeconds: number;
+    try {
+      durationSeconds = await (options.inspectAudio ?? measureAudioDuration)(
+        file.buffer, audio, maxSeconds, { signal },
+      );
+    } catch (error) {
+      if (error instanceof AudioDurationError) {
+        const response = error.reason === 'too_long'
+          ? { status: 413, code: 'AUDIO_TOO_LONG', message: 'Audio exceeds the plan duration limit' }
+          : error.reason === 'invalid'
+            ? { status: 400, code: 'INVALID_AUDIO', message: 'The uploaded audio could not be decoded' }
+            : { status: 503, code: 'AUDIO_INSPECTION_UNAVAILABLE', message: 'Audio inspection is temporarily unavailable' };
+        return res.status(response.status).json({ error: { code: response.code, message: response.message } });
+      }
+      throw error;
+    }
+    if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 1 || durationSeconds > maxSeconds) {
+      return res.status(400).json({
+        error: { code: 'INVALID_AUDIO', message: 'The uploaded audio could not be decoded' },
+      });
+    }
+
     // Monthly hours protect the wallet on BOTH the bot and the upload path (→ 429), per user.
     signal.throwIfAborted();
     const { meeting } = await usageMeter.reserveMeeting(req.userId!, 'upload', {
       participantNames,
       recordingNoticeConfirmedAt: new Date(),
       recordingNoticeVersion: RECORDING_NOTICE_VERSION,
+      uploadDurationSeconds: durationSeconds,
     });
 
     let uploadedPath: string | null = null;

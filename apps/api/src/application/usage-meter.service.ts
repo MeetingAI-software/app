@@ -15,6 +15,7 @@ export class UsageMeterService {
   async reserveMeeting(userId: string, source: MeetingSource, input: {
     meetingUrl?: string; platform?: MeetingPlatform; participantNames?: string[];
     recordingNoticeConfirmedAt?: Date; recordingNoticeVersion?: string;
+    uploadDurationSeconds?: number;
   }) {
     const access = await this.billingAccess.getAccess(userId);
     if (source === 'upload' && !this.inRoomRecordingEnabled) {
@@ -27,6 +28,18 @@ export class UsageMeterService {
       { ownerUserId: userId, source, ...input }, access.entitlements, config.MAX_CONCURRENT_BOTS,
     );
     return { meeting, entitlements: access.entitlements };
+  }
+
+  /** An early decode ceiling; reserveMeeting checks access again before committing capacity. */
+  async getUploadMaxSeconds(userId: string): Promise<number> {
+    const access = await this.billingAccess.getAccess(userId);
+    if (!this.inRoomRecordingEnabled) {
+      throw new FeatureUnavailableError('In-room recording is not available in this environment');
+    }
+    if (!access.entitlements.phoneInRoomRecording) {
+      throw new PlanUpgradeRequiredError('In-room recording requires a Team or Business plan');
+    }
+    return access.entitlements.maxMeetingSeconds;
   }
 
   async recordUsage(meetingId: string, seconds: number): Promise<void> {

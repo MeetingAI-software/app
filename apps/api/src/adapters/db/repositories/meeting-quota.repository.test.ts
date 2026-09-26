@@ -31,7 +31,42 @@ describe('durable meeting quota admission', () => {
 
   const bot = (ownerUserId: string) => ({ ownerUserId, source: 'bot' as const,
     meetingUrl: 'https://zoom.us/j/123' });
-  const upload = (ownerUserId: string) => ({ ownerUserId, source: 'upload' as const });
+  const upload = (ownerUserId: string, uploadDurationSeconds = plan.maxMeetingSeconds) =>
+    ({ ownerUserId, source: 'upload' as const, uploadDurationSeconds });
+
+  it('reserves the verified upload length and settles silence without transcript time', async () => {
+    const recorded = await meetingsRepo.reserve(upload(ownerUserId, 600), plan, 2);
+    expect(recorded.durationSeconds).toBe(600);
+    const [claim] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, recorded.id));
+    expect(claim.reservedSeconds).toBe(600);
+    expect(await usageRepo.addSeconds(recorded.id, recorded.durationSeconds)).toBe(600);
+    const [charge] = await db.select().from(usageLedger)
+      .where(eq(usageLedger.meetingId, recorded.id));
+    expect(charge.secondsRecorded).toBe(600);
+  });
+
+  it.each([0, -1, 2001, NaN])('rejects unverified or over-plan upload seconds %s', async seconds => {
+    await expect(meetingsRepo.reserve(upload(ownerUserId, seconds), plan, 2))
+      .rejects.toBeInstanceOf(CapExceededError);
+    expect(await db.select().from(meetings)).toHaveLength(0);
+  });
+
+  it('rejects an upload with no measured duration before creating a meeting', async () => {
+    await expect(meetingsRepo.reserve({ ownerUserId, source: 'upload' }, plan, 2))
+      .rejects.toBeInstanceOf(CapExceededError);
+    expect(await db.select().from(meetings)).toHaveLength(0);
+  });
+
+  it('admits only one concurrent measured upload at the last monthly capacity', async () => {
+    await meetingsRepo.reserve(bot(ownerUserId), plan, 3);
+    const results = await Promise.allSettled([
+      meetingsRepo.reserve(upload(ownerUserId, 1000), plan, 3),
+      new DrizzleMeetingRepository().reserve(upload(ownerUserId, 1000), plan, 3),
+    ]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+  });
 
   it('admits only one of two simultaneous bot starts before any provider work', async () => {
     const results = await Promise.allSettled([
