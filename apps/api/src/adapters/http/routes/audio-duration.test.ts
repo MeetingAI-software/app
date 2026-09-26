@@ -74,6 +74,16 @@ describe('decoded upload duration', () => {
       .rejects.toMatchObject({ reason: 'too_long' });
   });
 
+  it('does not let sparse audio timestamps hide a long recording timeline', async () => {
+    const bytes = generateAudio([
+      '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=8000:duration=8',
+      '-af', "aselect='lt(t,1)+gte(t,7)'", '-c:a', 'libopus',
+    ], 'webm');
+    const format = detectAudioFormat(bytes)!;
+    await expect(measureAudioDuration(bytes, format, 3, tools))
+      .rejects.toMatchObject({ reason: 'too_long' });
+  });
+
   it('rejects a truncated container before storage', async () => {
     const bytes = silent(2, 'libopus', 'webm').subarray(0, 20);
     await expect(measureAudioDuration(bytes, detectAudioFormat(bytes)!, 5, tools))
