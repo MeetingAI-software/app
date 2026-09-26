@@ -57,6 +57,8 @@ describe('ProcessWebhookEventService', () => {
       create: vi.fn(),
       findById: vi.fn().mockResolvedValue(meeting()),
       findByBotId: vi.fn().mockResolvedValue(meeting()),
+      claimBotTranscript: vi.fn().mockResolvedValue(true),
+      releaseBotTranscript: vi.fn(),
       findByShareToken: vi.fn(),
       findByTranscriptionJobId: vi.fn(),
       updateStatus: vi.fn().mockImplementation(async (_id, to) => meeting({ status: to })),
@@ -269,4 +271,36 @@ describe('ProcessWebhookEventService', () => {
       // The repository settles once; a replay also repairs a crash after status persistence.
       expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', null);
     });
+
+  it('allows only one concurrent transcript processor for different event IDs', async () => {
+    let finishFetch!: (value: []) => void;
+    const pendingFetch = new Promise<[]>(resolve => { finishFetch = resolve; });
+    let claimed = false;
+    vi.mocked(meetingRepo.claimBotTranscript).mockImplementation(async () => {
+      if (claimed) return false;
+      claimed = true;
+      return true;
+    });
+    vi.mocked(bot.fetchTranscript).mockReturnValue(pendingFetch);
+    vi.mocked(docGen.generateSummary).mockResolvedValue('Summary');
+
+    const first = service.processEvent('transcript_ready', botEvent('done'));
+    await vi.waitFor(() => expect(bot.fetchTranscript).toHaveBeenCalledTimes(1));
+    await service.processEvent('transcript_ready', botEvent('done'));
+    expect(bot.fetchTranscript).toHaveBeenCalledTimes(1);
+    expect(docGen.generateSummary).not.toHaveBeenCalled();
+    finishFetch([]);
+    await first;
+    expect(docGen.generateSummary).toHaveBeenCalledTimes(1);
+    expect(meetingRepo.releaseBotTranscript).not.toHaveBeenCalled();
+  });
+
+  it('releases only its own claim after a retryable transcript failure', async () => {
+    vi.mocked(bot.fetchTranscript).mockRejectedValue(new Error('provider unavailable'));
+    await expect(service.processEvent('transcript_ready', botEvent('done')))
+      .rejects.toThrow('provider unavailable');
+    const claimId = vi.mocked(meetingRepo.claimBotTranscript).mock.calls[0][2];
+    expect(meetingRepo.releaseBotTranscript).toHaveBeenCalledWith('m1', claimId);
+    expect(docGen.generateSummary).not.toHaveBeenCalled();
+  });
 });

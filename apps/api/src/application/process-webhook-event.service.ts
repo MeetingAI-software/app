@@ -10,6 +10,7 @@ import type { DocumentGeneratorPort } from '../ports/document-generator.port';
 import { assertTransition } from '../domain/state-machine';
 import type { MeetingStatus, TranscriptSegment } from '../domain/types';
 import { logger } from '../config/logger';
+import { randomUUID } from 'node:crypto';
 
 interface EventRefs {
   botId: string | null;
@@ -222,86 +223,97 @@ export class ProcessWebhookEventService {
         await this.settleBotDuration(meeting.id, botId);
         return;
       }
-      console.log(`👷 Processing transcript_ready for meeting ${meeting.id}`);
+      // Signed events with different IDs (or the reconciler) still target the same bot.
+      // Claim its meeting before fetching or reaching the paid summary model.
+      const claimId = randomUUID();
+      if (!await this.meetingRepo.claimBotTranscript(meeting.id, botId, claimId)) {
+        logger.info({ meetingId: meeting.id }, 'Transcript processing already claimed or completed');
+        return;
+      }
+      try {
+        logger.info({ meetingId: meeting.id }, 'Processing transcript_ready');
+        // Fetch transcript segments
+        const segments = await this.botAdapter.fetchTranscript(botId);
       
-      // Fetch transcript segments
-      const segments = await this.botAdapter.fetchTranscript(botId);
+        // Save transcript
+        await this.transcriptRepo.save(meeting.id, segments, payload);
+
+        // Recording time includes silence and is independent of transcript word timestamps.
+        // If Recall timing is unavailable, settle the reserved maximum rather than charging zero.
+        const durationSeconds = await this.settleBotDuration(meeting.id, botId);
+
+        // Transition the meeting status step-by-step to transcribed
+        let currentStatus = meeting.status;
       
-      // Save transcript
-      await this.transcriptRepo.save(meeting.id, segments, payload);
+        // If meeting is not yet in processing state, transition it step-by-step
+        const transitionSteps: MeetingStatus[] = ['bot_joining', 'recording', 'processing', 'transcribed'];
+        const startIndex = transitionSteps.indexOf(currentStatus);
 
-      // Recording time includes silence and is independent of transcript word timestamps.
-      // If Recall timing is unavailable, settle the reserved maximum rather than charging zero.
-      const durationSeconds = await this.settleBotDuration(meeting.id, botId);
-
-      // Transition the meeting status step-by-step to transcribed
-      let currentStatus = meeting.status;
-      
-      // If meeting is not yet in processing state, transition it step-by-step
-      const transitionSteps: MeetingStatus[] = ['bot_joining', 'recording', 'processing', 'transcribed'];
-      const startIndex = transitionSteps.indexOf(currentStatus);
-
-      if (startIndex !== -1) {
-        for (let i = startIndex; i < transitionSteps.length - 1; i++) {
-          const from = transitionSteps[i];
-          const to = transitionSteps[i + 1];
-          try {
-            assertTransition(from, to);
-            if (to === 'transcribed') {
-              await this.meetingRepo.updateStatus(meeting.id, to, {
-                durationSeconds,
-              });
-            } else {
-              await this.meetingRepo.updateStatus(meeting.id, to);
+        if (startIndex !== -1) {
+          for (let i = startIndex; i < transitionSteps.length - 1; i++) {
+            const from = transitionSteps[i];
+            const to = transitionSteps[i + 1];
+            try {
+              assertTransition(from, to);
+              if (to === 'transcribed') {
+                await this.meetingRepo.updateStatus(meeting.id, to, {
+                  durationSeconds,
+                });
+              } else {
+                await this.meetingRepo.updateStatus(meeting.id, to);
+              }
+              console.log(`👷 Step-transitioned meeting ${meeting.id} from ${from} to ${to}`);
+            } catch (err: any) {
+              console.error(`⚠️ Error during step-transition from ${from} to ${to}`);
+              throw err;
             }
-            console.log(`👷 Step-transitioned meeting ${meeting.id} from ${from} to ${to}`);
+          }
+        } else {
+          // Fallback: direct assertTransition and update
+          assertTransition(currentStatus, 'transcribed');
+          await this.meetingRepo.updateStatus(meeting.id, 'transcribed', {
+            durationSeconds,
+          });
+        }
+
+        // Done before the summary, which takes seconds: any browser watching the live stream
+        // should flip to the finished view as soon as the real transcript exists.
+        await this.closeLiveTranscript(meeting.id, 'transcribed');
+
+        // Summary. A missing summary must never block markProcessed or the document button.
+        let summarySucceeded = false;
+        try {
+          const summary = await this.generateSummaryWithRetry(segments);
+          await this.meetingRepo.setSummary(meeting.id, summary);
+          summarySucceeded = true;
+          logger.info({ meetingId: meeting.id }, 'Summary generated');
+        } catch (err: any) {
+          logger.error(
+            { meetingId: meeting.id },
+            'Summary generation failed after retry — leaving summary null and continuing'
+          );
+        }
+
+        // The GDPR promise. Audio is deleted ONLY after the transcript is stored and the
+        // summary has proven the pipeline can read it. If anything upstream failed, the
+        // audio survives for reprocessing. Deletion failure is non-fatal by design.
+        if (summarySucceeded) {
+          try {
+            await this.botAdapter.deleteRecording(botId);
+            logger.info(
+              { meetingId: meeting.id },
+              'Recording deleted at provider'
+            );
           } catch (err: any) {
-            console.error(`⚠️ Error during step-transition from ${from} to ${to}`);
-            throw err;
+            logger.warn(
+              { meetingId: meeting.id },
+              'Failed to delete recording at provider — a sweep job will retry'
+            );
           }
         }
-      } else {
-        // Fallback: direct assertTransition and update
-        assertTransition(currentStatus, 'transcribed');
-        await this.meetingRepo.updateStatus(meeting.id, 'transcribed', {
-          durationSeconds,
-        });
-      }
-
-      // Done before the summary, which takes seconds: any browser watching the live stream
-      // should flip to the finished view as soon as the real transcript exists.
-      await this.closeLiveTranscript(meeting.id, 'transcribed');
-
-      // Summary. A missing summary must never block markProcessed or the document button.
-      let summarySucceeded = false;
-      try {
-        const summary = await this.generateSummaryWithRetry(segments);
-        await this.meetingRepo.setSummary(meeting.id, summary);
-        summarySucceeded = true;
-        logger.info({ meetingId: meeting.id }, 'Summary generated');
-      } catch (err: any) {
-        logger.error(
-          { meetingId: meeting.id },
-          'Summary generation failed after retry — leaving summary null and continuing'
-        );
-      }
-
-      // The GDPR promise. Audio is deleted ONLY after the transcript is stored and the
-      // summary has proven the pipeline can read it. If anything upstream failed, the
-      // audio survives for reprocessing. Deletion failure is non-fatal by design.
-      if (summarySucceeded) {
-        try {
-          await this.botAdapter.deleteRecording(botId);
-          logger.info(
-            { meetingId: meeting.id },
-            'Recording deleted at provider'
-          );
-        } catch (err: any) {
-          logger.warn(
-            { meetingId: meeting.id },
-            'Failed to delete recording at provider — a sweep job will retry'
-          );
-        }
+      } catch (err) {
+        await this.meetingRepo.releaseBotTranscript(meeting.id, claimId);
+        throw err;
       }
     }
   }

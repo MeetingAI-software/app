@@ -77,6 +77,14 @@ export const usageLedger = pgTable('usage_ledger', {
   usageLedgerMeetingUq: uniqueIndex('usage_ledger_meeting_uq').on(t.meetingId),
 }));
 
+// Internal worker coordination. Meeting rows are returned by API routes, so the claim token
+// must live outside the public meeting projection.
+export const botTranscriptClaims = pgTable('bot_transcript_claims', {
+  meetingId: uuid('meeting_id').primaryKey().references(() => meetings.id, { onDelete: 'cascade' }),
+  claimId: uuid('claim_id').notNull(),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // One durable claim per admitted meeting. An active claim counts against the current monthly
 // budget even when a request crashes before the provider returns, or crosses a month boundary.
 export const meetingQuotaReservations = pgTable('meeting_quota_reservations', {
