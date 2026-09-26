@@ -70,7 +70,7 @@ export class ProcessUploadEventService {
       ({ jobId } = await this.transcription.submit(url, { meetingId: meeting.id }));
     } catch (err) {
       if (err instanceof TranscriptionSubmitRejectedError) {
-        await this.meetingRepo.failRejectedUploadSubmission(meeting.id, err.message);
+        await this.meetingRepo.failRejectedUploadSubmission(meeting.id, 'Transcription request rejected');
         return;
       }
       throw err;
@@ -79,7 +79,7 @@ export class ProcessUploadEventService {
       throw new Error('Transcription job could not be bound to its claimed meeting');
     }
 
-    logger.info({ meetingId: meeting.id, jobId }, 'Transcription submitted for uploaded audio');
+    logger.info({ meetingId: meeting.id }, 'Transcription submitted for uploaded audio');
   }
 
   /** Fetch result → map speakers → save → transcribed → usage → summary → GDPR delete. */
@@ -134,7 +134,7 @@ export class ProcessUploadEventService {
       logger.info({ meetingId: meeting.id }, 'Summary generated (upload)');
     } catch (err) {
       logger.error(
-        { meetingId: meeting.id, err: err instanceof Error ? err.message : String(err) },
+        { meetingId: meeting.id },
         'Summary generation failed after retry — leaving summary null and continuing'
       );
     }
@@ -147,7 +147,7 @@ export class ProcessUploadEventService {
         logger.info({ meetingId: meeting.id }, 'Uploaded audio deleted from storage');
       } catch (err) {
         logger.warn(
-          { meetingId: meeting.id, err: err instanceof Error ? err.message : String(err) },
+          { meetingId: meeting.id },
           'Failed to delete uploaded audio — a sweep can retry'
         );
       }
@@ -159,7 +159,7 @@ export class ProcessUploadEventService {
     try {
       return await this.docGen.generateSummary(segments);
     } catch (err) {
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Summary failed, retrying once');
+      logger.warn('Summary failed, retrying once');
       return await this.docGen.generateSummary(segments);
     }
   }

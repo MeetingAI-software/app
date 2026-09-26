@@ -10,6 +10,7 @@ import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { DocumentGeneratorPort } from '../ports/document-generator.port';
 import type { Meeting, MeetingStatus, TranscriptSegment } from '../domain/types';
 import { TranscriptionSubmitRejectedError } from '../domain/errors';
+import { logger } from '../config/logger';
 
 const DIARIZED: TranscriptSegment[] = [
   { startMs: 0, endMs: 2000, speaker: 'Speaker A', text: 'Kicking off the in-room sync.' },
@@ -147,7 +148,7 @@ describe('ProcessUploadEventService', () => {
       await service.process('audio_uploaded', { meetingId: 'm1' });
 
       expect(meetingRepo.failRejectedUploadSubmission)
-        .toHaveBeenCalledWith('m1', 'AssemblyAI submit rejected: 401');
+        .toHaveBeenCalledWith('m1', 'Transcription request rejected');
       expect(meetingRepo.bindTranscriptionJob).not.toHaveBeenCalled();
     });
   });
@@ -183,9 +184,18 @@ describe('ProcessUploadEventService', () => {
 
     it('does NOT delete the audio when the summary fails (GDPR: delete only after summary success)', async () => {
       vi.mocked(meetingRepo.findById).mockResolvedValue(meeting());
-      vi.mocked(docGen.generateSummary).mockRejectedValue(new Error('claude down'));
+      const marker = 'PRIVATE-MEETING-SPEECH-and-bearer-token';
+      vi.mocked(docGen.generateSummary).mockRejectedValue(new Error(marker));
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+      const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
 
-      await service.process('transcription_ready', { jobId: 'job-1', meetingId: 'm1' });
+      try {
+        await service.process('transcription_ready', { jobId: 'job-1', meetingId: 'm1' });
+        expect(JSON.stringify([warn.mock.calls, error.mock.calls])).not.toContain(marker);
+      } finally {
+        warn.mockRestore();
+        error.mockRestore();
+      }
 
       expect(meetingRepo.setSummary).not.toHaveBeenCalled();
       expect(storage.delete).not.toHaveBeenCalled();
