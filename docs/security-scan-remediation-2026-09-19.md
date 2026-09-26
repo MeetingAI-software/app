@@ -283,6 +283,13 @@ Standard-skanning `196e4386-e3f1-402f-b9cc-02ba02b775c5` av den samlade committe
 - **Fixkrav:** stäng nya provideranspråk atomiskt när radering börjar och vägra färdigställa radering medan ett betalt anspråk är osäkert. Bevara referens och avstäm providerutfall innan lokala rader tas bort.
 - **Verifiera:** pausa botskapande efter reservation, kör kontoradering parallellt och släpp sedan providern; ingen bot får sakna avstämningsreferens. Testa två repositoryinstanser, legitim radering av inaktivt konto och extern raderingsfelväg.
 
+### N07 — Recall 409 kan felaktigt kvittera mediaradering (`local_recall_delete_media_conflict_20260927`, G36)
+
+- **Spår:** `apps/api/src/adapters/recall/recall-request.ts`, `apps/api/src/adapters/recall/recall.adapter.test.ts`, `apps/api/src/jobs/sweep.ts`. Detta är ett lokalt belagt fynd, inte ett ID från uppföljningsskanningen.
+- **Nuvarande beteende före fix:** `requestRecall` behandlade HTTP 409 från `POST /api/v1/bot/{id}/delete_media/` som lyckad radering. En beständig städrutin kunde då kvittera inspelningen som borttagen trots att Recall avvisat begäran. [Recalls felreferens](https://docs.recall.ai/reference/errors) beskriver 409 som konflikt som ska provas igen.
+- **Fixkrav:** räkna endast ett lyckat svar eller verifierat redan borttaget media som färdigt. Prova om 409 med begränsad fördröjning; behåll bot-ID och raderingsanspråk vid fortsatt konflikt.
+- **Verifiera:** syntetiska 409→409 och 409→200, 200/404, providerfel och senare sweep-omförsök. Kontrollera faktisk Recall-respons och retention i sandbox innan G34/G36 stängs.
+
 ## Gemensamma avslutskriterier
 
 - Säkerhetsinvarianten för varje bekräftat fynd uttrycks i kodgranskning och i ett test som skulle fallera med tidigare beteende. Testerna använder syntetiska konton och filer; inga riktiga användaruppgifter krävs.
