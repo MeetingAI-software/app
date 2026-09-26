@@ -49,6 +49,18 @@ describe('DrizzleSessionRepository', () => {
     expect(await repo.findByTokenHash('nope')).toBeNull();
   });
 
+  it('rejects a session created with a superseded auth version', async () => {
+    await repo.create({
+      userId, tokenHash: 'old-epoch', expiresAt: new Date(Date.now() + HOUR), authVersion: 1,
+    });
+    await db.update(users).set({ authVersion: 2 }).where(eq(users.id, userId));
+    expect(await repo.findByTokenHash('old-epoch')).toBeNull();
+    await repo.create({
+      userId, tokenHash: 'new-epoch', expiresAt: new Date(Date.now() + HOUR), authVersion: 2,
+    });
+    expect(await repo.findByTokenHash('new-epoch')).not.toBeNull();
+  });
+
   // The raw token never reaches this repo — only its sha256. A lookup keyed on anything else would
   // be a silent auth bypass, so the column being matched is worth pinning down.
   it('does not match a session by user id passed as a token hash', async () => {

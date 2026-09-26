@@ -32,7 +32,7 @@ export class EmailVerificationDeliveryService implements EmailVerificationDelive
     verificationUrl.searchParams.set('token', issued.token);
 
     await this.mailer.sendVerificationEmail({
-      to: user.email,
+      to: issued.email,
       verificationUrl: verificationUrl.toString(),
       expiresAt: issued.expiresAt,
     });

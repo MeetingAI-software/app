@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, migrateOnce, truncateAll } from '../pglite-harness';
 import { users } from '../schema';
 import { DrizzleUserRepository } from './user.repository';
-import { EmailTakenError } from '../../../domain/errors';
+import { EmailTakenError, InvalidCredentialsError } from '../../../domain/errors';
 
 vi.mock('../client', () => ({ db }));
 
@@ -164,10 +164,24 @@ describe('DrizzleUserRepository', () => {
       const a = await repo.create({ email: 'a@example.com', passwordHash: 'old-a' });
       const b = await repo.create({ email: 'b@example.com', passwordHash: 'old-b' });
 
-      await repo.updatePassword(a.id, 'new-a');
+      await repo.updatePassword(a.id, 'new-a', 1);
 
       expect((await rawById(a.id)).passwordHash).toBe('new-a');
       expect((await rawById(b.id)).passwordHash).toBe('old-b');
+    });
+
+    it('rejects credential and address writes started before a password proof', async () => {
+      const user = await repo.create({ email: 'before@example.com', passwordHash: 'old-hash' });
+      await db.update(users).set({ passwordHash: 'proof-hash', authVersion: 2 })
+        .where(eq(users.id, user.id));
+
+      await expect(repo.updatePassword(user.id, 'attacker-hash', 1))
+        .rejects.toThrow(InvalidCredentialsError);
+      await expect(repo.updateEmail(user.id, 'attacker@example.com', 1))
+        .rejects.toThrow(InvalidCredentialsError);
+      expect(await rawById(user.id)).toMatchObject({
+        email: 'before@example.com', passwordHash: 'proof-hash', authVersion: 2,
+      });
     });
 
     // Changing address must drop verified status — otherwise typing a stranger's address would hand
@@ -175,7 +189,7 @@ describe('DrizzleUserRepository', () => {
     it('updateEmail normalizes the address and resets verification', async () => {
       const user = await repo.create({ email: 'before@example.com', passwordHash: 'h', emailVerified: true });
 
-      const updated = await repo.updateEmail(user.id, '  AFTER@Example.COM ');
+      const updated = await repo.updateEmail(user.id, '  AFTER@Example.COM ', 1);
 
       expect(updated.email).toBe('after@example.com');
       expect(updated.emailVerified).toBe(false);
@@ -185,7 +199,7 @@ describe('DrizzleUserRepository', () => {
       await repo.create({ email: 'taken@example.com', passwordHash: 'h' });
       const mover = await repo.create({ email: 'mover@example.com', passwordHash: 'h' });
 
-      await expect(repo.updateEmail(mover.id, 'taken@example.com'))
+      await expect(repo.updateEmail(mover.id, 'taken@example.com', 1))
         .rejects.toThrow(EmailTakenError);
       // The failed change must not have altered the row.
       expect((await repo.findById(mover.id))?.email).toBe('mover@example.com');

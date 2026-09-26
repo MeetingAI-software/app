@@ -1,9 +1,9 @@
 import { db } from '../client';
-import { users } from '../schema';
-import { eq } from 'drizzle-orm';
+import { emailVerificationTokens, users } from '../schema';
+import { and, eq, sql } from 'drizzle-orm';
 import type { UserRepository } from '../../../ports/repositories.port';
 import type { User } from '../../../domain/types';
-import { EmailTakenError } from '../../../domain/errors';
+import { EmailTakenError, InvalidCredentialsError } from '../../../domain/errors';
 
 // Postgres unique-constraint violation — Day 5: the users.email UNIQUE index trips this.
 const PG_UNIQUE_VIOLATION = '23505';
@@ -52,7 +52,7 @@ function toUser(row: {
 }
 
 export class DrizzleUserRepository implements UserRepository {
-  async create(input: Parameters<UserRepository['create']>[0]): Promise<User> {
+  async create(input: Parameters<UserRepository['create']>[0]): ReturnType<UserRepository['create']> {
     const email = normalizeEmail(input.email);
     try {
       const [row] = await db
@@ -67,7 +67,7 @@ export class DrizzleUserRepository implements UserRepository {
           termsVersionAccepted: input.termsVersionAccepted ?? null,
         })
         .returning();
-      return toUser(row);
+      return { ...toUser(row), authVersion: row.authVersion };
     } catch (err) {
       if (hasPostgresErrorCode(err, PG_UNIQUE_VIOLATION)) {
         throw new EmailTakenError(`Email already registered: ${email}`);
@@ -77,14 +77,17 @@ export class DrizzleUserRepository implements UserRepository {
   }
 
   /** Includes passwordHash — for AuthService only; never hand this to a route response. */
-  async findByEmailWithHash(email: string): Promise<(User & { passwordHash: string | null; googleId?: string | null }) | null> {
+  async findByEmailWithHash(email: string): ReturnType<UserRepository['findByEmailWithHash']> {
     const [row] = await db.select().from(users).where(eq(users.email, normalizeEmail(email)));
-    return row ? { ...toUser(row), passwordHash: row.passwordHash, googleId: row.googleId } : null;
+    return row ? {
+      ...toUser(row), passwordHash: row.passwordHash, googleId: row.googleId,
+      authVersion: row.authVersion,
+    } : null;
   }
 
-  async findByGoogleId(googleId: string): Promise<User | null> {
+  async findByGoogleId(googleId: string): ReturnType<UserRepository['findByGoogleId']> {
     const [row] = await db.select().from(users).where(eq(users.googleId, googleId));
-    return row ? toUser(row) : null;
+    return row ? { ...toUser(row), authVersion: row.authVersion } : null;
   }
 
   async linkGoogleId(id: string, googleId: string): Promise<void> {
@@ -100,20 +103,37 @@ export class DrizzleUserRepository implements UserRepository {
     return row ? toUser(row) : null;
   }
 
-  async updatePassword(id: string, passwordHash: string): Promise<void> {
-    await db.update(users).set({ passwordHash }).where(eq(users.id, id));
+  async updatePassword(id: string, passwordHash: string, expectedAuthVersion: number): Promise<number> {
+    const [row] = await db.update(users).set({
+      passwordHash,
+      authVersion: sql`${users.authVersion} + 1`,
+    }).where(and(eq(users.id, id), eq(users.authVersion, expectedAuthVersion)))
+      .returning({ authVersion: users.authVersion });
+    if (!row) throw new InvalidCredentialsError('Credentials changed; sign in again');
+    return row.authVersion;
   }
 
   /** Lowercased on write; the users.email UNIQUE index trips PG 23505 → EmailTakenError. */
-  async updateEmail(id: string, email: string): Promise<User> {
+  async updateEmail(id: string, email: string, expectedAuthVersion: number): Promise<User> {
     const normalized = normalizeEmail(email);
     try {
-      const [row] = await db
-        .update(users)
-        .set({ email: normalized, emailVerified: false })
-        .where(eq(users.id, id))
-        .returning();
-      return toUser(row);
+      return await db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(users)
+          .set({
+            email: normalized,
+            emailVerified: false,
+            googleId: null,
+            emailVersion: sql`${users.emailVersion} + 1`,
+          })
+          .where(and(eq(users.id, id), eq(users.authVersion, expectedAuthVersion)))
+          .returning();
+        if (!row) throw new InvalidCredentialsError('Credentials changed; sign in again');
+        // If issuance acquired the user lock first, this deletes its token. If this update acquired
+        // it first, issuance later reads the new address/version. A->B->A cannot revive old links.
+        await tx.delete(emailVerificationTokens).where(eq(emailVerificationTokens.userId, id));
+        return toUser(row);
+      });
     } catch (err) {
       if (hasPostgresErrorCode(err, PG_UNIQUE_VIOLATION)) {
         throw new EmailTakenError(`Email already registered: ${normalized}`);

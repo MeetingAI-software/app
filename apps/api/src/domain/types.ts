@@ -62,6 +62,8 @@ export interface Session {
 export interface EmailVerificationToken {
   id: string;
   userId: string;
+  emailAtIssue?: string | null;
+  emailVersion?: number | null;
   expiresAt: Date;
   consumedAt: Date | null;
   createdAt: Date;

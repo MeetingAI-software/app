@@ -18,6 +18,7 @@ export const EMAIL_VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
 export interface IssuedEmailVerificationToken {
   token: string;
   expiresAt: Date;
+  email: string;
 }
 
 export interface EmailVerificationTokenIssuer {
@@ -50,12 +51,12 @@ export class EmailVerificationTokenService implements EmailVerificationTokenIssu
   async issueForUser(userId: string): Promise<IssuedEmailVerificationToken> {
     const token = this.generateToken();
     const expiresAt = new Date(this.now().getTime() + EMAIL_VERIFICATION_TOKEN_TTL_MS);
-    await this.tokens.replaceForUser({
+    const { email } = await this.tokens.replaceForUser({
       userId,
       tokenHash: hashEmailVerificationToken(token),
       expiresAt,
     });
-    return { token, expiresAt };
+    return { token, expiresAt, email };
   }
 
   findByToken(token: string): Promise<EmailVerificationToken | null> {
@@ -74,10 +75,11 @@ export class EmailVerificationTokenService implements EmailVerificationTokenIssu
     return this.tokens.deleteByTokenHash(hashEmailVerificationToken(token));
   }
 
-  consumeAndVerify(token: string): Promise<VerificationTokenConsumeResult> {
+  consumeAndVerify(token: string, passwordHash: string): Promise<VerificationTokenConsumeResult> {
     return this.tokens.consumeAndVerify({
       tokenHash: hashEmailVerificationToken(token),
       now: this.now(),
+      passwordHash,
     });
   }
 }

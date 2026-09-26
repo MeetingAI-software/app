@@ -22,6 +22,7 @@ class FakeVerificationTokenRepository implements VerificationTokenRepository {
       consumedAt: null,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     });
+    return { email: 'person@example.com' };
   }
 
   async findByTokenHash(tokenHash: string) {
@@ -47,7 +48,7 @@ class FakeVerificationTokenRepository implements VerificationTokenRepository {
     return before - this.byHash.size;
   }
 
-  async consumeAndVerify(input: { tokenHash: string; now: Date }) {
+  async consumeAndVerify(input: { tokenHash: string; now: Date; passwordHash: string }) {
     const token = this.byHash.get(input.tokenHash);
     if (!token) return { status: 'invalid' as const };
     if (token.consumedAt) return { status: 'used' as const };
@@ -130,7 +131,7 @@ describe('EmailVerificationTokenService', () => {
     );
     const issued = await service.issueForUser('user-1');
 
-    await expect(service.consumeAndVerify(issued.token)).resolves.toMatchObject({
+    await expect(service.consumeAndVerify(issued.token, 'new-hash')).resolves.toMatchObject({
       status: 'verified',
       user: { id: 'user-1', emailVerified: true },
     });

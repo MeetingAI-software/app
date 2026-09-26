@@ -6,12 +6,12 @@ import EmailVerificationResult from './EmailVerificationResult';
 describe('EmailVerificationResult', () => {
   it.each([
     ['verifying', 'Verifying your email', null],
-    ['success', 'Email verified', 'Continue to dashboard'],
+    ['success', 'Email verified', 'Sign in with your new password'],
     ['missing-token', 'Verification link is incomplete', 'Back to login'],
     ['invalid-token', 'Verification link is invalid', 'Back to login'],
     ['expired-token', 'Verification link has expired', 'Go to Syncmemos'],
-    ['used-token', 'Verification link was already used', 'Continue to dashboard'],
-    ['already-verified', 'Email already verified', 'Continue to dashboard'],
+    ['used-token', 'Verification link was already used', 'Sign in'],
+    ['already-verified', 'Email already verified', 'Sign in'],
     ['not-persisted', 'That did not save', 'Go to Syncmemos'],
     ['error', 'Verification could not be completed', 'Back to login'],
   ] satisfies Array<[VerifyEmailState, string, string | null]>)('%s renders the correct guidance', (state, title, action) => {

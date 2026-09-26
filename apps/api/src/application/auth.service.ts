@@ -49,7 +49,7 @@ export interface AuthServiceApi {
   login(email: string, password: string): Promise<AuthResult>;
   logout(sessionToken: string): Promise<void>;
   getUserForToken(sessionToken: string): Promise<User | null>;
-  verifyEmail(token: string): Promise<User>;
+  verifyEmail(token: string, newPassword: string): Promise<User>;
   resendVerification(email: string): Promise<void>;
   /** Verify current password, set a new one, rotate sessions (returns a fresh session for the caller). */
   changePassword(userId: string, currentPassword: string, newPassword: string): Promise<AuthResult>;
@@ -124,11 +124,17 @@ export class AuthService implements AuthServiceApi {
       // whose retry 409s, which is strictly worse than an unverified one they can resend from.
       logger.error({ userId: user.id, err: msg(err) }, 'Initial verification email delivery failed');
     }
-    return this.startSession(user);
+    return this.startSession(user, user.authVersion);
   }
 
-  async verifyEmail(token: string): Promise<User> {
-    const result = await this.verificationTokens.consumeAndVerify(token);
+  async verifyEmail(token: string, newPassword: string): Promise<User> {
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      throw new WeakPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    }
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token) || !(await this.verificationTokens.findByToken(token))) {
+      throw new InvalidVerificationTokenError();
+    }
+    const result = await this.verificationTokens.consumeAndVerify(token, await this.hasher.hash(newPassword));
     if (result.status === 'invalid') throw new InvalidVerificationTokenError();
     if (result.status === 'expired') throw new ExpiredVerificationTokenError();
     if (result.status === 'used') throw new UsedVerificationTokenError();
@@ -180,7 +186,7 @@ export class AuthService implements AuthServiceApi {
     }
     const { passwordHash: _omit, ...user } = record;
     logger.info({ userId: user.id }, 'User logged in');
-    return this.startSession(user);
+    return this.startSession(user, record.authVersion);
   }
 
   async loginOrCreateGoogleUser(email: string, googleId: string, allowRegistration = true): Promise<AuthResult> {
@@ -206,7 +212,7 @@ export class AuthService implements AuthServiceApi {
       // subject remains valid, but it cannot verify a different current mailbox as a side effect.
       logger.info({ userId: user.id }, 'User logged in via Google OAuth');
     }
-    return this.startSession(user);
+    return this.startSession(user, user.authVersion);
   }
 
   async logout(sessionToken: string): Promise<void> {
@@ -230,18 +236,18 @@ export class AuthService implements AuthServiceApi {
       throw new WeakPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
     const passwordHash = await this.hasher.hash(newPassword);
-    await this.users.updatePassword(userId, passwordHash);
+    const authVersion = await this.users.updatePassword(userId, passwordHash, record.authVersion);
     // Rotate every session (defence: a changed password logs out all other devices), then hand
     // the current caller a fresh session so they stay signed in on this one.
     await this.sessions.deleteAllForUser(userId);
     const { passwordHash: _omit, ...user } = record;
     logger.info({ userId }, 'Password changed; all sessions rotated');
-    return this.startSession(user);
+    return this.startSession(user, authVersion);
   }
 
   async changeEmail(userId: string, currentPassword: string, newEmail: string): Promise<User> {
-    await this.requirePassword(userId, currentPassword);
-    const updated = await this.users.updateEmail(userId, newEmail); // EmailTakenError bubbles up
+    const record = await this.requirePassword(userId, currentPassword);
+    const updated = await this.users.updateEmail(userId, newEmail, record.authVersion);
     logger.info({ userId }, 'Email changed');
     try {
       // No cooldown check here on purpose. This is the only escape hatch for a mistyped address on
@@ -323,19 +329,19 @@ export class AuthService implements AuthServiceApi {
   }
 
   /** Load a user + verify a plaintext password against their hash, or throw InvalidCredentialsError. */
-  private async requirePassword(userId: string, password: string): Promise<User & { passwordHash: string }> {
+  private async requirePassword(userId: string, password: string): Promise<User & { passwordHash: string; authVersion: number }> {
     const user = await this.users.findById(userId);
     const record = user ? await this.users.findByEmailWithHash(user.email) : null;
     if (!record || !record.passwordHash || !(await this.hasher.verify(password, record.passwordHash))) {
       throw new InvalidCredentialsError('Invalid password');
     }
-    return record as User & { passwordHash: string };
+    return record as User & { passwordHash: string; authVersion: number };
   }
 
-  private async startSession(user: User): Promise<AuthResult> {
+  private async startSession(user: User, authVersion: number): Promise<AuthResult> {
     const token = crypto.randomBytes(SESSION_TOKEN_BYTES).toString('base64url');
     const expiresAt = new Date(Date.now() + this.sessionTtlDays * 24 * 60 * 60 * 1000);
-    await this.sessions.create({ userId: user.id, tokenHash: hashToken(token), expiresAt });
+    await this.sessions.create({ userId: user.id, tokenHash: hashToken(token), expiresAt, authVersion });
     return { user, sessionToken: token, expiresAt };
   }
 

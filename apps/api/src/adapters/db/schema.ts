@@ -104,6 +104,8 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash'),                            // nullable for OAuth users
   googleId: text('google_id').unique(),                           // Google OAuth sub ID
   emailVerified: boolean('email_verified').notNull().default(false), // true for OAuth / verified
+  emailVersion: integer('email_version').notNull().default(1),
+  authVersion: integer('auth_version').notNull().default(1),
   organizationName: text('organization_name'),
   businessUseConfirmedAt: timestamp('business_use_confirmed_at', { withTimezone: true }),
   termsVersionAccepted: text('terms_version_accepted'),
@@ -114,6 +116,8 @@ export const emailVerificationTokens = pgTable('email_verification_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull().unique(),
+  emailAtIssue: text('email_at_issue'),
+  emailVersion: integer('email_version'),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   consumedAt: timestamp('consumed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -147,6 +151,7 @@ export const sessions = pgTable('sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id),
   tokenHash: text('token_hash').notNull().unique(),               // sha256(opaque token); raw token lives only in the cookie
+  authVersion: integer('auth_version').notNull().default(1),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

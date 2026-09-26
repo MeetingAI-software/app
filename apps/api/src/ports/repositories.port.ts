@@ -102,15 +102,15 @@ export interface UserRepository {
     organizationName?: string | null;
     businessUseConfirmedAt?: Date | null;
     termsVersionAccepted?: string | null;
-  }): Promise<User>;
+  }): Promise<User & { authVersion: number }>;
   /** Includes passwordHash — for AuthService only. */
-  findByEmailWithHash(email: string): Promise<(User & { passwordHash: string | null; googleId?: string | null }) | null>;
-  findByGoogleId(googleId: string): Promise<User | null>;
+  findByEmailWithHash(email: string): Promise<(User & { passwordHash: string | null; googleId?: string | null; authVersion: number }) | null>;
+  findByGoogleId(googleId: string): Promise<(User & { authVersion: number }) | null>;
   linkGoogleId(id: string, googleId: string): Promise<void>;
   markEmailVerified(id: string): Promise<void>;
   findById(id: string): Promise<User | null>;
-  updatePassword(id: string, passwordHash: string): Promise<void>;         // account settings: change password
-  updateEmail(id: string, email: string): Promise<User>;                   // lowercased; unique-violation → EmailTakenError
+  updatePassword(id: string, passwordHash: string, expectedAuthVersion: number): Promise<number>;
+  updateEmail(id: string, email: string, expectedAuthVersion: number): Promise<User>;
   deleteById(id: string): Promise<void>;
 }
 
@@ -123,7 +123,7 @@ export type VerificationTokenConsumeResult =
 
 export interface VerificationTokenRepository {
   /** Atomically invalidates the user's previous token and stores the replacement. */
-  replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void>;
+  replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<{ email: string }>;
   findByTokenHash(tokenHash: string): Promise<EmailVerificationToken | null>;
   /** The user's single live token (unique index on user_id) — backs the resend cooldown. */
   findForUser(userId: string): Promise<EmailVerificationToken | null>;
@@ -133,6 +133,7 @@ export interface VerificationTokenRepository {
   consumeAndVerify(input: {
     tokenHash: string;
     now: Date;
+    passwordHash: string;
   }): Promise<VerificationTokenConsumeResult>;
 }
 
@@ -158,7 +159,7 @@ export interface EmailSendLedgerRepository {
 }
 
 export interface SessionRepository {
-  create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<Session>;
+  create(input: { userId: string; tokenHash: string; expiresAt: Date; authVersion?: number }): Promise<Session>;
   findByTokenHash(tokenHash: string): Promise<Session | null>;
   deleteByTokenHash(tokenHash: string): Promise<void>;
   deleteAllForUser(userId: string): Promise<void>;

@@ -285,11 +285,11 @@ export async function joinWaitlist(email: string, source: 'signin' | 'upgrade'):
   return handleVoid(response);
 }
 
-export async function verifyEmail(token: string): Promise<AuthUserResponse> {
+export async function verifyEmail(token: string, newPassword: string): Promise<AuthUserResponse> {
   const response = await api('/api/auth/verify-email', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ token, newPassword }),
   });
   // Quiet: every failure here is a token verdict (invalid/expired/used), never a lapsed session,
   // so the global 401 redirect must not fire.

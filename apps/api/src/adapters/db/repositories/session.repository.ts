@@ -1,5 +1,5 @@
 import { db } from '../client';
-import { sessions } from '../schema';
+import { sessions, users } from '../schema';
 import { eq, lt } from 'drizzle-orm';
 import type { SessionRepository } from '../../../ports/repositories.port';
 import type { Session } from '../../../domain/types';
@@ -11,17 +11,24 @@ function toSession(row: { id: string; userId: string; expiresAt: Date; createdAt
 }
 
 export class DrizzleSessionRepository implements SessionRepository {
-  async create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<Session> {
+  async create(input: { userId: string; tokenHash: string; expiresAt: Date; authVersion?: number }): Promise<Session> {
     const [row] = await db
       .insert(sessions)
-      .values({ userId: input.userId, tokenHash: input.tokenHash, expiresAt: input.expiresAt })
+      .values({
+        userId: input.userId, tokenHash: input.tokenHash, expiresAt: input.expiresAt,
+        authVersion: input.authVersion ?? 1,
+      })
       .returning();
     return toSession(row);
   }
 
   async findByTokenHash(tokenHash: string): Promise<Session | null> {
-    const [row] = await db.select().from(sessions).where(eq(sessions.tokenHash, tokenHash));
-    return row ? toSession(row) : null;
+    const [row] = await db.select({ session: sessions, userAuthVersion: users.authVersion }).from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(eq(sessions.tokenHash, tokenHash));
+    // A password proof rotates authVersion in the same transaction that replaces the credential.
+    // Even a late session insert from an earlier password check cannot become valid again.
+    return row && row.session.authVersion === row.userAuthVersion ? toSession(row.session) : null;
   }
 
   async deleteByTokenHash(tokenHash: string): Promise<void> {

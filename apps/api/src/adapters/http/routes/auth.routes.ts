@@ -20,7 +20,8 @@ import { DELETION_STATE_PREFIX, type DeletionAuthorizationService } from '../../
 import { DeletionReauthenticationRequiredError, GoogleAccountLinkRequiredError } from '../../../domain/errors';
 
 function authUserResponse(user: User) {
-  return { user, emailVerificationRequired: !user.emailVerified };
+  const { authVersion: _authVersion, ...publicUser } = user as User & { authVersion?: number };
+  return { user: publicUser, emailVerificationRequired: !user.emailVerified };
 }
 
 export function hasVerifiedGoogleEmail(payload: {
@@ -288,8 +289,11 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
   // --- Email Verification Routes ---
   router.post('/api/auth/verify-email', verifyEmailLimiter, async (req, res, next) => {
     try {
-      const { token } = z.object({ token: z.string().min(1) }).parse(req.body);
-      const user = await auth.verifyEmail(token);
+      const { token, newPassword } = z.object({
+        token: z.string().min(1), newPassword: z.string().min(10),
+      }).parse(req.body);
+      const user = await auth.verifyEmail(token, newPassword);
+      clearSessionCookie(res);
       return res.status(200).json(authUserResponse(user));
     } catch (err) {
       return next(err);
