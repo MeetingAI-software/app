@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import { createHash } from 'node:crypto';
 
 interface Window {
   count: number;
@@ -23,9 +24,10 @@ export function fixedWindowLimiter(opts: {
   keyOf: (req: Request) => string;
 }): RequestHandler {
   const windows = new Map<string, Window>();
+  let nextSweepAt = Number.POSITIVE_INFINITY;
 
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = opts.keyOf(req);
+    const key = createHash('sha256').update(opts.keyOf(req)).digest('hex');
     const now = Date.now();
     const w = windows.get(key);
 
@@ -33,12 +35,19 @@ export function fixedWindowLimiter(opts: {
       // Nothing ever deleted from this Map before, and keys that embed an attacker-chosen value
       // (the signup limiter's email) grow one entry per attempt — an unbounded allocation on a
       // single-replica box. Sweeping only on a miss past the ceiling keeps the hot path O(1).
-      if (windows.size >= MAX_TRACKED_KEYS) {
+      if (windows.size >= MAX_TRACKED_KEYS && now >= nextSweepAt) {
+        nextSweepAt = Number.POSITIVE_INFINITY;
         for (const [k, entry] of windows) {
           if (now >= entry.resetAt) windows.delete(k);
+          else nextSweepAt = Math.min(nextSweepAt, entry.resetAt);
         }
       }
+      if (!w && windows.size >= MAX_TRACKED_KEYS) {
+        res.setHeader('Retry-After', String(Math.ceil(opts.windowMs / 1000)));
+        return res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } });
+      }
       windows.set(key, { count: 1, resetAt: now + opts.windowMs });
+      nextSweepAt = Math.min(nextSweepAt, now + opts.windowMs);
       return next();
     }
     if (w.count >= opts.max) {

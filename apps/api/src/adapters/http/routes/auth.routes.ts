@@ -18,6 +18,7 @@ import { config } from '../../../config/env';
 import type { User } from '../../../domain/types';
 import { DELETION_STATE_PREFIX, type DeletionAuthorizationService } from '../../../application/deletion-authorization.service';
 import type { GoogleOAuthStateService } from '../../../application/google-oauth-state.service';
+import type { LoginAdmissionService } from '../../../application/login-admission.service';
 import {
   DeletionReauthenticationRequiredError, GoogleAccountLinkRequiredError, GoogleLinkRejectedError,
 } from '../../../domain/errors';
@@ -36,7 +37,8 @@ export function hasVerifiedGoogleEmail(payload: {
 }
 
 export function createAuthRoutes(auth: AuthService & AuthServiceApi,
-  deletion?: DeletionAuthorizationService, oauthStates?: GoogleOAuthStateService): Router {
+  deletion?: DeletionAuthorizationService, oauthStates?: GoogleOAuthStateService,
+  loginAdmission?: LoginAdmissionService): Router {
   const router = Router();
 
   const signupSchema = z.object({
@@ -58,7 +60,8 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi,
     newEmail: z.string().email(),
   });
 
-  // §2 login abuse: 10 attempts / 15 min per IP+email.
+  // Signup's identifier key is downstream from a separate per-IP ceiling. Login instead has
+  // independent IP/account/global admission in the shared database before any Argon2 work.
   const authLimiter = fixedWindowLimiter({
     max: 10,
     windowMs: 15 * 60 * 1000,
@@ -111,6 +114,9 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi,
     windowMs: 15 * 60 * 1000,
     keyOf: (req) => `verify:${req.ip}`,
   });
+  const loginIpLimiter = fixedWindowLimiter({
+    max: 40, windowMs: 15 * 60_000, keyOf: req => `login:${req.ip}`,
+  });
 
   const googleStartLimiter = fixedWindowLimiter({
     max: 20, windowMs: 15 * 60_000, keyOf: (req) => `google-start:${req.ip}`,
@@ -143,10 +149,25 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi,
     }
   });
 
-  router.post('/api/auth/login', authLimiter, async (req, res, next) => {
+  router.post('/api/auth/login', loginIpLimiter, async (req, res, next) => {
     try {
       const { email, password } = loginSchema.parse(req.body);
-      const { user, sessionToken, expiresAt } = await auth.login(email, password);
+      if (!loginAdmission && config.NODE_ENV === 'production') {
+        return res.status(503).json({ error: { code: 'LOGIN_UNAVAILABLE', message: 'Sign in is temporarily unavailable' } });
+      }
+      if (loginAdmission && !await loginAdmission.admit(req.ip ?? '', email)) {
+        res.setHeader('Retry-After', '900');
+        return res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } });
+      }
+      const release = loginAdmission?.acquireHashSlot();
+      if (loginAdmission && !release) {
+        res.setHeader('Retry-After', '1');
+        return res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } });
+      }
+      let result;
+      try { result = await auth.login(email, password); }
+      finally { release?.(); }
+      const { user, sessionToken, expiresAt } = result;
       setSessionCookie(res, sessionToken, expiresAt);
       return res.status(200).json(authUserResponse(user));
     } catch (err) {

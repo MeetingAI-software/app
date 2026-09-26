@@ -1,5 +1,5 @@
 // adapters/db/schema.ts
-import { pgTable, uuid, text, integer, boolean, timestamp, jsonb, bigserial, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, boolean, timestamp, jsonb, bigserial, uniqueIndex, index, primaryKey } from 'drizzle-orm/pg-core';
 
 export const meetings = pgTable('meetings', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -194,6 +194,14 @@ export const googleOAuthBudget = pgTable('google_oauth_budget', {
   window: text('window').primaryKey(),
   count: integer('count').notNull(),
 });
+
+// Cross-replica login admission before database user lookup and password hashing. Identifier
+// scopes contain only digests, never submitted addresses or client-supplied strings.
+export const loginAttemptBudgets = pgTable('login_attempt_budgets', {
+  scope: text('scope').notNull(),
+  window: integer('window').notNull(),
+  count: integer('count').notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.scope, t.window] }) }));
 
 // Paddle is the billing source of truth. Customer rows may be created as placeholders when
 // subscription webhooks arrive first; a later customer webhook fills in email/user ownership.
