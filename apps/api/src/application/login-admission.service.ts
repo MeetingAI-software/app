@@ -10,6 +10,10 @@ export class LoginAdmissionService {
     return this.repository.admit({ ip, email, now: new Date() });
   }
 
+  async admitSignup(ip: string, email: string): Promise<boolean> {
+    return this.repository.admitSignup({ ip, email, now: new Date() });
+  }
+
   acquireHashSlot(): (() => void) | null {
     if (this.activeHashes >= this.maxConcurrentHashes) return null;
     this.activeHashes += 1;

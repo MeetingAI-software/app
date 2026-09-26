@@ -46,7 +46,7 @@ export interface AuthServiceApi {
   signup(email: string, password: string, registration?: {
     organizationName: string;
     termsVersion: string;
-  }): Promise<AuthResult>;
+  }, onPasswordHashed?: () => void): Promise<AuthResult>;
   login(email: string, password: string): Promise<AuthResult>;
   logout(sessionToken: string): Promise<void>;
   getUserForToken(sessionToken: string): Promise<User | null>;
@@ -102,11 +102,13 @@ export class AuthService implements AuthServiceApi {
   async signup(email: string, password: string, registration?: {
     organizationName: string;
     termsVersion: string;
-  }): Promise<AuthResult> {
+  }, onPasswordHashed?: () => void): Promise<AuthResult> {
     if (password.length < MIN_PASSWORD_LENGTH) {
       throw new WeakPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
     const passwordHash = await this.hasher.hash(password);
+    // Release the CPU slot before persistence and external email delivery can block.
+    onPasswordHashed?.();
     const user = await this.users.create({
       email,
       passwordHash,

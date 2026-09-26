@@ -13,6 +13,7 @@ import { config } from '../../../config/env';
 import { createServer } from '../server';
 import { createAuthRoutes, hasVerifiedGoogleEmail } from './auth.routes';
 import { GoogleOAuthStateService } from '../../../application/google-oauth-state.service';
+import { LoginAdmissionService } from '../../../application/login-admission.service';
 import type { GoogleOAuthChallenge } from '../../../ports/google-oauth-state.port';
 
 describe('hasVerifiedGoogleEmail', () => {
@@ -29,6 +30,66 @@ describe('hasVerifiedGoogleEmail', () => {
     })).toBe(false);
     expect(hasVerifiedGoogleEmail({ sub: 'google-user', email_verified: true })).toBe(false);
     expect(hasVerifiedGoogleEmail(undefined)).toBe(false);
+  });
+});
+
+describe('signup shared hash admission', () => {
+  const signup = vi.fn();
+  const admitSignup = vi.fn();
+  const admission = new LoginAdmissionService({ admit: async () => true, admitSignup }, 1);
+  let server: Server;
+  let baseUrl: string;
+
+  beforeAll(() => {
+    const auth = {
+      signup, login: vi.fn(), logout: vi.fn(), getUserForToken: vi.fn(), verifyEmail: vi.fn(),
+      resendVerification: vi.fn(), changePassword: vi.fn(), changeEmail: vi.fn(),
+      deleteAccount: vi.fn(), loginOrCreateGoogleUser: vi.fn(),
+    } as unknown as AuthService & AuthServiceApi;
+    server = createServer([createAuthRoutes(auth, undefined, undefined, admission)], async () => null).listen(0);
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  beforeEach(() => { signup.mockReset(); admitSignup.mockReset(); });
+  afterAll(async () => {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  });
+
+  const send = (email: string, ip: string) => fetch(`${baseUrl}/api/auth/signup`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN,
+      'x-forwarded-for': `${ip}, 10.0.0.1` },
+    body: JSON.stringify({ email, password: 'a-good-password', organizationName: 'Example AB',
+      businessUseConfirmed: true, termsVersion: config.LEGAL_POLICIES_VERSION }),
+  });
+
+  it('rejects a distributed signup before Argon2 when the shared budget is exhausted', async () => {
+    const wasEnabled = config.PUBLIC_REGISTRATION_ENABLED;
+    config.PUBLIC_REGISTRATION_ENABLED = true;
+    try {
+      admitSignup.mockResolvedValue(false);
+      const response = await send('new@example.com', '203.0.113.50');
+      expect(response.status).toBe(429);
+      expect(response.headers.get('retry-after')).toBe('900');
+      expect(signup).not.toHaveBeenCalled();
+    } finally { config.PUBLIC_REGISTRATION_ENABLED = wasEnabled; }
+  });
+
+  it('rejects a full hash slot and still permits the next legitimate signup', async () => {
+    const wasEnabled = config.PUBLIC_REGISTRATION_ENABLED;
+    config.PUBLIC_REGISTRATION_ENABLED = true;
+    const occupied = admission.acquireHashSlot();
+    try {
+      admitSignup.mockResolvedValue(true);
+      const blocked = await send('busy@example.com', '203.0.113.51');
+      expect(blocked.status).toBe(429);
+      expect(signup).not.toHaveBeenCalled();
+      occupied?.();
+      signup.mockResolvedValue({ user: { id: 'new-user', email: 'ok@example.com', emailVerified: false },
+        sessionToken: 'session-token', expiresAt: new Date(Date.now() + 60_000) });
+      const allowed = await send('ok@example.com', '203.0.113.52');
+      expect(allowed.status).toBe(201);
+      expect(signup).toHaveBeenCalledTimes(1);
+    } finally { occupied?.(); config.PUBLIC_REGISTRATION_ENABLED = wasEnabled; }
   });
 });
 

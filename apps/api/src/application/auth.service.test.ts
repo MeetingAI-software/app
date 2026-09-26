@@ -378,6 +378,18 @@ describe('AuthService', () => {
   beforeEach(() => { ctx = build(); });
 
   describe('signup', () => {
+    it('releases the CPU slot before persistence and email delivery', async () => {
+      let released = false;
+      const originalCreate = ctx.users.create.bind(ctx.users);
+      vi.spyOn(ctx.users, 'create').mockImplementationOnce(async input => {
+        expect(released).toBe(true);
+        return originalCreate(input);
+      });
+      await ctx.service.signup('slot@example.com', 'a-good-password', undefined, () => { released = true; });
+      expect(released).toBe(true);
+      expect(ctx.verificationMailer.sent).toHaveLength(1);
+    });
+
     it('records server-received B2B and terms evidence for an onboarded account', async () => {
       const before = Date.now();
       const result = await ctx.service.signup('business@example.com', 'a-good-password', {

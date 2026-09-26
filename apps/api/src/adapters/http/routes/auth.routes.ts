@@ -60,8 +60,8 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi,
     newEmail: z.string().email(),
   });
 
-  // Signup's identifier key is downstream from a separate per-IP ceiling. Login instead has
-  // independent IP/account/global admission in the shared database before any Argon2 work.
+  // Signup's identifier key is downstream from a separate per-IP ceiling. Both signup and login
+  // also use shared IP/account/global admission and a local Argon2 work slot before hashing.
   const authLimiter = fixedWindowLimiter({
     max: 10,
     windowMs: 15 * 60 * 1000,
@@ -138,10 +138,22 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi,
           error: { code: 'POLICY_VERSION_MISMATCH', message: 'The legal terms changed; reload and confirm the current version' },
         });
       }
-      const { user, sessionToken, expiresAt } = await auth.signup(email, password, {
-        organizationName,
-        termsVersion,
-      });
+      if (!loginAdmission && config.NODE_ENV === 'production') {
+        return res.status(503).json({ error: { code: 'REGISTRATION_UNAVAILABLE', message: 'Registration is temporarily unavailable' } });
+      }
+      if (loginAdmission && !await loginAdmission.admitSignup(req.ip ?? '', email)) {
+        res.setHeader('Retry-After', '900');
+        return res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } });
+      }
+      const release = loginAdmission?.acquireHashSlot();
+      if (loginAdmission && !release) {
+        res.setHeader('Retry-After', '1');
+        return res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } });
+      }
+      let result;
+      try { result = await auth.signup(email, password, { organizationName, termsVersion }, release ?? undefined); }
+      finally { release?.(); }
+      const { user, sessionToken, expiresAt } = result;
       setSessionCookie(res, sessionToken, expiresAt);
       return res.status(201).json(authUserResponse(user));
     } catch (err) {
