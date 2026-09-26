@@ -24,8 +24,8 @@ async function runMigrate() {
   try {
     await migrate(drizzle(migrationClient), { migrationsFolder: 'drizzle' });
     console.log(`✅ Migrations completed in ${Date.now() - start}ms`);
-  } catch (err) {
-    console.error('❌ Migration failed:', err);
+  } catch {
+    console.error('❌ Migration failed');
     process.exit(1);
   } finally {
     await migrationClient.end();
