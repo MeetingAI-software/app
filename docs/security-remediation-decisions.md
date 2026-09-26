@@ -73,3 +73,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Är `PUBLIC_WEBHOOK_URL` satt till den faktiska API-adressen i drift, och vem kan köra ett syntetiskt AssemblyAI-jobb som bekräftar callback och slutavräkning utan kunddata?
 - **Mitt förslag:** Kontrollera leverantörens callback-URL och ett fullständigt syntetiskt transkriptionsflöde före merge eller innan in-room-funktionen aktiveras.
 - **Status:** Väntar på ägarens svar. Ingen leverantörs- eller driftkonfiguration har ändrats.
+
+### D11 — Bekräfta Recall-medialänkens värd i vald region (G24)
+
+- **Vad betyder det?** Kodfixen accepterar signerade transkriptlänkar från Recalls dokumenterade S3-bucketvärdar och avvisar andra värdar. Recall kan använda en annan bucket eller regionvärd för den faktiska arbetsytan.
+- **Vad behöver du avgöra?** Vilken `download_url`-värd returnerar ett syntetiskt Recall-transkript i den produktionsregion som används? Dela bara värdnamnet, inte URL:ens signerade query eller kunddata.
+- **Mitt förslag:** Kontrollera ett syntetiskt transkript mot allowlisten före merge. Lägg till exakt ny dokumenterad bucketvärd om den legitima regionen kräver det; öppna inte för godtyckliga S3-buckets.
+- **Status:** Väntar på ägarens svar. Inga leverantörs- eller nätverksinställningar har ändrats.
