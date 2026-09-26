@@ -176,6 +176,13 @@
       "when": 1790450985784,
       "tag": "0024_wise_stone_men",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790452166251,
+      "tag": "0025_bouncy_black_cat",
+      "breakpoints": true
     }
   ]
 }

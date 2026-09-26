@@ -22,6 +22,10 @@ export interface MeetingRepository {
     recordingNoticeConfirmedAt?: Date; recordingNoticeVersion?: string }): Promise<Meeting>;
   findById(id: string): Promise<Meeting | null>;
   findByBotId(botId: string): Promise<Meeting | null>;
+  /** One durable transcript processor per bound bot, across all workers and event IDs. */
+  claimBotTranscript(id: string, botId: string, claimId: string): Promise<boolean>;
+  /** Release only this processor's claim after a retryable pre-completion failure. */
+  releaseBotTranscript(id: string, claimId: string): Promise<void>;
   findByShareToken(token: string): Promise<Meeting | null>;
   enableShare(id: string, userId: string, expiresAt: Date): Promise<Meeting | null>;
   revokeShare(id: string, userId: string): Promise<boolean>;

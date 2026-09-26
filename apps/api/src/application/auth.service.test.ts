@@ -329,6 +329,7 @@ const TEST_SEND_BUDGET = 50;
 function meetingRepoOver(store: Meeting[]): MeetingRepository {
   return {
     create: vi.fn(), findById: vi.fn(), findByBotId: vi.fn(),
+    claimBotTranscript: vi.fn(), releaseBotTranscript: vi.fn(),
     findByShareToken: vi.fn(), enableShare: vi.fn(), revokeShare: vi.fn(), findByTranscriptionJobId: vi.fn(),
     updateStatus: vi.fn(), setSummary: vi.fn(), setUploadInfo: vi.fn(),
     claimUploadSubmission: vi.fn(), bindTranscriptionJob: vi.fn(), failRejectedUploadSubmission: vi.fn(),

@@ -53,7 +53,9 @@ describe('immutable migration lineages', () => {
         'login_attempt_budgets.count',
         'document_generation_budgets.meeting_id',
         'document_generation_budgets.attempts',
+        'bot_transcript_claims.meeting_id', 'bot_transcript_claims.claim_id',
       ]));
+      expect(names).not.toContain('meetings.transcript_claim_id');
       const indexes = await client.query<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE tablename='meetings'");
       expect(indexes.rows.map(row => row.indexname)).toContain('meetings_share_expiry_idx');
       expect(indexes.rows.map(row => row.indexname)).toContain('meetings_bot_id_uq');

@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, migrateOnce, truncateAll } from '../pglite-harness';
 import { meetings, transcripts, users } from '../schema';
 import { DrizzleMeetingRepository } from './meeting.repository';
+import { ProcessWebhookEventService } from '../../../application/process-webhook-event.service';
 
 // Real Postgres (PGlite) stands in for the live-DATABASE_URL singleton. See pglite-harness.ts for
 // why the factory closes over `db` rather than importing inside itself.
@@ -109,6 +110,70 @@ describe('DrizzleMeetingRepository', () => {
       ).rejects.toMatchObject({
         cause: expect.objectContaining({ message: expect.stringMatching(/foreign key/i) }),
       });
+    });
+  });
+
+  describe('claimBotTranscript', () => {
+    it('serializes distinct event workers on the canonical bot binding', async () => {
+      const target = await insertMeeting({ botId: 'bot-a', status: 'processing' });
+      const other = await insertMeeting({ ownerUserId: bob, botId: 'bot-b', status: 'processing' });
+      const workerA = new DrizzleMeetingRepository();
+      const workerB = new DrizzleMeetingRepository();
+      const [first, second] = await Promise.all([
+        workerA.claimBotTranscript(target.id, 'bot-a', '00000000-0000-4000-8000-000000000011'),
+        workerB.claimBotTranscript(target.id, 'bot-a', '00000000-0000-4000-8000-000000000012'),
+      ]);
+      expect([first, second].filter(Boolean)).toHaveLength(1);
+      expect(await repo.claimBotTranscript(target.id, 'bot-b', '00000000-0000-4000-8000-000000000013'))
+        .toBe(false);
+      expect(await repo.claimBotTranscript(other.id, 'bot-b', '00000000-0000-4000-8000-000000000014'))
+        .toBe(true);
+    });
+
+    it('does not let a stale worker release another claim or reopen a terminal meeting', async () => {
+      const target = await insertMeeting({ botId: 'bot-a', status: 'processing' });
+      const first = '00000000-0000-4000-8000-000000000011';
+      const second = '00000000-0000-4000-8000-000000000012';
+      expect(await repo.claimBotTranscript(target.id, 'bot-a', first)).toBe(true);
+      await repo.releaseBotTranscript(target.id, second);
+      expect(await repo.claimBotTranscript(target.id, 'bot-a', second)).toBe(false);
+      await repo.releaseBotTranscript(target.id, first);
+      expect(await repo.claimBotTranscript(target.id, 'bot-a', second)).toBe(true);
+      await repo.updateStatus(target.id, 'transcribed');
+      await repo.releaseBotTranscript(target.id, second);
+      expect(await repo.claimBotTranscript(target.id, 'bot-a', first)).toBe(false);
+    });
+
+    it('runs one paid summary across two services handling distinct signed events', async () => {
+      const target = await insertMeeting({ botId: 'bot-a', status: 'processing' });
+      let finishFetch!: (segments: []) => void;
+      const pendingFetch = new Promise<[]>(resolve => { finishFetch = resolve; });
+      const bot = {
+        fetchTranscript: vi.fn().mockReturnValue(pendingFetch),
+        getRecordedDurationSeconds: vi.fn().mockResolvedValue(8),
+        deleteRecording: vi.fn(),
+      };
+      const transcriptRepo = { save: vi.fn() };
+      const usageRepo = { addSeconds: vi.fn().mockResolvedValue(8) };
+      const docGen = { generateSummary: vi.fn().mockResolvedValue('Summary') };
+      const first = new ProcessWebhookEventService(
+        new DrizzleMeetingRepository(), transcriptRepo as never, usageRepo as never,
+        bot as never, docGen as never,
+      );
+      const second = new ProcessWebhookEventService(
+        new DrizzleMeetingRepository(), transcriptRepo as never, usageRepo as never,
+        bot as never, docGen as never,
+      );
+      const event = { bot_id: 'bot-a', meeting_id: target.id };
+      const firstRun = first.processEvent('transcript_ready', { ...event, event_id: 'event-a' });
+      await vi.waitFor(() => expect(bot.fetchTranscript).toHaveBeenCalledTimes(1));
+      await second.processEvent('transcript_ready', { ...event, event_id: 'event-b' });
+      expect(bot.fetchTranscript).toHaveBeenCalledTimes(1);
+      finishFetch([]);
+      await firstRun;
+      expect(docGen.generateSummary).toHaveBeenCalledTimes(1);
+      expect(transcriptRepo.save).toHaveBeenCalledTimes(1);
+      expect((await repo.findById(target.id))?.status).toBe('transcribed');
     });
   });
 

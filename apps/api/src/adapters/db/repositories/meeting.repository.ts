@@ -1,5 +1,5 @@
 import { db } from '../client';
-import { meetingQuotaReservations, meetings, usageLedger, users } from '../schema';
+import { botTranscriptClaims, meetingQuotaReservations, meetings, usageLedger, users } from '../schema';
 import { eq, inArray, desc, and, lt, gt, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { MeetingRepository } from '../../../ports/repositories.port';
 import type { Meeting, MeetingPlatform, MeetingSource, MeetingStatus } from '../../../domain/types';
@@ -179,6 +179,34 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       .from(meetings)
       .where(eq(meetings.transcriptionJobId, jobId));
     return (row as Meeting) || null;
+  }
+
+  async claimBotTranscript(id: string, botId: string, claimId: string): Promise<boolean> {
+    return db.transaction(async tx => {
+      const [meeting] = await tx.select({ id: meetings.id }).from(meetings)
+        .where(and(
+          eq(meetings.id, id),
+          eq(meetings.botId, botId),
+          eq(meetings.source, 'bot'),
+          inArray(meetings.status, ['pending', 'bot_joining', 'recording', 'processing']),
+        )).for('update');
+      if (!meeting) return false;
+      const rows = await tx.insert(botTranscriptClaims).values({ meetingId: id, claimId })
+        .onConflictDoNothing({ target: botTranscriptClaims.meetingId })
+        .returning({ meetingId: botTranscriptClaims.meetingId });
+      return rows.length === 1;
+    });
+  }
+
+  async releaseBotTranscript(id: string, claimId: string): Promise<void> {
+    await db.transaction(async tx => {
+      const [meeting] = await tx.select({ id: meetings.id, status: meetings.status })
+        .from(meetings).where(eq(meetings.id, id)).for('update');
+      if (!meeting || !['pending', 'bot_joining', 'recording', 'processing'].includes(meeting.status)) return;
+      await tx.delete(botTranscriptClaims).where(and(
+        eq(botTranscriptClaims.meetingId, id), eq(botTranscriptClaims.claimId, claimId),
+      ));
+    });
   }
 
   async claimUploadSubmission(id: string): Promise<boolean> {
