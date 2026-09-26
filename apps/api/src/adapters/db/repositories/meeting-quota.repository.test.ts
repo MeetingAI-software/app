@@ -70,8 +70,9 @@ describe('durable meeting quota admission', () => {
 
   it('atomically replaces a reservation with one ledger charge, including webhook replay', async () => {
     const first = await meetingsRepo.reserve(bot(ownerUserId), plan, 2);
-    await usageRepo.addSeconds(first.id, 1800);
-    await usageRepo.addSeconds(first.id, 1800);
+    expect(await usageRepo.addSeconds(first.id, 1800)).toBe(1800);
+    expect(await usageRepo.addSeconds(first.id, 1800)).toBe(1800);
+    expect(await usageRepo.addSeconds(first.id, null)).toBe(1800);
     const rows = await db.select().from(usageLedger).where(eq(usageLedger.meetingId, first.id));
     expect(rows).toHaveLength(1);
     expect(rows[0].secondsRecorded).toBe(1800);
@@ -80,5 +81,31 @@ describe('durable meeting quota admission', () => {
     expect(reservation.releasedAt).not.toBeNull();
     await expect(meetingsRepo.reserve(bot(ownerUserId), plan, 2))
       .rejects.toBeInstanceOf(CapExceededError);
+  });
+
+  it('settles a silent bot to its reserved maximum when provider timing is unavailable', async () => {
+    const first = await meetingsRepo.reserve(bot(ownerUserId), plan, 2);
+    expect(await usageRepo.addSeconds(first.id, null)).toBe(2000);
+    expect(await usageRepo.addSeconds(first.id, null)).toBe(2000);
+    const [charge] = await db.select().from(usageLedger)
+      .where(eq(usageLedger.meetingId, first.id));
+    expect(charge.secondsRecorded).toBe(2000);
+    await expect(meetingsRepo.reserve(upload(ownerUserId), plan, 2))
+      .rejects.toBeInstanceOf(CapExceededError);
+  });
+
+  it('keeps a created bot claim after failure until recording time is settled', async () => {
+    const first = await meetingsRepo.reserve(bot(ownerUserId), plan, 2);
+    await meetingsRepo.updateStatus(first.id, 'bot_joining', { botId: 'bot-1' });
+    await meetingsRepo.updateStatus(first.id, 'failed');
+    const [before] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, first.id));
+    expect(before.releasedAt).toBeNull();
+    await expect(meetingsRepo.reserve(upload(ownerUserId), plan, 2))
+      .rejects.toBeInstanceOf(CapExceededError);
+    expect(await usageRepo.addSeconds(first.id, null)).toBe(2000);
+    const [after] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, first.id));
+    expect(after.releasedAt).not.toBeNull();
   });
 });

@@ -84,7 +84,8 @@ export interface WebhookEventRepository {
 }
 
 export interface UsageRepository {
-  addSeconds(meetingId: string, seconds: number): Promise<void>;
+  /** null conservatively settles the meeting's full reserved duration. */
+  addSeconds(meetingId: string, seconds: number | null): Promise<number>;
   monthlyTotalSeconds(userId: string): Promise<number>;   // current calendar month, owner-scoped
   deleteByMeeting(meetingId: string): Promise<void>;            // Day 5: account erasure
 }

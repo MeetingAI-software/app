@@ -117,6 +117,30 @@ describe('Recall error boundary', () => {
     expect(fetchMock.mock.calls[1][1].headers).toBeUndefined();
   });
 
+  it('measures a silent recording from provider start and completion timestamps', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ recordings: [{
+      started_at: '2026-09-26T10:00:00.000Z', completed_at: '2026-09-26T10:30:00.100Z',
+    }] }));
+    await expect(adapter.getRecordedDurationSeconds('synthetic-bot')).resolves.toBe(1801);
+  });
+
+  it('uses the documented bot lifecycle span when recording timestamps are absent', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ status_changes: [
+      { code: 'joining_call', created_at: '2026-09-26T10:00:00Z' },
+      { code: 'in_call_recording', created_at: '2026-09-26T10:02:00Z' },
+      { code: 'done', created_at: '2026-09-26T10:30:00Z' },
+    ] }));
+    await expect(adapter.getRecordedDurationSeconds('synthetic-bot')).resolves.toBe(1800);
+  });
+
+  it('requires conservative quota settlement for malformed or missing provider timing', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ recordings: [{
+      started_at: '2026-09-26T10:00:00Z', completed_at: 'not-a-date',
+    }] })).mockResolvedValueOnce(Response.json({ recordings: [] }));
+    await expect(adapter.getRecordedDurationSeconds('synthetic-bot')).resolves.toBeNull();
+    await expect(adapter.getRecordedDurationSeconds('synthetic-bot')).resolves.toBeNull();
+  });
+
   it('keeps body reading inside the timeout and discards timeout causes', async () => {
     vi.useFakeTimers();
     fetchMock.mockImplementation(async (_url, options) => ({
