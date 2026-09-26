@@ -246,6 +246,43 @@ En rad per findingId och occurrenceId från den bifogade JSON-artefakten. Plats 
 
 Avstämning: **9 höga + 38 medel + 19 låga = 66 poster**. Gruppindelningen är en arbetsplan, inte en automatisk sammanslagning eller stängning av fynd. Ursprungsskanningen avbröts, så verifiera med en avslutad uppföljning.
 
+## Avslutad statisk uppföljningsskanning 2026-09-27
+
+Standard-skanning `196e4386-e3f1-402f-b9cc-02ba02b775c5` av den samlade committen `390cc253bffc814808e2018663feccf0a0026ab2` är avslutad med **sju rapporterade fynd: fem medel och två låga**. Dess täckning är uttryckligen **delvis**: utvalda säkerhetsytor granskades i källkod, men inte alla 481 filer lästes fullständigt. Ingen provider, produktionsmiljö eller verklig kunddata testades i skanningen. De 66 ursprungliga ID:na och de tre tidigare lokala fynden ligger kvar ovan; nya scanner-ID:n är inte bevis för att tidigare paket är stängda. Kodfixar och negativa tester följer i separata PR:er, och slutlig kod kräver en ny avslutad skanning.
+
+| Nr | Grad | findingId | occurrenceId | Paket | Primär plats | Exakt titel |
+| ---: | --- | --- | --- | --- | --- | --- |
+| 70 | low | csf_0b0c97956540301c20db42dd | occ_563bf182ef4c5ec486981e79 | G12 | apps/api/src/adapters/http/routes/auth.routes.ts | Signup and change-email disclose whether an email address is registered |
+| 71 | medium | csf_b00e60bd6aeed886ce939f2f | occ_a1ded1a709cf235ce4a39e91 | G17 | apps/api/src/adapters/db/repositories/meeting.repository.ts | Stale Recall events can reopen or fail a terminal meeting |
+| 72 | low | csf_d041b96c57bd1fa5ec835b3a | occ_2eef3e1b944b5be6ed78976d | G33 | apps/api/src/adapters/db/repositories/live-transcript.repository.ts | Live transcript segments survive or reappear after terminal completion |
+| 73 | medium | csf_30ce98ce954332bf657929fd | occ_026b29e7ad3ea28c1b53810b | G13 | apps/api/src/application/chat.service.ts | Chat provider failures can erase a consumed question claim |
+| 74 | medium | csf_1b6d0a04a87bd65fe974ce9d | occ_5ce33df271a94c39bd4c6d0e | G34 | apps/api/src/jobs/sweep.ts | Failed Recall bot meetings bypass recording deletion sweep |
+| 75 | medium | csf_341ed0d8dcee4ea82add28c4 | occ_e80e78fe1713efb94aeab089 | G35 | apps/api/src/application/auth.service.ts | Account deletion can orphan a Recall bot created during erasure |
+| 76 | medium | csf_806b7f463e8f1e1bc9cf9872 | occ_62d42918474cd85a1ebc06c9 | G19 | apps/api/src/adapters/http/server.ts | Mixed-case share paths expose bearer tokens in API request logs |
+
+**G12, G13, G17 och G19 är kvarstående angreppsvägar i befintliga paket.** G12 kräver offentlig registrering för anonym uppslagning; `change-email` kräver egen session och eget lösenord. G13 kräver ett osäkert eller tomt modellsvar efter anrop; faktisk debitering är inte verifierad. G17 kräver fördröjd eller samtidig signerad Recall-leverans. G19 kan utlösas av blandade versaler även när begäran senare avvisas. Samtliga är öppna tills fix, negativa tester och ny skanning finns. Den tvåhopps proxykonfigurationen och återstående filer är uppskjutna frågor i skanningens `coverage.json`, inte bekräftade fynd.
+
+### N04 — Live transcript segments survive or reappear after terminal completion (`csf_d041b96c57bd1fa5ec835b3a`, G33)
+
+- **Spår:** `ingest-live-transcript.service.ts`, `live-transcript.repository.ts`, `process-webhook-event.service.ts`, `worker.ts`, `sweep.ts`.
+- **Nuvarande beteende:** en sen signerad slutreplik kan läggas till efter den engångsrensning som görs vid transkriberat möte. Flera direkta felvägar sätter `failed` utan att rensa befintliga liverader. Raderna är ägarskyddade och kaskadraderas vid kontoradering, men kan ligga kvar under ett terminalt möte.
+- **Fixkrav:** kontrollera aktivt mötestillstånd under samma databaslås som bilageinsättningen; serialisera terminal status och rensning samt täck alla terminala felvägar. Rensa processcachad deltext.
+- **Verifiera:** PGlite-kapplöpning mellan sen replik och terminal övergång, direkt worker-/sweep-fel, ägarskydd och legitim liveström. Verklig Recall-ordning återstår att pröva.
+
+### N05 — Failed Recall bot meetings bypass recording deletion sweep (`csf_1b6d0a04a87bd65fe974ce9d`, G34)
+
+- **Spår:** `process-webhook-event.service.ts`, `meeting.repository.ts`, `sweep.ts`.
+- **Nuvarande beteende:** ett botmöte med lagrat bot-ID kan bli `failed` efter inspelning. Rensningen väljer transkriberade botmöten och misslyckade uppladdningar, men inte misslyckade botmöten. Kodens schemalagda radering når därför inte inspelningen. Recalls egen lagringstid är okänd; kontoradering försöker radera kända bot-ID:n.
+- **Fixkrav:** välj terminalt misslyckade botmöten med bot-ID efter en bestämd återhämtningsperiod, gör raderingen idempotent och försök om providerfel utan att förlora referensen.
+- **Verifiera:** äldre och nyligen misslyckade botmöten, providerfel och omförsök, lyckad transkribering, misslyckad uppladdning och kontoeradering. Verifiera faktisk providerretention separat.
+
+### N06 — Account deletion can orphan a Recall bot created during erasure (`csf_341ed0d8dcee4ea82add28c4`, G35)
+
+- **Spår:** `auth.service.ts` (`deleteAccount`), `start-meeting.service.ts`, `meeting.repository.ts`.
+- **Nuvarande beteende:** mötesstart sparar `pending` och väntar på Recalls botskapande innan bot-ID binds. Om kontoradering läser mötet under väntan, hoppar den över providerradering eftersom bot-ID saknas, och tar sedan bort möte och konto. Ett sent lyckat botsvar kan då sakna lokal referens för radering.
+- **Fixkrav:** stäng nya provideranspråk atomiskt när radering börjar och vägra färdigställa radering medan ett betalt anspråk är osäkert. Bevara referens och avstäm providerutfall innan lokala rader tas bort.
+- **Verifiera:** pausa botskapande efter reservation, kör kontoradering parallellt och släpp sedan providern; ingen bot får sakna avstämningsreferens. Testa två repositoryinstanser, legitim radering av inaktivt konto och extern raderingsfelväg.
+
 ## Gemensamma avslutskriterier
 
 - Säkerhetsinvarianten för varje bekräftat fynd uttrycks i kodgranskning och i ett test som skulle fallera med tidigare beteende. Testerna använder syntetiska konton och filer; inga riktiga användaruppgifter krävs.

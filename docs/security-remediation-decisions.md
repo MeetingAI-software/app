@@ -150,3 +150,24 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Är åtta samtidiga flöden, tio försök per konto/minut, 80 globala försök/minut och högst tio minuters väntan efter en krasch acceptabelt? Vem får avstämma osäkra Paddle-utfall och frigöra ett spärrat checkout-anspråk efter att providerdata och webhookar har kontrollerats? Kan äldre API-repliker dräneras innan gränsen aktiveras?
 - **Mitt förslag:** Behåll färska portalsessioner. Lägg en verifierad transportdeadline kortare än leasen och ett beständigt checkout-anspråk med manuell avstämning vid osäkert svar innan G15 stängs. Prova med två verkliga repliker och Paddle sandbox, inklusive processkrasch och sent providersvar. Blockera nytt skapande för samma konto vid osäkert utfall tills avstämningen är klar; återanvänd aldrig en okänd kund via e-post.
 - **Status:** Väntar på ägarens senare drift- och supportbeslut. Endast lokal kod och tester; ingen produktionsmigration eller Paddle-inställning har ändrats.
+
+### D22 — Välj registreringsflöde utan kontouppslagning (G12)
+
+- **Vad betyder det?** När offentlig registrering är aktiv ger en fri adress 201 och session, medan en upptagen adress ger 409. Ett neutralt felmeddelande ensamt löser inte läckan eftersom sessionen och efterföljande `/auth/me` fortfarande skiljer fallen. Även byte till en upptagen adress ger ett särskilt fel.
+- **Vad behöver du avgöra?** Ska registrering och adressbyte bli e-postförst-flöden där kontroll av den nya adressen sker innan kontot aktiveras eller ändras? Det innebär att användaren inte får en session omedelbart efter registreringsformuläret och att återhämtning för befintliga konton behöver vara tydlig.
+- **Mitt förslag:** Använd samma neutrala HTTP-svar och cookie-beteende för fri och upptagen adress före adressbevis. Skicka endast en säker, begränsad åtgärdslänk till den verkliga adressägaren; aktivera konto eller adressbyte först efter bevis. Behåll delad utskicks- och hashbudget.
+- **Status:** Väntar på senare produktbeslut. Kodarbete med övriga fynd fortsätter; offentlig driftinställning har inte kontrollerats.
+
+### D23 — Kontrollera verklig proxykedja för IP-gränser
+
+- **Vad betyder det?** API:t litar på två proxyhopp för `req.ip`, som används av flera gränser för inloggning, registrering och waitlist. Koden antar att Railways kant skriver över klientens `X-Forwarded-For`. Om den verkliga kedjan skiljer sig kan en angripare påverka IP-nyckeln, eller så får många användare samma nyckel. Skanningen kunde inte bevisa driftkedjan och rapporterade därför inget separat fynd.
+- **Vad behöver du avgöra?** Vilka IP-headers och hopp når API:t i den faktiska Railway-installationen, och kan en klientlevererad header överleva kanten? Kontrollera utan att logga riktiga klientadresser i PR.
+- **Mitt förslag:** Kör syntetiska anrop med och utan förfalskad `X-Forwarded-For` via den riktiga publika kanten samt kontrollera API:ts observerade `req.ip` och 429-gränser. Konfigurera betrodda proxyer efter uppmätt kedja och behåll globala databaskvoter.
+- **Status:** Väntar på driftkontroll. Ingen proxyinställning har ändrats.
+
+### D24 — Bestäm rensning och avstämning av misslyckade Recall-inspelningar (G34–G35)
+
+- **Vad betyder det?** Kodens sweep väljer inte misslyckade botmöten med bot-ID för inspelningsradering. Ett parallellt kontoraderingsförsök kan dessutom förlora referensen till en bot som ännu skapas. Källkoden visar bristerna, men Recalls faktiska lagringstid och möjlighet att hitta en bot via metadata är inte verifierade.
+- **Vad behöver du avgöra?** Hur länge ska en misslyckad inspelning hållas för support och omförsök, vem får avstämma botskapande med okänt utfall, och vilka leverantörsverktyg finns för att hitta och radera en bot utan lokalt ID?
+- **Mitt förslag:** Vägra kontoradering medan providerarbete är osäkert, behåll ett beständigt anspråk tills utfallet är avstämt, och radera kända misslyckade botinspelningar automatiskt efter en kort dokumenterad period med omförsök och revisionsspår. Kontrollera Recalls verkliga retention separat.
+- **Status:** Väntar på senare drift- och produktbeslut. Ingen providerkonfiguration eller kunddata har ändrats.
