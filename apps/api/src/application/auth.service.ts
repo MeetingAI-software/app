@@ -163,12 +163,8 @@ export class AuthService implements AuthServiceApi {
 
     const user = await this.users.findByEmailWithHash(email);
     if (!user || user.emailVerified) return;
-    // Suppressed silently: the route always answers with the same neutral 200 regardless, so
-    // reporting the cooldown here would hand back an account-existence oracle for free.
-    if (await this.verificationTokens.isWithinResendCooldown(user.id)) {
-      logger.info({ userId: user.id }, 'Verification resend suppressed by cooldown');
-      return;
-    }
+    // The delivery transaction owns cooldown and budget admission. A separate read here raced
+    // parallel requests and let both replace the token before either mail was delivered.
     try {
       await this.verificationDelivery.sendTo(user, 'resend');
     } catch (err) {

@@ -12,6 +12,17 @@ class FakeEmailSendLedgerRepository implements EmailSendLedgerRepository {
 
   constructor(private readonly now: () => Date) {}
 
+  async tryReserveAndIssue(input: { userId: string; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number; cooldownMs: number;
+    tokenHash: string; expiresAt: Date }) {
+    if (this.readFailure || this.writeFailure) throw this.readFailure ?? this.writeFailure;
+    if (this.rows.filter(row => row.createdAt >= input.since).length >= input.limit) {
+      return { status: 'budget' as const };
+    }
+    this.rows.push({ userId: input.userId, trigger: input.trigger, createdAt: input.now });
+    return { status: 'issued' as const, email: 'person@example.test' };
+  }
+
   async countSince(since: Date) {
     if (this.readFailure) throw this.readFailure;
     return this.rows.filter((row) => row.createdAt.getTime() >= since.getTime()).length;

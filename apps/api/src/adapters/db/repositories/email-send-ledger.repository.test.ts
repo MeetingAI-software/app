@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { db, migrateOnce, truncateAll } from '../pglite-harness';
-import { emailSendLedger, users } from '../schema';
+import { emailSendLedger, emailVerificationTokens, users } from '../schema';
 import { DrizzleEmailSendLedgerRepository } from './email-send-ledger.repository';
 
 // Real Postgres (PGlite) stands in for the live-DATABASE_URL singleton. See pglite-harness.ts for
@@ -202,6 +202,75 @@ describe('DrizzleEmailSendLedgerRepository', () => {
       await recordAt(now);
       expect(await repo.tryReserve({ userId, trigger: 'resend', since, now, limit: 1 })).toBe(false);
       expect(await repo.countSince(since)).toBe(1);
+    });
+  });
+
+  describe('tryReserveAndIssue', () => {
+    const claim = (userId: string, now: Date, tokenHash: string, trigger: 'signup' | 'resend' = 'resend', limit = 2) => ({
+      userId, now, tokenHash, trigger, limit, cooldownMs: MINUTE,
+      since: new Date(now.getTime() - 24 * HOUR), expiresAt: new Date(now.getTime() + 24 * HOUR),
+    });
+
+    it('allows only one concurrent resend across repository instances and keeps its link', async () => {
+      const now = new Date();
+      const [first, second] = await Promise.all([
+        repo.tryReserveAndIssue(claim(userId, now, 'first')),
+        new DrizzleEmailSendLedgerRepository().tryReserveAndIssue(claim(userId, now, 'second')),
+      ]);
+      expect([first.status, second.status].sort()).toEqual(['cooldown', 'issued']);
+      const [token] = await db.select().from(emailVerificationTokens);
+      expect(['first', 'second']).toContain(token.tokenHash);
+      expect(await repo.countSince(new Date(now.getTime() - HOUR))).toBe(1);
+      const denied = await repo.tryReserveAndIssue(claim(userId, now, 'third'));
+      expect(denied).toEqual({ status: 'cooldown' });
+      expect((await db.select().from(emailVerificationTokens))[0].tokenHash).toBe(token.tokenHash);
+    });
+
+    it('does not replace an existing link when the global budget is exhausted', async () => {
+      const now = new Date();
+      expect((await repo.tryReserveAndIssue(claim(userId, now, 'old', 'signup', 1))).status).toBe('issued');
+      const later = new Date(now.getTime() + MINUTE);
+      expect(await repo.tryReserveAndIssue(claim(userId, later, 'new', 'resend', 1)))
+        .toEqual({ status: 'budget' });
+      expect((await db.select().from(emailVerificationTokens))[0].tokenHash).toBe('old');
+      expect(await repo.countSince(new Date(now.getTime() - HOUR))).toBe(1);
+    });
+
+    it('resends at the cooldown boundary to the locked current address', async () => {
+      const now = new Date();
+      await repo.tryReserveAndIssue(claim(userId, now, 'old', 'signup'));
+      const currentEmail = 'new@example.test';
+      await db.update(users).set({ email: currentEmail, emailVersion: 2 }).where(eq(users.id, userId));
+      const result = await repo.tryReserveAndIssue(claim(userId, new Date(now.getTime() + MINUTE), 'new'));
+      expect(result).toEqual({ status: 'issued', email: currentEmail });
+      const [token] = await db.select().from(emailVerificationTokens);
+      expect(token).toMatchObject({ tokenHash: 'new', emailAtIssue: currentEmail, emailVersion: 2 });
+      expect(await repo.countSince(new Date(now.getTime() - HOUR))).toBe(2);
+    });
+
+    it('rolls back token replacement and the send slot when persistence fails', async () => {
+      const now = new Date();
+      await repo.tryReserveAndIssue(claim(userId, now, 'original', 'signup'));
+      const [other] = await db.insert(users).values({
+        email: 'other@example.test', passwordHash: 'h',
+      }).returning({ id: users.id });
+      const later = new Date(now.getTime() + MINUTE);
+      await repo.tryReserveAndIssue(claim(other.id, later, 'duplicate', 'signup', 3));
+      await expect(repo.tryReserveAndIssue(claim(userId, later, 'duplicate', 'resend', 3))).rejects.toThrow();
+      const [token] = await db.select().from(emailVerificationTokens)
+        .where(eq(emailVerificationTokens.userId, userId));
+      expect(token.tokenHash).toBe('original');
+      expect(await repo.countSince(new Date(now.getTime() - HOUR))).toBe(2);
+    });
+
+    it('does not mail or replace a token after the account becomes verified', async () => {
+      const now = new Date();
+      await repo.tryReserveAndIssue(claim(userId, now, 'original', 'signup'));
+      await db.update(users).set({ emailVerified: true }).where(eq(users.id, userId));
+      expect(await repo.tryReserveAndIssue(claim(userId, new Date(now.getTime() + MINUTE), 'later')))
+        .toEqual({ status: 'already_verified' });
+      expect((await db.select().from(emailVerificationTokens))[0].tokenHash).toBe('original');
+      expect(await repo.countSince(new Date(now.getTime() - HOUR))).toBe(1);
     });
   });
 

@@ -1,9 +1,11 @@
 import crypto from 'crypto';
 import type { EmailVerificationToken } from '../domain/types';
 import type {
+  EmailSendTrigger,
   VerificationTokenConsumeResult,
   VerificationTokenRepository,
 } from '../ports/repositories.port';
+import type { EmailSendBudget } from './email-send-budget.service';
 
 const TOKEN_BYTES = 32;
 export const EMAIL_VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
@@ -23,6 +25,8 @@ export interface IssuedEmailVerificationToken {
 
 export interface EmailVerificationTokenIssuer {
   issueForUser(userId: string): Promise<IssuedEmailVerificationToken>;
+  issueForDelivery(userId: string, trigger: EmailSendTrigger,
+    budget: EmailSendBudget): Promise<IssuedEmailVerificationToken | null>;
 }
 
 interface TokenServiceDependencies {
@@ -57,6 +61,17 @@ export class EmailVerificationTokenService implements EmailVerificationTokenIssu
       expiresAt,
     });
     return { token, expiresAt, email };
+  }
+
+  async issueForDelivery(userId: string, trigger: EmailSendTrigger,
+    budget: EmailSendBudget): Promise<IssuedEmailVerificationToken | null> {
+    const token = this.generateToken();
+    const expiresAt = new Date(this.now().getTime() + EMAIL_VERIFICATION_TOKEN_TTL_MS);
+    const admission = await budget.reserveAndIssue({
+      trigger, userId, tokenHash: hashEmailVerificationToken(token), expiresAt,
+      cooldownMs: EMAIL_VERIFICATION_RESEND_COOLDOWN_MS,
+    });
+    return admission ? { token, expiresAt, email: admission.email } : null;
   }
 
   findByToken(token: string): Promise<EmailVerificationToken | null> {
