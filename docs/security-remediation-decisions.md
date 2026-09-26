@@ -115,3 +115,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Är tre försök per möte en godtagbar produktgräns, och vem får granska faktiska providerkostnader och återställa ett fastnat anspråk eller bevilja ett nytt försök efter dokumenterat fel?
 - **Mitt förslag:** Behåll gränsen tills verklig kostnad och legitim användning har mätts. Bygg en behörighetsstyrd avstämning med revisionsspår innan manuella återställningar. Pausa dokumentgenerering under blandad utrullning så att äldre API-repliker inte kringgår budgeten.
 - **Status:** Väntar på ägarens senare beslut. Ingen provider- eller produktionsändring är gjord.
+
+### D17 — Avstäm äldre dubbla Recall-botbindningar (G17)
+
+- **Vad betyder det?** Migration 0024 kräver att varje lagrat `bot_id` pekar på högst ett möte. Om samma bot-ID finns på flera möten stoppar migrationen i stället för att välja ett konto. Den gamla kopplingen kan redan ha påverkat transkript eller status.
+- **Vad behöver du avgöra?** Finns dubbla icke-null `bot_id` i produktionsdatabasen, och vem får jämföra mötena med Recalls ursprungliga bot-ID och metadata utan att exponera kundtranskript?
+- **Mitt förslag:** Kör en skrivskyddad gruppkontroll före deployment. Om dubbletter finns, pausa utrullningen och granska varje rad med behörig åtkomst; korrigera bara efter verifierad ägare och bevara revisionsspår. Kör sedan migration och syntetiskt webhookprov.
+- **Status:** Väntar på ägarens senare driftkontroll. Inga produktionsrader har ändrats.
