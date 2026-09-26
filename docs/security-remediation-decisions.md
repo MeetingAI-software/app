@@ -122,3 +122,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Finns dubbla icke-null `bot_id` i produktionsdatabasen, och vem får jämföra mötena med Recalls ursprungliga bot-ID och metadata utan att exponera kundtranskript?
 - **Mitt förslag:** Kör en skrivskyddad gruppkontroll före deployment. Om dubbletter finns, pausa utrullningen och granska varje rad med behörig åtkomst; korrigera bara efter verifierad ägare och bevara revisionsspår. Kör sedan migration och syntetiskt webhookprov.
 - **Status:** Väntar på ägarens senare driftkontroll. Inga produktionsrader har ändrats.
+
+### D18 — Avstäm fastnat Recall-transkriptanspråk (G17)
+
+- **Vad betyder det?** Migration 0025 låter bara en arbetare åt gången hämta och sammanfatta samma bots transkript. Ett retrybart fel frigör anspråket. Om processen dör efter anspråket och före terminal status kan anspråket ligga kvar och hindra automatisk fortsatt behandling. Att frigöra det blint kan dubblera betald sammanfattning eller skriva över ett sent resultat.
+- **Vad behöver du avgöra?** Vem får kontrollera Recalls jobbstatus, det lagrade transkriptet och faktisk modellkostnad för ett fastnat möte, och vem får därefter frigöra anspråket med revisionsspår?
+- **Mitt förslag:** Inför en behörighetsstyrd avstämning som först jämför providerutfall, mötesstatus, transkript och sammanfattning. Frigör bara ett specifikt anspråk efter dokumenterat beslut; automatiskt tidsbaserat övertagande bör vänta tills ett sent workersvar kan stängslas säkert. Kör ett syntetiskt kraschprov hos Recall.
+- **Status:** Väntar på ägarens senare driftbeslut. Inga provider- eller produktionsändringar är gjorda.
