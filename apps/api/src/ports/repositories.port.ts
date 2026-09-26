@@ -52,6 +52,9 @@ export interface MeetingRepository {
   deleteById(id: string): Promise<void>;             // Day 5: account erasure
   findTranscribedOlderThan?(hours: number): Promise<Meeting[]>;
   findFailedWithAudioOlderThan?(hours: number): Promise<Meeting[]>;
+  findFailedBotMediaOlderThan(hours: number): Promise<Meeting[]>;
+  /** Acknowledge deletion only for the same terminal meeting and bot ID. */
+  markBotMediaDeleted(meetingId: string, botId: string): Promise<boolean>;
   findStuckActiveOlderThan?(minutes: number): Promise<Meeting[]>;
 }
 

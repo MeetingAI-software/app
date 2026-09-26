@@ -64,10 +64,11 @@ export async function requestRecall(
         headers: presigned ? undefined : { Authorization: `Token ${config.RECALL_API_KEY}`,
           'Content-Type': 'application/json', accept: 'application/json' },
       });
-      if (response.status >= 500 && attempt === 0 && mayRetry) {
+      if ((response.status >= 500 || (deleting && response.status === 409))
+        && attempt === 0 && mayRetry) {
         await response.body?.cancel().catch(() => undefined);
         retry = true;
-      } else if (deleting && (response.ok || response.status === 404 || response.status === 409)) {
+      } else if (deleting && (response.ok || response.status === 404)) {
         await response.body?.cancel().catch(() => undefined);
         return;
       } else if (!response.ok) {

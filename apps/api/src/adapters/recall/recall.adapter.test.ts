@@ -160,10 +160,21 @@ describe('Recall error boundary', () => {
     await safeFailure(operations[0][1]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await operations[0][1]()).toEqual({ botId: 'synthetic-bot' });
-    for (const status of [200, 404, 409]) {
+    for (const status of [200, 404]) {
       fetchMock.mockResolvedValueOnce(new Response('', { status }));
       await expect(adapter.deleteRecording('synthetic-bot')).resolves.toBeUndefined();
     }
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 409 }))
+      .mockResolvedValueOnce(new Response('', { status: 409 }));
+    const conflictedDeletion = adapter.deleteRecording('synthetic-bot');
+    const conflictResult = expect(conflictedDeletion).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(2_001);
+    await conflictResult;
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 409 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    const eventualDeletion = adapter.deleteRecording('synthetic-bot');
+    await vi.advanceTimersByTimeAsync(2_001);
+    await expect(eventualDeletion).resolves.toBeUndefined();
     fetchMock.mockResolvedValueOnce(new Response(marker, { status: 503 }))
       .mockResolvedValueOnce(new Response('', { status: 200 }));
     const deletion = adapter.deleteRecording('synthetic-bot');

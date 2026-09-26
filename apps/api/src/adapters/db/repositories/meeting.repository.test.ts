@@ -622,6 +622,30 @@ describe('DrizzleMeetingRepository', () => {
     });
   });
 
+  describe('failed bot media cleanup', () => {
+    it('selects only old failed bots with unacknowledged media', async () => {
+      const now = Date.now();
+      const old = new Date(now - 2 * HOUR);
+      const recent = new Date(now - 5 * MINUTE);
+      await insertMeeting({ shareToken: 'old-failed-bot', source: 'bot', status: 'failed', botId: 'bot-old', updatedAt: old });
+      await insertMeeting({ shareToken: 'young-failed-bot', source: 'bot', status: 'failed', botId: 'bot-young', updatedAt: recent });
+      await insertMeeting({ shareToken: 'failed-upload', source: 'upload', status: 'failed', updatedAt: old });
+      await insertMeeting({ shareToken: 'active-bot', source: 'bot', status: 'recording', botId: 'bot-active', updatedAt: old });
+      const found = await repo.findFailedBotMediaOlderThan(1);
+      expect(found.map(m => m.shareToken)).toEqual(['old-failed-bot']);
+      expect(await repo.markBotMediaDeleted(found[0].id, 'bot-old')).toBe(true);
+      expect(await repo.findFailedBotMediaOlderThan(1)).toEqual([]);
+      expect(await repo.markBotMediaDeleted(found[0].id, 'bot-old')).toBe(false);
+    });
+
+    it('does not acknowledge a different or active bot', async () => {
+      const failed = await insertMeeting({ status: 'failed', source: 'bot', botId: 'bot-failed' });
+      const active = await insertMeeting({ status: 'recording', source: 'bot', botId: 'bot-active' });
+      expect(await repo.markBotMediaDeleted(failed.id, 'wrong-bot')).toBe(false);
+      expect(await repo.markBotMediaDeleted(active.id, 'bot-active')).toBe(false);
+    });
+  });
+
   describe('deleteById', () => {
     it('deletes the target row only', async () => {
       const target = await insertMeeting();

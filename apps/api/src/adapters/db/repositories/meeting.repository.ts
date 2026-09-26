@@ -397,6 +397,28 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       ))) as Meeting[];
   }
 
+  async findFailedBotMediaOlderThan(hours: number): Promise<Meeting[]> {
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+    return (await db.select().from(meetings).where(and(
+      eq(meetings.status, 'failed'),
+      eq(meetings.source, 'bot'),
+      isNotNull(meetings.botId),
+      isNull(meetings.botMediaDeletedAt),
+      lt(meetings.updatedAt, cutoff),
+    ))) as Meeting[];
+  }
+
+  async markBotMediaDeleted(meetingId: string, botId: string): Promise<boolean> {
+    const rows = await db.update(meetings).set({ botMediaDeletedAt: new Date() }).where(and(
+      eq(meetings.id, meetingId),
+      eq(meetings.source, 'bot'),
+      eq(meetings.status, 'failed'),
+      eq(meetings.botId, botId),
+      isNull(meetings.botMediaDeletedAt),
+    )).returning({ id: meetings.id });
+    return rows.length === 1;
+  }
+
   async findStuckActiveOlderThan(minutes: number): Promise<Meeting[]> {
     const cutoff = new Date(Date.now() - minutes * 60 * 1000);
     return (await db
