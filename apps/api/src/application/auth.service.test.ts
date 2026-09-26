@@ -289,6 +289,12 @@ class FakeEmailSendLedgerRepo implements EmailSendLedgerRepository {
   async record(input: { userId: string | null; trigger: EmailSendTrigger }) {
     this.rows.push({ ...input, createdAt: this.now() });
   }
+  async tryReserve(input: { userId: string | null; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number }) {
+    if (this.rows.filter((row) => row.createdAt >= input.since).length >= input.limit) return false;
+    this.rows.push({ userId: input.userId, trigger: input.trigger, createdAt: input.now });
+    return true;
+  }
   async deleteOlderThan(cutoff: Date) {
     const kept = this.rows.filter((row) => row.createdAt.getTime() >= cutoff.getTime());
     const removed = this.rows.length - kept.length;
@@ -363,7 +369,7 @@ function build(meetingStore: Meeting[] = []) {
   };
   return {
     service, users, sessions, meetings, transcripts, documents, chat, usage, storage, bot, billing,
-    verificationTokenRepo, verificationMailer, clock, sendLedger, exhaustSendBudget,
+    verificationTokenRepo, verificationMailer, clock, sendLedger, sendBudget, exhaustSendBudget,
   };
 }
 
@@ -492,17 +498,25 @@ describe('AuthService', () => {
       expect(ctx.verificationTokenRepo.countForUser(user.id)).toBe(1);
     });
 
-    // This route returns early for unknown and already-verified addresses, so a budget check made
-    // any later than the lookup would raise for real accounts and stay silent for fake ones — a
-    // free account-existence oracle, exactly what the neutral 200 exists to prevent.
-    it('reports exhaustion identically for a known and an unknown address', async () => {
+    it('keeps exhaustion neutral for a known and an unknown address', async () => {
       const { user } = await ctx.service.signup('known@example.com', 'a-good-password');
       await ctx.exhaustSendBudget();
 
       await expect(ctx.service.resendVerification(user.email))
-        .rejects.toBeInstanceOf(EmailSendBudgetExhaustedError);
+        .resolves.toBeUndefined();
       await expect(ctx.service.resendVerification('never-registered@example.com'))
-        .rejects.toBeInstanceOf(EmailSendBudgetExhaustedError);
+        .resolves.toBeUndefined();
+      expect(ctx.verificationMailer.sent).toHaveLength(1);
+    });
+
+    it('stays neutral if another replica consumes the last slot after the probe', async () => {
+      const { user } = await ctx.service.signup('raced@example.com', 'a-good-password');
+      ctx.clock.now = new Date(ctx.clock.now.getTime() + EMAIL_VERIFICATION_RESEND_COOLDOWN_MS);
+      await ctx.exhaustSendBudget();
+      vi.spyOn(ctx.sendBudget, 'hasRemaining').mockResolvedValue(true);
+
+      await expect(ctx.service.resendVerification(user.email)).resolves.toBeUndefined();
+      expect(ctx.verificationMailer.sent).toHaveLength(1);
     });
   });
 

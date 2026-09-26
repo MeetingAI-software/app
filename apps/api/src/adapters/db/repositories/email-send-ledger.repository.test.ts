@@ -183,6 +183,28 @@ describe('DrizzleEmailSendLedgerRepository', () => {
     });
   });
 
+  describe('tryReserve', () => {
+    it('admits only one parallel claim when one global slot remains', async () => {
+      const now = new Date();
+      const since = new Date(now.getTime() - 24 * HOUR);
+      await recordAt(now);
+      const claims = await Promise.all([
+        repo.tryReserve({ userId, trigger: 'resend', since, now, limit: 2 }),
+        repo.tryReserve({ userId, trigger: 'change_email', since, now, limit: 2 }),
+      ]);
+      expect(claims.sort()).toEqual([false, true]);
+      expect(await repo.countSince(since)).toBe(2);
+    });
+
+    it('does not consume a slot when the budget is exhausted', async () => {
+      const now = new Date();
+      const since = new Date(now.getTime() - 24 * HOUR);
+      await recordAt(now);
+      expect(await repo.tryReserve({ userId, trigger: 'resend', since, now, limit: 1 })).toBe(false);
+      expect(await repo.countSince(since)).toBe(1);
+    });
+  });
+
   // user_id is ON DELETE SET NULL, not CASCADE. Deleting an account must not erase the evidence
   // that emails were sent — otherwise sign up, send, delete, repeat would reset the rate limit.
   it('keeps the ledger row when its user is deleted, blanking only the link', async () => {

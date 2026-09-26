@@ -59,3 +59,10 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Vilka proxy- och webbaccessloggar sparas hos Railway och Vercel, vem kan läsa dem, och vilka aktiva delningslänkar kan ha hamnat där?
 - **Mitt förslag:** Begränsa URL-loggning och retention där det går, granska åtkomsten utan att exportera token till PR, och rotera berörda aktiva delningstoken om de kan ha exponerats.
 - **Status:** Väntar på ägarens svar. Ingen loggrensning eller tokenrotation har gjorts.
+
+### D09 — Kontrollera e-postledger före API-merge (G06)
+
+- **Vad betyder det?** Nya API-koden stoppar verifieringsutskick om tabellen `email_send_ledger` saknas eller inte går att nå. Tabellen finns i repositoryts migration `0008_deep_warbird.sql`, men faktisk produktionsdatabas har inte kontrollerats här.
+- **Vad behöver du avgöra?** Vem kan bekräfta att migrationskedjan till och med `0021` är körd i drift och att API-rollen kan läsa och skriva i e-postledgern innan en PR slås ihop?
+- **Mitt förslag:** Kör migrationskontrollen före merge och testa ett syntetiskt verifieringsutskick i en säker driftlik miljö. Behåll fail-closed-beteendet om kontrollen misslyckas.
+- **Status:** Väntar på ägarens svar. Ingen produktionsdatabas eller e-postleverantör har ändrats.
