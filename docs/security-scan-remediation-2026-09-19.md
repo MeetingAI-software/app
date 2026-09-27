@@ -310,11 +310,23 @@ Standard-skanning `196e4386-e3f1-402f-b9cc-02ba02b775c5` av den samlade committe
 
 ## Uppföljningsskanning av integrationscommit 71218b6
 
-Standard-skanning `be275612-cec7-48af-aa2f-0034a7f4adf8` avslutades på commit `71218b65388990a1007e2501d843f5f343578207` med **ett rapporterat lågt fynd**: G12. Den granskade 121 av 487 inventerade filrader fullständigt och har **delvis täckning**; uteblivna fynd stänger därför inte automatiskt något av de 66 ursprungliga ID:na. Skanningen kördes utan produktionsmiljö eller live-provider. G38 upptäcktes i separat källgranskning efter att denna commit frysts och dokumenteras ovan. En ny skanning krävs på den slutliga integrationscommitten.
+Standard-skanning `be275612-cec7-48af-aa2f-0034a7f4adf8` avslutades på commit `71218b65388990a1007e2501d843f5f343578207` med **ett rapporterat lågt fynd**: G12. Den granskade 121 av 487 inventerade filrader fullständigt och har **delvis täckning**; uteblivna fynd stänger därför inte automatiskt något av de 66 ursprungliga ID:na. Skanningen kördes utan produktionsmiljö eller live-provider. G38 upptäcktes i separat källgranskning efter att denna commit frysts och dokumenteras ovan. Den senare skanningen av integrationskoden redovisas nedan.
 
 | Nr | Grad | findingId | occurrenceId | Paket | Primär plats | Exakt titel |
 | ---: | --- | --- | --- | --- | --- | --- |
 | 80 | low | csf_c4315967e18f44bf2c9c96fb | occ_37e4d88e737d42b6a6faf10a | G12 | apps/api/src/adapters/http/routes/auth.routes.ts | Public signup reveals whether an email address is registered |
+
+## Avslutad skanning av slutlig integrationskod 2026-09-27
+
+Standard-skanning `50d5577f-c18d-4d07-a22b-90e9e597467c` av kodcommit `0c5adc90d8275ac69f2ef85e57eb22e32872e043` rapporterade **ett lågt fynd, G12**. Den är **delvis täckande**: 121 av 487 inventerade filrader granskades fullständigt, inklusive separat granskning av G38-ändringen. Inga live-provideranrop eller produktionsinställningar verifierades. Fynd-ID:t för G12 är stabilt mot föregående skanning medan `occurrenceId` ändrades för den nya kodcommitten.
+
+| Nr | Grad | findingId | occurrenceId | Paket | Primär plats | Exakt titel |
+| ---: | --- | --- | --- | --- | --- | --- |
+| 81 | low | csf_c4315967e18f44bf2c9c96fb | occ_a18c04b7e137fe9e64602e56 | G12 | apps/api/src/adapters/http/routes/auth.routes.ts | Public signup reveals whether an email address is registered |
+
+**ID-avstämning:** alla 66 ursprungliga `findingId` och `occurrenceId` finns kvar exakt en gång i registret ovan (G01–G29), och de 13 tillkomna posterna 67–79 finns kvar med sina ID:n (G12, G13, G17, G19, G30–G38). Två ursprungliga G12-ID:n, det tidigare G12-skanner-ID:t och raden 80 motsvarar den kvarstående angreppsvägen i rad 81. De andra 64 ursprungliga och 12 senare posterna rapporterades inte igen i denna delvisa skanning; deras frånvaro är inte bevis för stängning. Kod och relevanta tester/kontroller för G13, G17, G19, G30–G38 finns i de staplade draft-PR:erna, men drift- och providerutfall har inte verifierats. G12 väntar på D22, och G34–G38 har kvar externa avstämningar enligt D24.
+
+**Kontroller:** CI-körning `36285364266` på kodcommitten passerade Node 20 API-test/typkontroll/bygge, webbtest/typkontroll/lint/bygge samt hemlighets- och beroendegranskning. Railway-driftsättning hoppades över för PR:n. Lokal Windows-API-svit passerade 102 av 103 testfiler; 14 ljuddekodertest i den sista filen fallerade då `ffmpeg`/`ffprobe` saknas lokalt, vilka CI installerade. Lokalt webbbygge stoppades av en worktree-symlänk i Turbopack; CI:s rena installation byggde webbappen.
 
 ## Gemensamma avslutskriterier
 
