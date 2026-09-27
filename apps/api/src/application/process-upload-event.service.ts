@@ -62,6 +62,10 @@ export class ProcessUploadEventService {
     // A committed claim is the durable boundary before the paid POST. If the response is lost,
     // neither an event replay nor another worker may submit a second job without reconciliation.
     if (!await this.meetingRepo.claimUploadSubmission(meeting.id)) {
+      if (await this.meetingRepo.abortUploadIfDeleting(meeting.id)) {
+        logger.info({ meetingId: meeting.id }, 'Upload submission cancelled during account deletion');
+        return;
+      }
       logger.warn({ meetingId: meeting.id }, 'Transcription submission already claimed; awaiting reconciliation');
       return;
     }

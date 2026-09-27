@@ -8,6 +8,7 @@ export const meetings = pgTable('meetings', {
   status: text('status').notNull().default('pending'),
   source: text('source').notNull().default('bot'),                 // Day 3: 'bot' | 'upload'
   botId: text('bot_id'),
+  botStartRejectedAt: timestamp('bot_start_rejected_at', { withTimezone: true }),
   botMediaDeletedAt: timestamp('bot_media_deleted_at', { withTimezone: true }),
   durationSeconds: integer('duration_seconds'),
   errorMessage: text('error_message'),
@@ -20,6 +21,8 @@ export const meetings = pgTable('meetings', {
   recordingNoticeVersion: text('recording_notice_version'),
   audioStoragePath: text('audio_storage_path'),                   // Day 3: Supabase Storage path for uploads
   transcriptionJobId: text('transcription_job_id'),               // Day 3: AssemblyAI job id for uploads
+  uploadSubmissionClaimedAt: timestamp('upload_submission_claimed_at', { withTimezone: true }),
+  uploadProviderExcludedAt: timestamp('upload_provider_excluded_at', { withTimezone: true }),
   ownerUserId: uuid('owner_user_id').notNull().references(() => users.id),  // Day 6 §6: the DB is the guard — an ownerless meeting is invisible, so make it impossible
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -138,6 +141,7 @@ export const users = pgTable('users', {
   emailVerified: boolean('email_verified').notNull().default(false), // true for OAuth / verified
   emailVersion: integer('email_version').notNull().default(1),
   authVersion: integer('auth_version').notNull().default(1),
+  deletionStartedAt: timestamp('deletion_started_at', { withTimezone: true }),
   organizationName: text('organization_name'),
   businessUseConfirmedAt: timestamp('business_use_confirmed_at', { withTimezone: true }),
   termsVersionAccepted: text('terms_version_accepted'),

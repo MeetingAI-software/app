@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import crypto from 'crypto';
 import { AuthService } from './auth.service';
+import { StartMeetingService } from './start-meeting.service';
+import type { UsageMeterService } from './usage-meter.service';
 import {
   EMAIL_VERIFICATION_RESEND_COOLDOWN_MS,
   EmailVerificationTokenService,
@@ -10,6 +12,7 @@ import { EmailSendBudgetService } from './email-send-budget.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
 import {
   AccountDeletionBlockedError,
+  BotProviderError,
   EmailAlreadyVerifiedError,
   EmailSendBudgetExhaustedError,
   EmailTakenError,
@@ -52,6 +55,7 @@ class FakeUserRepo implements UserRepository {
   private seq = 0;
   private byId = new Map<string, User & {
     passwordHash: string | null; googleId?: string | null; emailVersion: number; authVersion: number;
+    deletionStartedAt: Date | null;
   }>();
   private byEmail = new Map<string, string>();
   private byGoogleId = new Map<string, string>();
@@ -64,6 +68,7 @@ class FakeUserRepo implements UserRepository {
       emailVerified: input.emailVerified ?? false,
       emailVersion: 1,
       authVersion: 1,
+      deletionStartedAt: null,
       passwordHash: input.passwordHash ?? null,
       googleId: input.googleId ?? null,
       organizationName: input.organizationName ?? null,
@@ -120,6 +125,12 @@ class FakeUserRepo implements UserRepository {
       hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId), createdAt: r.createdAt,
     } : null;
   }
+  async beginDeletion(id: string) {
+    const user = this.byId.get(id);
+    if (!user) throw new InvalidCredentialsError('Account no longer exists');
+    user.deletionStartedAt ??= new Date();
+  }
+  deletionStartedAt(id: string) { return this.byId.get(id)?.deletionStartedAt; }
   async updatePassword(id: string, passwordHash: string, expectedAuthVersion: number) {
     const r = this.byId.get(id);
     if (!r) throw new Error('missing user');
@@ -332,6 +343,14 @@ function meetingRepoOver(store: Meeting[]): MeetingRepository {
     claimBotTranscript: vi.fn(), releaseBotTranscript: vi.fn(),
     findByShareToken: vi.fn(), enableShare: vi.fn(), revokeShare: vi.fn(), findByTranscriptionJobId: vi.fn(),
     updateStatus: vi.fn(), setSummary: vi.fn(), setUploadInfo: vi.fn(),
+    markBotCreationRejected: vi.fn(),
+    bindCreatedBot: vi.fn(),
+    hasUnresolvedBotClaimForUser: vi.fn(async (uid: string) => store.some(m =>
+      m.ownerUserId === uid && m.source === 'bot' && !m.botId && !m.botStartRejectedAt)),
+    hasUnresolvedUploadClaimForUser: vi.fn(async (uid: string) => store.some(m =>
+      m.ownerUserId === uid && m.source === 'upload'
+      && m.status !== 'transcribed' && !m.uploadProviderExcludedAt)),
+    markUploadBeforeProviderFailed: vi.fn(), abortUploadIfDeleting: vi.fn(),
     claimUploadSubmission: vi.fn(), bindTranscriptionJob: vi.fn(), failRejectedUploadSubmission: vi.fn(),
     findFailedBotMediaOlderThan: vi.fn(), markBotMediaDeleted: vi.fn(),
     setShareEnabled: vi.fn(), rotateShareToken: vi.fn(),
@@ -364,7 +383,7 @@ function build(meetingStore: Meeting[] = []) {
   const chat: ChatMessageRepository = { claimQuestion: vi.fn(), completeQuestion: vi.fn(), releaseQuestion: vi.fn(),
     add: vi.fn(), listByMeeting: vi.fn(), countUserMessages: vi.fn(), deleteByMeeting: vi.fn() };
   const usage: UsageRepository = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
-  const storage: AudioStoragePort = { upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
+  const storage: AudioStoragePort = { pathForUpload: vi.fn(), upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
   const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn(), fetchTranscript: vi.fn(),
     getRecordedDurationSeconds: vi.fn(), deleteRecording: vi.fn() };
   const billing = { anonymizeCustomerForUser: vi.fn() } as unknown as PaddleBillingRepository;
@@ -805,6 +824,85 @@ describe('AuthService', () => {
   });
 
   describe('deleteAccount', () => {
+    it('does not purge a pending upload while storage or AssemblyAI work may still finish', async () => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user } = await c.service.signup('racing-upload@example.com', 'a-good-password');
+      store.push(makeMeeting({ id: 'pending-upload', ownerUserId: user.id, source: 'upload',
+        status: 'pending', botId: null, audioStoragePath: null }));
+
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(store).toHaveLength(1);
+      expect(c.users.size()).toBe(1);
+    });
+
+    it.each([false, true])('holds an in-flight bot claim until a late provider ID can be deleted (sweep=%s)', async swept => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user } = await c.service.signup('racing-bot@example.com', 'a-good-password');
+      let finishCreation!: (value: { botId: string }) => void;
+      const provider = { createBot: vi.fn(() => new Promise<{ botId: string }>(resolve => {
+        finishCreation = resolve;
+      })) } as unknown as MeetingBotPort;
+      const meter = { reserveMeeting: vi.fn(async () => {
+        const pending = makeMeeting({ id: 'racing-meeting', ownerUserId: user.id,
+          source: 'bot', status: 'pending', botId: null });
+        store.push(pending);
+        return { meeting: pending, entitlements: { maxMeetingSeconds: 900 } };
+      }) } as unknown as UsageMeterService;
+      vi.mocked(c.meetings.bindCreatedBot).mockImplementation(async (id, botId) => {
+        const current = store.find(meeting => meeting.id === id);
+        if (!current) throw new Error('Meeting disappeared before bot binding');
+        Object.assign(current, { status: current.status === 'failed' ? 'failed' : 'bot_joining', botId });
+        return current;
+      });
+      const start = new StartMeetingService(c.meetings, meter, provider);
+
+      const inFlight = start.start(user.id, 'https://us02web.zoom.us/j/123');
+      await vi.waitFor(() => expect(provider.createBot).toHaveBeenCalledOnce());
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(store).toHaveLength(1);
+      expect(c.users.size()).toBe(1);
+
+      if (swept) store[0].status = 'failed';
+      finishCreation({ botId: 'late-created-bot' });
+      if (swept) await expect(inFlight).rejects.toBeInstanceOf(BotProviderError);
+      else await expect(inFlight).resolves.toMatchObject({ botId: 'late-created-bot' });
+      await c.service.deleteAccount(user.id, 'a-good-password');
+      expect(c.bot.deleteRecording).toHaveBeenCalledWith('late-created-bot');
+      expect(store).toHaveLength(0);
+      expect(c.users.size()).toBe(0);
+    });
+
+    it('retains a pending bot claim whose provider outcome has not been reconciled', async () => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user } = await c.service.signup('pending-bot@example.com', 'a-good-password');
+      store.push(makeMeeting({ id: 'pending-bot', ownerUserId: user.id, source: 'bot',
+        status: 'pending', botId: null }));
+
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(c.users.size()).toBe(1);
+      expect(c.users.deletionStartedAt(user.id)).toBeInstanceOf(Date);
+      expect(store).toHaveLength(1);
+      expect(c.billing.anonymizeCustomerForUser).not.toHaveBeenCalled();
+
+      // A timeout sweep is not evidence that Recall never created a bot.
+      store[0].status = 'failed';
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(store).toHaveLength(1);
+
+      // A documented pre-creation rejection is the only safe release for a missing bot ID.
+      store[0].botStartRejectedAt = new Date();
+      await c.service.deleteAccount(user.id, 'a-good-password');
+      expect(c.users.size()).toBe(0);
+      expect(store).toHaveLength(0);
+    });
+
     it('rejects a wrong password and keeps the account', async () => {
       const { user } = await ctx.service.signup('grace@example.com', 'a-good-password');
       await expect(ctx.service.deleteAccount(user.id, 'wrong-password')).rejects.toBeInstanceOf(InvalidCredentialsError);

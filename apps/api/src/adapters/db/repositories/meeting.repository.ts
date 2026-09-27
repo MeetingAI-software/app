@@ -5,7 +5,7 @@ import type { MeetingRepository } from '../../../ports/repositories.port';
 import type { Meeting, MeetingPlatform, MeetingSource, MeetingStatus } from '../../../domain/types';
 import crypto from 'crypto';
 import type { PlanEntitlements } from '../../../domain/billing';
-import { CapExceededError } from '../../../domain/errors';
+import { AccountDeletionBlockedError, CapExceededError } from '../../../domain/errors';
 import { assertTransition } from '../../../domain/state-machine';
 
 export class DrizzleMeetingRepository implements MeetingRepository {
@@ -20,9 +20,10 @@ export class DrizzleMeetingRepository implements MeetingRepository {
     // The owner row is the mutex shared by all API replicas and usage settlement. The meeting
     // and its claim commit together, so even a crash before the provider call consumes capacity.
     return db.transaction(async tx => {
-      const [owner] = await tx.select({ id: users.id }).from(users)
+      const [owner] = await tx.select({ id: users.id, deletionStartedAt: users.deletionStartedAt }).from(users)
         .where(eq(users.id, input.ownerUserId)).for('update');
       if (!owner) throw new Error('Meeting owner does not exist');
+      if (owner.deletionStartedAt) throw new AccountDeletionBlockedError('Account deletion is in progress');
 
       const [active] = await tx.select({
         count: sql<string>`count(*)`,
@@ -218,17 +219,62 @@ export class DrizzleMeetingRepository implements MeetingRepository {
   }
 
   async claimUploadSubmission(id: string): Promise<boolean> {
-    const rows = await db.update(meetings)
-      .set({ status: 'processing', updatedAt: new Date() })
-      .where(and(
-        eq(meetings.id, id),
-        eq(meetings.source, 'upload'),
+    return db.transaction(async tx => {
+      const [meeting] = await tx.select({ ownerUserId: meetings.ownerUserId })
+        .from(meetings).where(eq(meetings.id, id));
+      if (!meeting) return false;
+      // Owner before meeting: the same lock order as reserve() and beginDeletion().
+      const [owner] = await tx.select({ deletionStartedAt: users.deletionStartedAt })
+        .from(users).where(eq(users.id, meeting.ownerUserId)).for('update');
+      if (!owner) return false;
+      if (owner.deletionStartedAt) return false;
+      const rows = await tx.update(meetings)
+        .set({ status: 'processing', uploadSubmissionClaimedAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(meetings.id, id), eq(meetings.source, 'upload'), eq(meetings.status, 'pending'),
+          isNotNull(meetings.audioStoragePath), isNull(meetings.transcriptionJobId),
+          isNull(meetings.uploadProviderExcludedAt),
+        )).returning({ id: meetings.id });
+      return rows.length === 1;
+    });
+  }
+
+  async markUploadBeforeProviderFailed(id: string, reason: string): Promise<void> {
+    await db.transaction(async tx => {
+      const [row] = await tx.update(meetings).set({
+        status: 'failed', errorMessage: reason, uploadProviderExcludedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(and(eq(meetings.id, id), eq(meetings.source, 'upload'),
         eq(meetings.status, 'pending'),
-        isNotNull(meetings.audioStoragePath),
-        isNull(meetings.transcriptionJobId),
-      ))
-      .returning({ id: meetings.id });
-    return rows.length === 1;
+        isNull(meetings.uploadSubmissionClaimedAt), isNull(meetings.transcriptionJobId)))
+        .returning({ id: meetings.id });
+      if (!row) throw new Error('Upload may already have reached the provider');
+      await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
+        .where(and(eq(meetingQuotaReservations.meetingId, id),
+          isNull(meetingQuotaReservations.releasedAt)));
+    });
+  }
+
+  async abortUploadIfDeleting(id: string): Promise<boolean> {
+    return db.transaction(async tx => {
+      const [meeting] = await tx.select({ ownerUserId: meetings.ownerUserId })
+        .from(meetings).where(eq(meetings.id, id));
+      if (!meeting) return false;
+      const [owner] = await tx.select({ deletionStartedAt: users.deletionStartedAt })
+        .from(users).where(eq(users.id, meeting.ownerUserId)).for('update');
+      if (!owner?.deletionStartedAt) return false;
+      const [aborted] = await tx.update(meetings).set({
+        status: 'failed', uploadProviderExcludedAt: new Date(), updatedAt: new Date(),
+      }).where(and(eq(meetings.id, id), eq(meetings.source, 'upload'),
+        eq(meetings.status, 'pending'),
+        isNull(meetings.uploadSubmissionClaimedAt), isNull(meetings.transcriptionJobId)))
+        .returning({ id: meetings.id });
+      if (!aborted) return false;
+      await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
+        .where(and(eq(meetingQuotaReservations.meetingId, id),
+          isNull(meetingQuotaReservations.releasedAt)));
+      return true;
+    });
   }
 
   async bindTranscriptionJob(id: string, jobId: string): Promise<boolean> {
@@ -237,7 +283,9 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       .where(and(
         eq(meetings.id, id),
         eq(meetings.source, 'upload'),
-        eq(meetings.status, 'processing'),
+        inArray(meetings.status, ['processing', 'failed']),
+        isNotNull(meetings.uploadSubmissionClaimedAt),
+        isNull(meetings.uploadProviderExcludedAt),
         isNull(meetings.transcriptionJobId),
       ))
       .returning({ id: meetings.id });
@@ -247,12 +295,15 @@ export class DrizzleMeetingRepository implements MeetingRepository {
   async failRejectedUploadSubmission(id: string, reason: string): Promise<void> {
     await db.transaction(async tx => {
       const [row] = await tx.update(meetings)
-        .set({ status: 'failed', errorMessage: reason, updatedAt: new Date() })
+        .set({ status: 'failed', errorMessage: reason,
+          uploadProviderExcludedAt: new Date(), updatedAt: new Date() })
         .where(and(
           eq(meetings.id, id),
           eq(meetings.source, 'upload'),
-          eq(meetings.status, 'processing'),
+          inArray(meetings.status, ['processing', 'failed']),
+          isNotNull(meetings.uploadSubmissionClaimedAt),
           isNull(meetings.transcriptionJobId),
+          isNull(meetings.uploadProviderExcludedAt),
         ))
         .returning({ id: meetings.id });
       if (!row) throw new Error('Upload submission state changed before rejection');
@@ -296,7 +347,9 @@ export class DrizzleMeetingRepository implements MeetingRepository {
           .where(eq(usageLedger.meetingId, id));
         // Only a committed provider-start claim can have paid work behind a failed upload.
         // Audio storage alone proves nothing: URL signing may fail before submission.
-        const mayHaveSpent = (prior.source === 'bot' && !!prior.botId)
+        // A missing bot ID can mean the create response was lost or is still in flight. Only
+        // markBotCreationRejected may release that reservation after a definite provider refusal.
+        const mayHaveSpent = (prior.source === 'bot' && !prior.botStartRejectedAt)
           || (prior.source === 'upload' && prior.status !== 'pending');
         if (charged || !mayHaveSpent) {
           await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
@@ -306,6 +359,66 @@ export class DrizzleMeetingRepository implements MeetingRepository {
       }
       return row as Meeting;
     });
+  }
+
+  async markBotCreationRejected(id: string, errorMessage: string): Promise<Meeting> {
+    return db.transaction(async tx => {
+      const [prior] = await tx.select().from(meetings).where(eq(meetings.id, id)).for('update');
+      if (!prior || prior.source !== 'bot' || prior.botId || prior.botStartRejectedAt
+        || (prior.status !== 'pending' && prior.status !== 'failed')) {
+        throw new Error('Bot creation claim cannot be rejected in its current state');
+      }
+      const [row] = await tx.update(meetings).set({
+        status: 'failed', errorMessage, botStartRejectedAt: new Date(), updatedAt: new Date(),
+      }).where(eq(meetings.id, id)).returning();
+      await tx.update(meetingQuotaReservations).set({ releasedAt: new Date() })
+        .where(and(eq(meetingQuotaReservations.meetingId, id),
+          isNull(meetingQuotaReservations.releasedAt)));
+      return row as Meeting;
+    });
+  }
+
+  async bindCreatedBot(id: string, botId: string): Promise<Meeting> {
+    if (!botId) throw new Error('Created bot ID is missing');
+    return db.transaction(async tx => {
+      const [prior] = await tx.select().from(meetings).where(eq(meetings.id, id)).for('update');
+      if (!prior || prior.source !== 'bot' || prior.botStartRejectedAt) {
+        throw new Error('Bot creation claim cannot be bound in its current state');
+      }
+      if (prior.botId === botId) return prior as Meeting;
+      if (prior.botId || (prior.status !== 'pending' && prior.status !== 'failed')) {
+        throw new Error('Bot creation claim already has a different outcome');
+      }
+      // A timeout sweep can mark an in-flight creation failed. Keep that terminal status so a
+      // replay cannot reopen it, but retain the late ID for the failed-media sweep and erasure.
+      if (prior.status === 'pending') assertTransition('pending', 'bot_joining');
+      const [row] = await tx.update(meetings).set({
+        botId,
+        status: prior.status === 'pending' ? 'bot_joining' : 'failed',
+        updatedAt: new Date(),
+      }).where(eq(meetings.id, id)).returning();
+      return row as Meeting;
+    });
+  }
+
+  async hasUnresolvedBotClaimForUser(userId: string): Promise<boolean> {
+    // Status is deliberately absent: a timeout sweep can turn an unknown pending bot into failed.
+    const [claim] = await db.select({ id: meetings.id }).from(meetings).where(and(
+      eq(meetings.ownerUserId, userId), eq(meetings.source, 'bot'),
+      isNull(meetings.botId), isNull(meetings.botStartRejectedAt),
+    )).limit(1);
+    return Boolean(claim);
+  }
+
+  async hasUnresolvedUploadClaimForUser(userId: string): Promise<boolean> {
+    // Pending includes an in-flight storage upload. Processing includes a paid submission that
+    // may not have returned its job ID. A failed row is safe only with an explicit no-provider
+    // receipt; an old sweep failure is not evidence that AssemblyAI never accepted the request.
+    const [claim] = await db.select({ id: meetings.id }).from(meetings).where(and(
+      eq(meetings.ownerUserId, userId), eq(meetings.source, 'upload'),
+      sql`${meetings.status} <> 'transcribed'`, isNull(meetings.uploadProviderExcludedAt),
+    )).limit(1);
+    return Boolean(claim);
   }
 
   async setSummary(id: string, summary: string): Promise<void> {

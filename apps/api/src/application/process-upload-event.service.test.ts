@@ -66,6 +66,12 @@ describe('ProcessUploadEventService', () => {
       findFailedBotMediaOlderThan: vi.fn(),
       markBotMediaDeleted: vi.fn(),
       updateStatus: vi.fn(),
+      markBotCreationRejected: vi.fn(),
+      bindCreatedBot: vi.fn(),
+      hasUnresolvedBotClaimForUser: vi.fn(),
+      hasUnresolvedUploadClaimForUser: vi.fn(),
+      markUploadBeforeProviderFailed: vi.fn(),
+      abortUploadIfDeleting: vi.fn(),
       setSummary: vi.fn(),
       setUploadInfo: vi.fn(),
       countActive: vi.fn(),
@@ -80,7 +86,7 @@ describe('ProcessUploadEventService', () => {
     transcriptRepo = { save: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
     usageRepo = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
     transcription = { submit: vi.fn(), fetchResult: vi.fn() };
-    storage = { upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
+    storage = { pathForUpload: vi.fn(), upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
     docGen = { generateDocument: vi.fn(), generateSummary: vi.fn() };
     service = new ProcessUploadEventService(meetingRepo, transcriptRepo, usageRepo, transcription, storage, docGen);
   });

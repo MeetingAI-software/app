@@ -259,6 +259,8 @@ Standard-skanning `196e4386-e3f1-402f-b9cc-02ba02b775c5` av den samlade committe
 | 74 | medium | csf_1b6d0a04a87bd65fe974ce9d | occ_5ce33df271a94c39bd4c6d0e | G34 | apps/api/src/jobs/sweep.ts | Failed Recall bot meetings bypass recording deletion sweep |
 | 75 | medium | csf_341ed0d8dcee4ea82add28c4 | occ_e80e78fe1713efb94aeab089 | G35 | apps/api/src/application/auth.service.ts | Account deletion can orphan a Recall bot created during erasure |
 | 76 | medium | csf_806b7f463e8f1e1bc9cf9872 | occ_62d42918474cd85a1ebc06c9 | G19 | apps/api/src/adapters/http/server.ts | Mixed-case share paths expose bearer tokens in API request logs |
+| 77 | medium | local_recall_delete_media_conflict_20260927 | occ_local_recall_delete_media_conflict_20260927 | G36 | apps/api/src/adapters/recall/recall-request.ts | Recall 409 can incorrectly acknowledge recording deletion |
+| 78 | medium | local_upload_erasure_provider_race_20260927 | occ_local_upload_erasure_provider_race_20260927 | G37 | apps/api/src/adapters/http/routes/upload.routes.ts | Account deletion can orphan uploaded audio or an AssemblyAI job during erasure |
 
 **G12, G13, G17 och G19 är kvarstående angreppsvägar i befintliga paket.** G12 kräver offentlig registrering för anonym uppslagning; `change-email` kräver egen session och eget lösenord. G13 kräver ett osäkert eller tomt modellsvar efter anrop; faktisk debitering är inte verifierad. G17 kräver fördröjd eller samtidig signerad Recall-leverans. G19 kan utlösas av blandade versaler även när begäran senare avvisas. Samtliga är öppna tills fix, negativa tester och ny skanning finns. Den tvåhopps proxykonfigurationen och återstående filer är uppskjutna frågor i skanningens `coverage.json`, inte bekräftade fynd.
 
@@ -289,6 +291,13 @@ Standard-skanning `196e4386-e3f1-402f-b9cc-02ba02b775c5` av den samlade committe
 - **Nuvarande beteende före fix:** `requestRecall` behandlade HTTP 409 från `POST /api/v1/bot/{id}/delete_media/` som lyckad radering. En beständig städrutin kunde då kvittera inspelningen som borttagen trots att Recall avvisat begäran. [Recalls felreferens](https://docs.recall.ai/reference/errors) beskriver 409 som konflikt som ska provas igen.
 - **Fixkrav:** räkna endast ett lyckat svar eller verifierat redan borttaget media som färdigt. Prova om 409 med begränsad fördröjning; behåll bot-ID och raderingsanspråk vid fortsatt konflikt.
 - **Verifiera:** syntetiska 409→409 och 409→200, 200/404, providerfel och senare sweep-omförsök. Kontrollera faktisk Recall-respons och retention i sandbox innan G34/G36 stängs.
+
+### N08 — Uppladdning kan lämna ljud eller transkriptionsjobb efter kontoradering (`local_upload_erasure_provider_race_20260927`, G37)
+
+- **Spår:** `upload.routes.ts` reserverar mötet innan `storage.upload` och skriver tidigare lagringsvägen först efter uppladdning. `process-upload-event.service.ts` kan vänta på `transcription.submit` innan jobb-ID binds. `auth.service.ts` kunde därför radera konto och mötesrad medan ett externt anrop ännu pågick. Detta är ett lokalt belagt fynd, inte ett ID från uppföljningsskanningen.
+- **Angreppsväg:** starta en giltig uppladdning, låt lagrings- eller AssemblyAI-anropet vänta, radera kontot parallellt och släpp sedan anropet. Det externa objektet eller jobbet kan finnas kvar utan lokal raderingsreferens. Ett svep som markerat raden `failed` bevisar inte att providern avvisade begäran.
+- **Fixkrav:** spara en deterministisk lagringsnyckel innan skrivning, spärra nya provideranspråk atomiskt mot samma ägarlås som kontoradering, behåll pågående/okända anspråk och bind sent jobb-ID även efter timeout. Frigör kvot och raderingsspärr endast vid dokumenterat definitivt avslag före providerstart.
+- **Verifiera:** negativa HTTP- och PGlite-test för radering under lagringsskrivning, spärrat AssemblyAI-anspråk, sent jobb-ID efter timeout, definitivt provideravslag och legitim kontoradering. Verkliga providerns tvetydiga svar och historiska `failed`-rader kräver manuell avstämning innan kontot kan raderas.
 
 ## Gemensamma avslutskriterier
 

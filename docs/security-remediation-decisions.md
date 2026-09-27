@@ -157,6 +157,7 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Ska registrering och adressbyte bli e-postförst-flöden där kontroll av den nya adressen sker innan kontot aktiveras eller ändras? Det innebär att användaren inte får en session omedelbart efter registreringsformuläret och att återhämtning för befintliga konton behöver vara tydlig.
 - **Mitt förslag:** Använd samma neutrala HTTP-svar och cookie-beteende för fri och upptagen adress före adressbevis. Skicka endast en säker, begränsad åtgärdslänk till den verkliga adressägaren; aktivera konto eller adressbyte först efter bevis. Behåll delad utskicks- och hashbudget.
 - **Status:** Väntar på senare produktbeslut. Kodarbete med övriga fynd fortsätter; offentlig driftinställning har inte kontrollerats.
+- **Reproducerat 2026-09-27:** Två avsiktligt röda HTTP-test visar att fri/upptagen signup ger 201 med sessionscookie respektive 409, och att `change-email` ändrar adressen vid ledig adress men ger 409 vid upptagen. Kör `npm.cmd run test --workspace api -- src/adapters/http/routes/account-discovery.regression.test.ts` efter att testet återställts från separat stash `cf6e1cfd1241a8efc8f9aeaa3523df61358dfd40`. Testet ingår inte i G35/G37-grenen eftersom D22 fortfarande är öppet.
 
 ### D23 — Kontrollera verklig proxykedja för IP-gränser
 
@@ -171,3 +172,4 @@ Här samlas frågor som kräver åtkomst till driftmiljö eller ett produktbeslu
 - **Vad behöver du avgöra?** Hur länge ska en misslyckad inspelning hållas för support och omförsök, vem får avstämma botskapande med okänt utfall, och vilka leverantörsverktyg finns för att hitta och radera en bot utan lokalt ID?
 - **Mitt förslag:** Vägra kontoradering medan providerarbete är osäkert, behåll ett beständigt anspråk tills utfallet är avstämt, och radera kända misslyckade botinspelningar automatiskt efter en kort dokumenterad period med omförsök och revisionsspår. Kontrollera Recalls verkliga retention separat.
 - **Status:** Väntar på senare drift- och produktbeslut. Ingen providerkonfiguration eller kunddata har ändrats.
+- **Utökad avstämning G37:** En historisk misslyckad uppladdning utan säkert AssemblyAI-avslag kan redan ha ett externt jobb trots saknat lokalt jobb-ID. Nya spärrar lämnar då kontoraderingen öppen och kräver kontroll hos AssemblyAI; sätt inte ett efterhandskvitto enbart utifrån lokal `failed`-status. Även ett sent providersvar vars ID inte kunde bindas till databasen behöver samma avstämning.

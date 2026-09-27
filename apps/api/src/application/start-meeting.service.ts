@@ -2,7 +2,6 @@ import type { MeetingRepository } from '../ports/repositories.port';
 import type { MeetingBotPort } from '../ports/meeting-bot.port';
 import type { UsageMeterService } from './usage-meter.service';
 import type { Meeting } from '../domain/types';
-import { assertTransition } from '../domain/state-machine';
 import { detectPlatform } from '../domain/meeting-platform';
 import { BotProviderError } from '../domain/errors';
 
@@ -41,23 +40,19 @@ export class StartMeetingService {
       });
       createdBotId = botId;
 
-      // 4. Transition to bot_joining with the returned botId
-      assertTransition(meeting.status, 'bot_joining');
-      const updated = await this.meetingRepo.updateStatus(meeting.id, 'bot_joining', {
-        botId,
-      });
+      // 4. Bind the returned ID even if a timeout sweep has meanwhile marked the row failed.
+      const updated = await this.meetingRepo.bindCreatedBot(meeting.id, botId);
+      if (updated.status === 'failed') throw new BotProviderError({ operation: 'create_bot' });
 
       return updated;
     } catch (err) {
       const failure = new BotProviderError(err instanceof BotProviderError ? err.diagnostics : { operation: 'create_bot' });
       const definiteRejection = err instanceof BotProviderError
         && [400, 401, 403, 404, 422].includes(err.diagnostics.status ?? 0);
-      // After a lost response or failed DB write a paid bot might exist. Leave the pending
-      // reservation in place until provider reconciliation; releasing it would grant free slots.
-      if (!createdBotId && (definiteRejection || !(err instanceof BotProviderError))) {
-        await this.meetingRepo.updateStatus(meeting.id, 'failed', {
-          errorMessage: failure.message,
-        });
+      // Only an explicit provider rejection proves no bot exists. Generic failures can hide a
+      // lost success response; preserve their unresolved claim for provider reconciliation.
+      if (!createdBotId && definiteRejection) {
+        await this.meetingRepo.markBotCreationRejected(meeting.id, failure.message);
       }
       throw failure;
     }

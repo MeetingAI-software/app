@@ -3,8 +3,9 @@ import { eq, sql } from 'drizzle-orm';
 import { db, migrateOnce, truncateAll } from '../pglite-harness';
 import { meetingQuotaReservations, meetings, usageLedger, users } from '../schema';
 import { DrizzleMeetingRepository } from './meeting.repository';
+import { DrizzleUserRepository } from './user.repository';
 import { DrizzleUsageRepository } from './usage.repository';
-import { CapExceededError } from '../../../domain/errors';
+import { AccountDeletionBlockedError, CapExceededError } from '../../../domain/errors';
 import type { PlanEntitlements } from '../../../domain/billing';
 
 vi.mock('../client', () => ({ db }));
@@ -81,6 +82,80 @@ describe('durable meeting quota admission', () => {
     expect(await db.select().from(meetingQuotaReservations)).toHaveLength(1);
   });
 
+  it('fences reservations and direct inserts once another replica starts account deletion', async () => {
+    const userRepo = new DrizzleUserRepository();
+    const first = new DrizzleMeetingRepository();
+    const second = new DrizzleMeetingRepository();
+    await userRepo.beginDeletion(ownerUserId);
+
+    await expect(first.reserve(bot(ownerUserId), plan, 2))
+      .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+    await expect(second.reserve(upload(ownerUserId, 60), plan, 2))
+      .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+    await expect(second.create({ ownerUserId, source: 'bot', meetingUrl: 'https://zoom.us/j/123' }))
+      .rejects.toMatchObject({ cause: expect.objectContaining({
+        message: expect.stringMatching(/deletion is in progress/i),
+      }) });
+    expect(await db.select().from(meetings)).toHaveLength(0);
+  });
+
+  it('serializes a reserve against erasure and retains any already admitted unknown bot', async () => {
+    const userRepo = new DrizzleUserRepository();
+    const first = new DrizzleMeetingRepository();
+    const second = new DrizzleMeetingRepository();
+    const outcomes = await Promise.allSettled([
+      first.reserve(bot(ownerUserId), plan, 2), userRepo.beginDeletion(ownerUserId),
+    ]);
+    expect(outcomes[1].status).toBe('fulfilled');
+    const meetingsAfter = await db.select().from(meetings);
+    expect(meetingsAfter.length).toBe(outcomes[0].status === 'fulfilled' ? 1 : 0);
+    if (meetingsAfter.length) {
+      expect(await second.hasUnresolvedBotClaimForUser(ownerUserId)).toBe(true);
+    }
+    await expect(second.reserve(bot(ownerUserId), plan, 2))
+      .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+  });
+
+  it('keeps an unknown bot claim after a failure sweep and releases only a definite rejection', async () => {
+    const pending = await meetingsRepo.reserve(bot(ownerUserId), plan, 2);
+    await meetingsRepo.updateStatus(pending.id, 'failed', { errorMessage: 'Sweep timeout' });
+    expect(await new DrizzleMeetingRepository().hasUnresolvedBotClaimForUser(ownerUserId)).toBe(true);
+    const rejected = await meetingsRepo.markBotCreationRejected(pending.id, 'Provider rejected creation');
+    expect(rejected.status).toBe('failed');
+    expect(await new DrizzleMeetingRepository().hasUnresolvedBotClaimForUser(ownerUserId)).toBe(false);
+    const [claim] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, pending.id));
+    expect(claim.releasedAt).not.toBeNull();
+  });
+
+  it('allows a late returned bot ID to bind while deletion is fenced', async () => {
+    const pending = await meetingsRepo.reserve(bot(ownerUserId), plan, 2);
+    await new DrizzleUserRepository().beginDeletion(ownerUserId);
+    expect(await meetingsRepo.hasUnresolvedBotClaimForUser(ownerUserId)).toBe(true);
+    await new DrizzleMeetingRepository().updateStatus(pending.id, 'bot_joining', { botId: 'late-bot' });
+    expect(await meetingsRepo.hasUnresolvedBotClaimForUser(ownerUserId)).toBe(false);
+    expect((await meetingsRepo.findById(pending.id))?.botId).toBe('late-bot');
+  });
+
+  it('persists a late bot ID after a sweep failure without reopening the terminal meeting', async () => {
+    const pending = await meetingsRepo.reserve(bot(ownerUserId), plan, 2);
+    await new DrizzleUserRepository().beginDeletion(ownerUserId);
+    await new DrizzleMeetingRepository().updateStatus(pending.id, 'failed', {
+      errorMessage: 'Sweep timed out while createBot was still in flight',
+    });
+    const [claimAfterSweep] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, pending.id));
+    expect(claimAfterSweep.releasedAt).toBeNull();
+
+    const bound = await meetingsRepo.bindCreatedBot(pending.id, 'late-after-sweep');
+    expect(bound).toMatchObject({ status: 'failed', botId: 'late-after-sweep' });
+    expect(await new DrizzleMeetingRepository().hasUnresolvedBotClaimForUser(ownerUserId)).toBe(false);
+    expect((await meetingsRepo.findById(pending.id))?.botId).toBe('late-after-sweep');
+    const [claimAfterBind] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, pending.id));
+    expect(claimAfterBind.releasedAt).toBeNull();
+  });
+
   it('shares the same monthly claim across bots and uploads even with two concurrency slots', async () => {
     const results = await Promise.allSettled([
       meetingsRepo.reserve(bot(ownerUserId), plan, 2),
@@ -99,6 +174,9 @@ describe('durable meeting quota admission', () => {
       .rejects.toBeInstanceOf(CapExceededError);
     await meetingsRepo.updateStatus(first.id, 'failed');
     await meetingsRepo.updateStatus(first.id, 'failed');
+    await expect(meetingsRepo.reserve(upload(ownerUserId), plan, 2))
+      .rejects.toBeInstanceOf(CapExceededError);
+    await meetingsRepo.markBotCreationRejected(first.id, 'Definite provider rejection');
     const next = await meetingsRepo.reserve(upload(ownerUserId), plan, 2);
     expect(next.source).toBe('upload');
   });
@@ -156,6 +234,59 @@ describe('durable meeting quota admission', () => {
     expect(await meetingsRepo.bindTranscriptionJob(first.id, 'job-1')).toBe(true);
     expect(await meetingsRepo.bindTranscriptionJob(first.id, 'job-2')).toBe(false);
     expect((await meetingsRepo.findById(first.id))?.transcriptionJobId).toBe('job-1');
+  });
+
+  it('fences a pending storage upload before provider admission and retains its object reference', async () => {
+    const pending = await meetingsRepo.reserve(upload(ownerUserId, 60), plan, 2);
+    const otherReplica = new DrizzleMeetingRepository();
+    await new DrizzleUserRepository().beginDeletion(ownerUserId);
+    expect(await otherReplica.hasUnresolvedUploadClaimForUser(ownerUserId)).toBe(true);
+    await meetingsRepo.setUploadInfo(pending.id, { audioStoragePath: 'audio/planned.webm' });
+    expect(await otherReplica.claimUploadSubmission(pending.id)).toBe(false);
+    expect(await otherReplica.abortUploadIfDeleting(pending.id)).toBe(true);
+    expect(await otherReplica.hasUnresolvedUploadClaimForUser(ownerUserId)).toBe(false);
+    const row = await meetingsRepo.findById(pending.id);
+    expect(row?.audioStoragePath).toBe('audio/planned.webm');
+    expect(row?.uploadProviderExcludedAt).not.toBeNull();
+  });
+
+  it('keeps a historical failed upload without provider receipt deletion-blocking', async () => {
+    const pending = await meetingsRepo.reserve(upload(ownerUserId, 60), plan, 2);
+    await meetingsRepo.updateStatus(pending.id, 'failed', { errorMessage: 'Old worker timeout' });
+    await new DrizzleUserRepository().beginDeletion(ownerUserId);
+    expect(await new DrizzleMeetingRepository().hasUnresolvedUploadClaimForUser(ownerUserId)).toBe(true);
+    expect(await meetingsRepo.abortUploadIfDeleting(pending.id)).toBe(false);
+  });
+
+  it('retains a claimed upload after sweep failure and binds a late provider job ID', async () => {
+    const pending = await meetingsRepo.reserve(upload(ownerUserId, 60), plan, 2);
+    await meetingsRepo.setUploadInfo(pending.id, { audioStoragePath: 'audio/planned.webm' });
+    expect(await meetingsRepo.claimUploadSubmission(pending.id)).toBe(true);
+    await new DrizzleUserRepository().beginDeletion(ownerUserId);
+    await meetingsRepo.updateStatus(pending.id, 'failed', { errorMessage: 'Worker sweep timeout' });
+    expect(await new DrizzleMeetingRepository().hasUnresolvedUploadClaimForUser(ownerUserId)).toBe(true);
+    const [claim] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, pending.id));
+    expect(claim.releasedAt).toBeNull();
+    expect(await new DrizzleMeetingRepository().bindTranscriptionJob(pending.id, 'late-job')).toBe(true);
+    expect((await meetingsRepo.findById(pending.id))?.transcriptionJobId).toBe('late-job');
+    expect((await meetingsRepo.findById(pending.id))?.status).toBe('failed');
+    expect(await meetingsRepo.hasUnresolvedUploadClaimForUser(ownerUserId)).toBe(true);
+  });
+
+  it('allows a definite AssemblyAI refusal after a sweep but keeps an ambiguous failure blocked', async () => {
+    const pending = await meetingsRepo.reserve(upload(ownerUserId, 60), plan, 2);
+    await meetingsRepo.setUploadInfo(pending.id, { audioStoragePath: 'audio/planned.webm' });
+    expect(await meetingsRepo.claimUploadSubmission(pending.id)).toBe(true);
+    await new DrizzleUserRepository().beginDeletion(ownerUserId);
+    await meetingsRepo.updateStatus(pending.id, 'failed', { errorMessage: 'Worker sweep timeout' });
+    expect(await meetingsRepo.hasUnresolvedUploadClaimForUser(ownerUserId)).toBe(true);
+    await meetingsRepo.failRejectedUploadSubmission(pending.id, 'AssemblyAI submit rejected: 401');
+    expect(await meetingsRepo.hasUnresolvedUploadClaimForUser(ownerUserId)).toBe(false);
+    expect((await meetingsRepo.findById(pending.id))?.uploadProviderExcludedAt).not.toBeNull();
+    const [claim] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, pending.id));
+    expect(claim.releasedAt).not.toBeNull();
   });
 
   it('keeps an uncertain paid upload claim after a failed worker event', async () => {

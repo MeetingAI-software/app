@@ -43,6 +43,8 @@ describe('StartMeetingService', () => {
   const reserveMeeting = vi.fn();
   const create = vi.fn();
   const updateStatus = vi.fn();
+  const markBotCreationRejected = vi.fn();
+  const bindCreatedBot = vi.fn();
   const createBot = vi.fn();
 
   let service: StartMeetingService;
@@ -55,11 +57,17 @@ describe('StartMeetingService', () => {
     updateStatus.mockReset();
     updateStatus.mockImplementation(async (id: string, status: MeetingStatus, extra?: Partial<Meeting>) =>
       meeting({ id, status, ...extra }));
+    markBotCreationRejected.mockReset();
+    markBotCreationRejected.mockImplementation(async (id: string, errorMessage: string) =>
+      meeting({ id, status: 'failed', errorMessage, botStartRejectedAt: new Date() }));
+    bindCreatedBot.mockReset();
+    bindCreatedBot.mockImplementation(async (id: string, botId: string) =>
+      meeting({ id, status: 'bot_joining', botId }));
     createBot.mockReset();
     createBot.mockResolvedValue({ botId: 'bot-42' });
 
     service = new StartMeetingService(
-      { create, updateStatus } as unknown as MeetingRepository,
+      { create, updateStatus, markBotCreationRejected, bindCreatedBot } as unknown as MeetingRepository,
       { reserveMeeting } as unknown as UsageMeterService,
       { createBot } as unknown as MeetingBotPort,
     );
@@ -78,7 +86,7 @@ describe('StartMeetingService', () => {
         meetingId: 'm1',
         maxMeetingSeconds: 3600,
       });
-      expect(updateStatus).toHaveBeenCalledWith('m1', 'bot_joining', { botId: 'bot-42' });
+      expect(bindCreatedBot).toHaveBeenCalledWith('m1', 'bot-42');
       expect(result.status).toBe('bot_joining');
       expect(result.botId).toBe('bot-42');
     });
@@ -138,15 +146,14 @@ describe('StartMeetingService', () => {
 
   describe('when the bot provider refuses', () => {
     // THE test for this file.
-    it('closes the meeting out as failed and reports a provider error', async () => {
+    it('preserves the claim when an unclassified provider error may hide a created bot', async () => {
       createBot.mockRejectedValue(new Error('Recall rejected the link'));
 
       await expect(service.start('u1', 'https://us02web.zoom.us/j/123'))
         .rejects.toBeInstanceOf(BotProviderError);
 
-      expect(updateStatus).toHaveBeenCalledWith('m1', 'failed', {
-        errorMessage: BOT_PROVIDER_MESSAGE,
-      });
+      expect(updateStatus).not.toHaveBeenCalled();
+      expect(markBotCreationRejected).not.toHaveBeenCalled();
     });
 
     it('discards provider words before persistence and monitoring', async () => {
@@ -155,29 +162,29 @@ describe('StartMeetingService', () => {
       await expect(service.start('u1', 'https://us02web.zoom.us/j/123'))
         .rejects.toThrow(BOT_PROVIDER_MESSAGE);
       expect(JSON.stringify(updateStatus.mock.calls)).not.toContain('meeting has already ended');
+      expect(JSON.stringify(markBotCreationRejected.mock.calls)).not.toContain('meeting has already ended');
     });
 
     // A provider can reject with something that has no `.message` at all. The meeting must still be
     // closed out — a thrown TypeError in the catch block would leave the row pending forever.
-    it('still fails the meeting when the provider throws something shapeless', async () => {
+    it('keeps the claim when the provider throws something shapeless', async () => {
       createBot.mockRejectedValue({ status: 502 });
 
       await expect(service.start('u1', 'https://us02web.zoom.us/j/123'))
         .rejects.toBeInstanceOf(BotProviderError);
 
-      expect(updateStatus).toHaveBeenCalledWith('m1', 'failed', {
-        errorMessage: BOT_PROVIDER_MESSAGE,
-      });
+      expect(updateStatus).not.toHaveBeenCalled();
+      expect(markBotCreationRejected).not.toHaveBeenCalled();
     });
 
-    it('never leaves the meeting in the state the user would see as "still starting"', async () => {
+    it('keeps the uncertain claim for reconciliation after an unclassified failure', async () => {
       createBot.mockRejectedValue(new Error('nope'));
 
       await expect(service.start('u1', 'https://us02web.zoom.us/j/123')).rejects.toThrow();
 
       const statuses = updateStatus.mock.calls.map(([, status]) => status);
-      expect(statuses).toEqual(['failed']);
-      expect(statuses).not.toContain('bot_joining');
+      expect(statuses).toEqual([]);
+      expect(markBotCreationRejected).not.toHaveBeenCalled();
     });
 
     it('keeps the pending claim when an ambiguous provider response may hide a paid bot', async () => {
@@ -191,7 +198,8 @@ describe('StartMeetingService', () => {
       createBot.mockRejectedValue(new BotProviderError({ operation: 'create_bot', status: 400 }));
       await expect(service.start('u1', 'https://us02web.zoom.us/j/123'))
         .rejects.toBeInstanceOf(BotProviderError);
-      expect(updateStatus).toHaveBeenCalledWith('m1', 'failed', expect.any(Object));
+      expect(markBotCreationRejected).toHaveBeenCalledWith('m1', BOT_PROVIDER_MESSAGE);
+      expect(updateStatus).not.toHaveBeenCalled();
     });
   });
 
@@ -199,20 +207,22 @@ describe('StartMeetingService', () => {
   // impossible jump is caught here instead of leaving the row in a state the worker cannot handle.
   it('refuses to move a meeting that is not pending into bot_joining', async () => {
     reserveMeeting.mockResolvedValue({ meeting: meeting({ status: 'transcribed' as MeetingStatus }), entitlements: ENTITLEMENTS });
+    bindCreatedBot.mockRejectedValueOnce(new Error('Bot creation claim already has a different outcome'));
 
     await expect(service.start('u1', 'https://us02web.zoom.us/j/123'))
       .rejects.toBeInstanceOf(BotProviderError);
 
     // A bot ID has been issued; do not release its durable claim on a later local failure.
     expect(updateStatus).not.toHaveBeenCalled();
+    expect(bindCreatedBot).toHaveBeenCalledWith('m1', 'bot-42');
   });
 
   it('keeps the claim if the bot was created but its ID could not be persisted', async () => {
-    updateStatus.mockRejectedValueOnce(new Error('database unavailable'));
+    bindCreatedBot.mockRejectedValueOnce(new Error('database unavailable'));
     await expect(service.start('u1', 'https://us02web.zoom.us/j/123'))
       .rejects.toBeInstanceOf(BotProviderError);
     expect(createBot).toHaveBeenCalledTimes(1);
-    expect(updateStatus).toHaveBeenCalledTimes(1);
-    expect(updateStatus).toHaveBeenCalledWith('m1', 'bot_joining', { botId: 'bot-42' });
+    expect(bindCreatedBot).toHaveBeenCalledTimes(1);
+    expect(bindCreatedBot).toHaveBeenCalledWith('m1', 'bot-42');
   });
 });

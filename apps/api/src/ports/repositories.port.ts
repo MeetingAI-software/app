@@ -33,12 +33,23 @@ export interface MeetingRepository {
   findByTranscriptionJobId(jobId: string): Promise<Meeting | null>;   // Day 3: map a transcription webhook back to its meeting
   /** Claim the one possible paid transcription submit before calling the provider. */
   claimUploadSubmission(id: string): Promise<boolean>;
+  /** No provider call can follow this definitive pre-outbox failure. */
+  markUploadBeforeProviderFailed(id: string, reason: string): Promise<void>;
+  /** Resolve a prepared upload after account erasure begins, before outbox submission. */
+  abortUploadIfDeleting(id: string): Promise<boolean>;
   /** Bind the returned provider job at most once to the claimed upload. */
   bindTranscriptionJob(id: string, jobId: string): Promise<boolean>;
   /** Fail and release an upload only after a definite pre-job provider rejection. */
   failRejectedUploadSubmission(id: string, reason: string): Promise<void>;
   updateStatus(id: string, to: MeetingStatus,
     patch?: Partial<Pick<Meeting, 'botId' | 'durationSeconds' | 'errorMessage'>>): Promise<Meeting>;
+  /** Record a provider rejection that proves no bot was created, and release its quota atomically. */
+  markBotCreationRejected(id: string, errorMessage: string): Promise<Meeting>;
+  /** Bind a returned bot even if a timeout sweep has already marked the meeting failed. */
+  bindCreatedBot(id: string, botId: string): Promise<Meeting>;
+  /** Conservative erasure gate, independent of meeting status (the sweep can mark unknown outcomes failed). */
+  hasUnresolvedBotClaimForUser(userId: string): Promise<boolean>;
+  hasUnresolvedUploadClaimForUser(userId: string): Promise<boolean>;
   setSummary(id: string, summary: string): Promise<void>;
   setShareEnabled(id: string, userId: string, enabled: boolean): Promise<Meeting | null>;   // owner-scoped: turn a public link on or off
   rotateShareToken(id: string, userId: string): Promise<Meeting | null>;                    // owner-scoped: mint a new token; the old link dies
@@ -150,6 +161,8 @@ export interface UserRepository {
     expectedAuthVersion: number }): Promise<boolean>;
   markEmailVerified(id: string): Promise<void>;
   findById(id: string): Promise<User | null>;
+  /** Fence new meetings across replicas before account erasure inspects provider claims. */
+  beginDeletion(id: string): Promise<void>;
   updatePassword(id: string, passwordHash: string, expectedAuthVersion: number): Promise<number>;
   updateEmail(id: string, email: string, expectedAuthVersion: number): Promise<User>;
   deleteById(id: string): Promise<void>;

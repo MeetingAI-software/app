@@ -115,6 +115,15 @@ export class DrizzleUserRepository implements UserRepository {
     return row ? toUser(row) : null;
   }
 
+  async beginDeletion(id: string): Promise<void> {
+    // reserve() locks the same owner row before inserting a meeting. Whichever transaction wins
+    // commits first; a later reservation sees this durable marker and cannot start provider work.
+    const [row] = await db.update(users).set({
+      deletionStartedAt: sql`coalesce(${users.deletionStartedAt}, now())`,
+    }).where(eq(users.id, id)).returning({ id: users.id });
+    if (!row) throw new InvalidCredentialsError('Account no longer exists');
+  }
+
   async updatePassword(id: string, passwordHash: string, expectedAuthVersion: number): Promise<number> {
     const [row] = await db.update(users).set({
       passwordHash,

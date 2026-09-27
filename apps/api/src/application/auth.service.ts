@@ -276,6 +276,15 @@ export class AuthService implements AuthServiceApi {
     // The shared boundary consumes Google grants before any provider or local deletion starts.
     await this.requireDeletionConfirmation(userId, confirmation, credentials);
 
+    // This write shares the owner-row lock with meeting admission. After it commits, no replica
+    // can reserve a new bot while we inspect existing claims. An unknown provider outcome stays
+    // represented by its meeting row, even if the sweep has marked that meeting failed.
+    await this.users.beginDeletion(userId);
+    if (await this.meetings.hasUnresolvedBotClaimForUser(userId)
+      || await this.meetings.hasUnresolvedUploadClaimForUser(userId)) {
+      throw new AccountDeletionBlockedError();
+    }
+
     // Delete external media first. Calls are idempotent, so a partial provider-side success can be
     // retried. No local reference or account row is removed unless every provider delete succeeds.
     const owned = await this.meetings.listForUser(userId);

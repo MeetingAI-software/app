@@ -87,9 +87,13 @@ export class SupabaseStorageAdapter implements AudioStoragePort {
     };
   }
 
+  pathForUpload(meetingId: string, mimeType: string): string {
+    return `${meetingId}/audio${extForMime(mimeType)}`;
+  }
+
   async upload(meetingId: string, data: Buffer, mimeType: string, options?: { signal?: AbortSignal }): Promise<{ path: string }> {
     this.ensureConfigured();
-    const path = `${meetingId}/audio${extForMime(mimeType)}`;
+    const path = this.pathForUpload(meetingId, mimeType);
     const url = `${this.baseUrl}/storage/v1/object/${this.bucket}/${path}`;
 
     const res = await this.fetchFn(url, {

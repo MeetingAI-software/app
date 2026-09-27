@@ -10,6 +10,7 @@ import { parseParticipantNames, isAudioMime, detectAudioFormat } from './upload-
 import { perUserRouteLimiter, SPEND_LIMITS } from '../middleware/rate-limit';
 import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
 import { AudioDurationError, measureAudioDuration } from './audio-duration';
+import { AccountDeletionBlockedError } from '../../../domain/errors';
 
 /**
  * POST /api/meetings/upload — in-room recording upload.
@@ -195,12 +196,18 @@ export function createUploadRoutes(
     let outboxAttempted = false;
     try {
       signal.throwIfAborted();
-      // The detected type, not the declared one — the stored object key is then derived entirely
-      // from bytes we verified rather than from a header the caller chose.
-      const { path } = await storage.upload(meeting.id, file.buffer, audio.mime, { signal });
-      uploadedPath = path;
+      // Persist the deterministic key before the external upload. An uncertain storage response
+      // or account-erasure race still leaves a durable object reference for cleanup.
+      const plannedPath = storage.pathForUpload(meeting.id, audio.mime);
+      await meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: plannedPath });
+      uploadedPath = plannedPath;
       signal.throwIfAborted();
-      await meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: path });
+      const { path } = await storage.upload(meeting.id, file.buffer, audio.mime, { signal });
+      if (path !== plannedPath) throw new Error('Storage upload returned a different object path');
+      signal.throwIfAborted();
+      if (await meetingRepo.abortUploadIfDeleting(meeting.id)) {
+        throw new AccountDeletionBlockedError('Account deletion is in progress');
+      }
       signal.throwIfAborted();
       outboxAttempted = true;
       await webhookRepo.insertIfNew({
@@ -227,11 +234,10 @@ export function createUploadRoutes(
           logger.error({ meetingId: meeting.id }, 'Failed to reconcile an incomplete upload');
         }
       }
-      // Don't leave the row stuck in 'pending' with no audio behind it.
+      // This branch never enqueued provider work. Mark that fact durably so deletion can retry
+      // storage cleanup without treating a failed upload as an unknown AssemblyAI job.
       await meetingRepo
-        .updateStatus(meeting.id, 'failed', {
-          errorMessage: 'Upload failed',
-        })
+        .markUploadBeforeProviderFailed(meeting.id, 'Upload failed')
         .catch(() => {
           /* best effort — the original error is what matters */
         });
