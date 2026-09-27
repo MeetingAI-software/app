@@ -3,6 +3,7 @@ import { IngestLiveTranscriptService } from './ingest-live-transcript.service';
 import { LiveTranscriptBus, type LiveTranscriptEvent } from '../adapters/realtime/live-transcript.bus';
 import type { LiveTranscriptRepository, MeetingRepository } from '../ports/repositories.port';
 import type { Meeting, MeetingStatus } from '../domain/types';
+import { LiveTranscriptClosedError } from '../domain/errors';
 
 function meeting(overrides: Partial<Meeting> = {}): Meeting {
   return {
@@ -63,7 +64,7 @@ describe('IngestLiveTranscriptService', () => {
     nextSeq = 1;
     meetingRepo = {
       create: vi.fn(),
-      findById: vi.fn(),
+      findById: vi.fn().mockResolvedValue(meeting()),
       findByBotId: vi.fn().mockResolvedValue(meeting()),
       findByShareToken: vi.fn(),
       findByTranscriptionJobId: vi.fn(),
@@ -160,6 +161,42 @@ describe('IngestLiveTranscriptService', () => {
     // Recall must never be handed a 5xx for a partial — a retry would deliver stale text.
     await expect(service.processLiveEvent(liveEvent('transcript.data', [['Hi', 0, 1]]))).resolves.toBeUndefined();
     expect(liveRepo.append).not.toHaveBeenCalled();
+  });
+
+  it('drops a late final and its cached partial after terminal completion', async () => {
+    await service.processLiveEvent(liveEvent('transcript.partial_data', [['draft', 0, 1]]));
+    vi.mocked(liveRepo.append).mockRejectedValueOnce(new LiveTranscriptClosedError());
+
+    await expect(service.processLiveEvent(liveEvent('transcript.data', [['final', 0, 1]])))
+      .resolves.toBeUndefined();
+    expect(published).toEqual([{ type: 'partial', speaker: 'Ada', text: 'draft' }]);
+
+    meetingRepo.findByBotId = vi.fn().mockResolvedValue(meeting({ status: 'failed' }));
+    await service.processLiveEvent(liveEvent('transcript.partial_data', [['new draft', 1, 2]]));
+    expect(published).toHaveLength(1);
+  });
+
+  it('does not publish a cached partial after a separate worker fails the meeting', async () => {
+    await service.processLiveEvent(liveEvent('transcript.partial_data', [['first guess', 0, 1]]));
+    meetingRepo.findById = vi.fn().mockResolvedValue(meeting({ status: 'failed' }));
+
+    await service.processLiveEvent(liveEvent('transcript.partial_data', [['late guess', 1, 2]]));
+
+    expect(published).toEqual([{ type: 'partial', speaker: 'Ada', text: 'first guess' }]);
+    expect(meetingRepo.findById).toHaveBeenCalledWith('m1');
+    meetingRepo.findByBotId = vi.fn().mockResolvedValue(meeting({ status: 'failed' }));
+    await service.processLiveEvent(liveEvent('transcript.partial_data', [['another guess', 2, 3]]));
+    expect(published).toHaveLength(1);
+  });
+
+  it('removes the partial cache when a bot mapping is forgotten', async () => {
+    const partial = liveEvent('transcript.partial_data', [['same draft', 0, 1]]);
+    await service.processLiveEvent(partial);
+    service.forget('bot-1');
+    await service.processLiveEvent(partial);
+
+    expect(published).toHaveLength(2);
+    expect(meetingRepo.findByBotId).toHaveBeenCalledTimes(2);
   });
 
   it('ignores payloads with no bot id or no words', async () => {

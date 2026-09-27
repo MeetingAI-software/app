@@ -270,6 +270,7 @@ Standard-skanning `196e4386-e3f1-402f-b9cc-02ba02b775c5` av den samlade committe
 - **Nuvarande beteende:** en sen signerad slutreplik kan läggas till efter den engångsrensning som görs vid transkriberat möte. Flera direkta felvägar sätter `failed` utan att rensa befintliga liverader. Raderna är ägarskyddade och kaskadraderas vid kontoradering, men kan ligga kvar under ett terminalt möte.
 - **Fixkrav:** kontrollera aktivt mötestillstånd under samma databaslås som bilageinsättningen; serialisera terminal status och rensning samt täck alla terminala felvägar. Rensa processcachad deltext.
 - **Verifiera:** PGlite-kapplöpning mellan sen replik och terminal övergång, direkt worker-/sweep-fel, ägarskydd och legitim liveström. Verklig Recall-ordning återstår att pröva.
+- **Kod och tester i integrationsgrenen:** migration 0030 rensar äldre terminala liverader och låser mötesraden för alla nya insättningar. Negativa tester täcker sen slutreplik, direkt äldre insättning, statuskapplöpning och cachelagrad deltext efter fel. Ett delsegment som redan skickas över en öppen SSE-anslutning kan fortfarande nå klienten precis runt statusövergången; den beständiga raden kan inte överleva terminalt commit.
 
 ### N05 — Failed Recall bot meetings bypass recording deletion sweep (`csf_1b6d0a04a87bd65fe974ce9d`, G34)
 
@@ -298,6 +299,7 @@ Standard-skanning `196e4386-e3f1-402f-b9cc-02ba02b775c5` av den samlade committe
 - **Angreppsväg:** starta en giltig uppladdning, låt lagrings- eller AssemblyAI-anropet vänta, radera kontot parallellt och släpp sedan anropet. Det externa objektet eller jobbet kan finnas kvar utan lokal raderingsreferens. Ett svep som markerat raden `failed` bevisar inte att providern avvisade begäran.
 - **Fixkrav:** spara en deterministisk lagringsnyckel innan skrivning, spärra nya provideranspråk atomiskt mot samma ägarlås som kontoradering, behåll pågående/okända anspråk och bind sent jobb-ID även efter timeout. Frigör kvot och raderingsspärr endast vid dokumenterat definitivt avslag före providerstart.
 - **Verifiera:** negativa HTTP- och PGlite-test för radering under lagringsskrivning, spärrat AssemblyAI-anspråk, sent jobb-ID efter timeout, definitivt provideravslag och legitim kontoradering. Verkliga providerns tvetydiga svar och historiska `failed`-rader kräver manuell avstämning innan kontot kan raderas.
+- **Tillägg i integrationen:** om lagringsanropets svar försvinner eller avbryts behålls den förregistrerade objektnyckeln och raderingsspärren. Ett omedelbart DELETE-svar med 404 bevisar inte att en ännu pågående skrivning aldrig blir klar. Negativa HTTP- och databastest täcker denna sena skrivväg; manuell lagringsavstämning krävs innan spärren kan hävas.
 
 ## Gemensamma avslutskriterier
 

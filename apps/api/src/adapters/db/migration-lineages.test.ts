@@ -108,6 +108,43 @@ describe('immutable migration lineages', () => {
     }
   }, 30_000);
 
+  it('purges historical terminal live transcripts and keeps active streams on upgrade', async () => {
+    const client = new PGlite();
+    const db = drizzle(client);
+    const folder = mkdtempSync(join(tmpdir(), 'syncmemos-live-retention-migration-'));
+    try {
+      const entries = journal.entries.slice(0, 30);
+      mkdirSync(join(folder, 'meta'));
+      writeFileSync(join(folder, 'meta/_journal.json'), JSON.stringify({ ...journal, entries }));
+      for (const entry of entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(folder, `${entry.tag}.sql`));
+      await migrate(db, { migrationsFolder: folder });
+      await client.exec(`
+        INSERT INTO users (id,email) VALUES
+          ('00000000-0000-4000-8000-000000000001','live-upgrade@example.test');
+        INSERT INTO meetings (id,owner_user_id,share_token,status) VALUES
+          ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','failed-live','failed'),
+          ('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','done-live','transcribed'),
+          ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','active-live','recording');
+        INSERT INTO live_transcript_segments (meeting_id,start_ms,end_ms,speaker,text) VALUES
+          ('00000000-0000-4000-8000-000000000002',0,1000,'Speaker 1','failed secret'),
+          ('00000000-0000-4000-8000-000000000003',0,1000,'Speaker 1','done secret'),
+          ('00000000-0000-4000-8000-000000000004',0,1000,'Speaker 1','active words');
+      `);
+
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      expect((await client.query('SELECT text FROM live_transcript_segments')).rows)
+        .toEqual([{ text: 'active words' }]);
+      await expect(client.query(`INSERT INTO live_transcript_segments
+        (meeting_id,start_ms,end_ms,speaker,text) VALUES
+        ('00000000-0000-4000-8000-000000000002',0,1000,'Speaker 1','late secret')`))
+        .rejects.toThrow();
+    } finally {
+      await client.close();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('refuses ambiguous historical bot bindings without choosing an owner', async () => {
     const client = new PGlite();
     const db = drizzle(client);

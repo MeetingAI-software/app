@@ -105,6 +105,14 @@ export class BotProviderError extends Error {
   }
 }
 
+/** A late Recall utterance must not recreate disposable text after terminal cleanup. */
+export class LiveTranscriptClosedError extends Error {
+  constructor() {
+    super('Live transcript is closed');
+    this.name = 'LiveTranscriptClosedError';
+  }
+}
+
 export class PaddleBillingAdmissionError extends Error {
   constructor(readonly reason: 'rate_limited' | 'busy') {
     super(reason === 'rate_limited' ? 'Too many billing requests; try again shortly' : 'Billing is busy; try again shortly');

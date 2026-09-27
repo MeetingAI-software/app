@@ -194,6 +194,8 @@ export function createUploadRoutes(
 
     let uploadedPath: string | null = null;
     let outboxAttempted = false;
+    let storageUploadAttempted = false;
+    let storageUploadConfirmed = false;
     try {
       signal.throwIfAborted();
       // Persist the deterministic key before the external upload. An uncertain storage response
@@ -202,8 +204,10 @@ export function createUploadRoutes(
       await meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: plannedPath });
       uploadedPath = plannedPath;
       signal.throwIfAborted();
+      storageUploadAttempted = true;
       const { path } = await storage.upload(meeting.id, file.buffer, audio.mime, { signal });
       if (path !== plannedPath) throw new Error('Storage upload returned a different object path');
+      storageUploadConfirmed = true;
       signal.throwIfAborted();
       if (await meetingRepo.abortUploadIfDeleting(meeting.id)) {
         throw new AccountDeletionBlockedError('Account deletion is in progress');
@@ -217,6 +221,13 @@ export function createUploadRoutes(
         payload: { meetingId: meeting.id },
       });
     } catch (err) {
+      if (storageUploadAttempted && !storageUploadConfirmed) {
+        // A lost response or local abort does not prove that the remote object was never written.
+        // Even a DELETE returning 404 could race a still-running remote upload. Keep its key and
+        // unresolved claim so account erasure cannot discard the only cleanup reference.
+        logger.warn({ meetingId: meeting.id }, 'Storage upload outcome unknown; retaining object key and quota');
+        throw err;
+      }
       if (outboxAttempted) {
         // The event insert may have committed even if its response was lost. A worker could
         // already be submitting the paid job, so retain audio and quota for reconciliation.

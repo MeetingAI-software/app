@@ -120,10 +120,12 @@ describe('upload admission lifetime', () => {
       expect(reserveMeeting).toHaveBeenCalledTimes(1);
       if (outcome === 'resolve') settle({ path: 'audio/abandoned.webm' });
       else fail(new Error('synthetic storage failure'));
-      await vi.waitFor(() => expect(updateStatus).toHaveBeenCalledTimes(1));
+      if (outcome === 'resolve') await vi.waitFor(() => expect(updateStatus).toHaveBeenCalledTimes(1));
       expect(enqueue).not.toHaveBeenCalled();
       if (outcome === 'resolve') expect(storage.delete).toHaveBeenCalledWith('audio/abandoned.webm');
-      expect((await request('next')).status).toBe(201);
+      else expect(storage.delete).not.toHaveBeenCalled();
+      await vi.waitFor(async () => expect((await request('next')).status).toBe(201));
+      expect(updateStatus).toHaveBeenCalledTimes(outcome === 'resolve' ? 1 : 0);
       expect(enqueue).toHaveBeenCalledTimes(1);
     } finally {
       settle({ path: 'audio/abandoned.webm' });
@@ -337,6 +339,52 @@ describe('in-room upload availability', () => {
       expect(insertIfNew).not.toHaveBeenCalled();
     } finally {
       finishUpload({ path: 'audio/deleting.webm' });
+      await new Promise<void>(resolve => localServer.close(() => resolve()));
+    }
+  });
+
+  it('keeps the object key and claim when the storage response is ambiguous', async () => {
+    let failUpload!: (error: Error) => void;
+    const pendingUpload = new Promise<{ path: string }>((_resolve, reject) => { failUpload = reject; });
+    const storage = {
+      pathForUpload: vi.fn().mockReturnValue('audio/uncertain.webm'),
+      upload: vi.fn().mockReturnValue(pendingUpload),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+    const setUploadInfo = vi.fn().mockResolvedValue(undefined);
+    const markUploadBeforeProviderFailed = vi.fn().mockResolvedValue(undefined);
+    const insertIfNew = vi.fn();
+    const route = createUploadRoutes(
+      { setUploadInfo, markUploadBeforeProviderFailed } as never,
+      { insertIfNew } as never,
+      { reserveMeeting: vi.fn().mockResolvedValue({ meeting: { id: 'uncertain' } }) } as never,
+      storage as never,
+    );
+    const localServer = createServer([route], async () => ({
+      id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
+    })).listen(0);
+    try {
+      const body = new FormData();
+      body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+      const responsePromise = fetch(`http://127.0.0.1:${(localServer.address() as AddressInfo).port}/api/meetings/upload`, {
+        method: 'POST',
+        headers: { origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+          'x-recording-notice-confirmed': 'true',
+          'x-recording-notice-version': RECORDING_NOTICE_VERSION },
+        body,
+      });
+      await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(1));
+      failUpload(new Error('response lost after possible remote object write'));
+      expect((await responsePromise).status).toBe(500);
+      expect(setUploadInfo).toHaveBeenCalledTimes(1);
+      expect(setUploadInfo).toHaveBeenCalledWith('uncertain', {
+        audioStoragePath: 'audio/uncertain.webm',
+      });
+      expect(storage.delete).not.toHaveBeenCalled();
+      expect(markUploadBeforeProviderFailed).not.toHaveBeenCalled();
+      expect(insertIfNew).not.toHaveBeenCalled();
+    } finally {
+      failUpload(new Error('closing test'));
       await new Promise<void>(resolve => localServer.close(() => resolve()));
     }
   });

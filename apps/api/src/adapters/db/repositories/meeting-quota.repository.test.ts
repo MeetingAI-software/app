@@ -258,6 +258,18 @@ describe('durable meeting quota admission', () => {
     expect(await meetingsRepo.abortUploadIfDeleting(pending.id)).toBe(false);
   });
 
+  it('keeps an uncertain storage upload deletion-blocking after a timeout sweep', async () => {
+    const pending = await meetingsRepo.reserve(upload(ownerUserId, 60), plan, 2);
+    await meetingsRepo.setUploadInfo(pending.id, { audioStoragePath: 'audio/uncertain.webm' });
+    await meetingsRepo.updateStatus(pending.id, 'failed', { errorMessage: 'Storage response lost' });
+    await new DrizzleUserRepository().beginDeletion(ownerUserId);
+
+    expect(await new DrizzleMeetingRepository().hasUnresolvedUploadClaimForUser(ownerUserId)).toBe(true);
+    const row = await meetingsRepo.findById(pending.id);
+    expect(row?.audioStoragePath).toBe('audio/uncertain.webm');
+    expect(row?.uploadProviderExcludedAt).toBeNull();
+  });
+
   it('retains a claimed upload after sweep failure and binds a late provider job ID', async () => {
     const pending = await meetingsRepo.reserve(upload(ownerUserId, 60), plan, 2);
     await meetingsRepo.setUploadInfo(pending.id, { audioStoragePath: 'audio/planned.webm' });
