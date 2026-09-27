@@ -3,7 +3,7 @@ import { config } from '../../config/env';
 import { logger } from '../../config/logger';
 import { ChatProviderError } from '../../domain/errors';
 import { callChatProvider } from '../chat-retry';
-import type { MeetingChatPort, ChatMessage } from '../../ports/chat.port';
+import { ChatPreflightError, type MeetingChatPort, type ChatMessage } from '../../ports/chat.port';
 import type { TranscriptSegment } from '../../domain/types';
 import { buildChatSystemPrompt } from './chat-prompts';
 import { renderTranscript } from './prompts';
@@ -36,7 +36,7 @@ export class ClaudeChatAdapter implements MeetingChatPort {
   private guardTranscriptSize(segments: TranscriptSegment[]): void {
     const rendered = renderTranscript(segments);
     if (rendered.length > config.MAX_TRANSCRIPT_CHARS) {
-      throw new Error(
+      throw new ChatPreflightError(
         `transcript too large: ${rendered.length} chars exceeds MAX_TRANSCRIPT_CHARS of ${config.MAX_TRANSCRIPT_CHARS}`
       );
     }

@@ -6,6 +6,7 @@ import { DrizzleChatMessageRepository } from './chat-message.repository';
 import { CapExceededError } from '../../../domain/errors';
 import { ChatService } from '../../../application/chat.service';
 import { PLAN_ENTITLEMENTS } from '../../../domain/billing';
+import { GeminiChatAdapter, type GeminiClient } from '../../gemini/gemini-chat.adapter';
 
 // Real Postgres (PGlite) stands in for the live-DATABASE_URL singleton. See pglite-harness.ts for
 // why the factory closes over `db` rather than importing inside itself.
@@ -164,6 +165,62 @@ describe('DrizzleChatMessageRepository', () => {
       await expect(new DrizzleChatMessageRepository().claimQuestion(meetingA, 1, 'another?'))
         .rejects.toThrow(CapExceededError);
       expect(await repo.listByMeeting(meetingA)).toEqual([]);
+    });
+
+    it('counts a settled unknown outcome once and never refunds it on repeated settlement', async () => {
+      const claim = await repo.claimQuestion(meetingA, 1, 'unknown outcome?');
+      await repo.markQuestionOutcomeUnknown(claim.id);
+      await repo.markQuestionOutcomeUnknown(claim.id);
+
+      const [stored] = await db.select({ role: chatMessages.role }).from(chatMessages)
+        .where(eq(chatMessages.id, claim.id));
+      expect(stored.role).toBe('unknown_user');
+      expect(await repo.countUserMessages(meetingA)).toBe(1);
+      expect(await repo.listByMeeting(meetingA)).toEqual([]);
+      await expect(repo.completeQuestion(claim.id, 'late duplicate', { input: 1, output: 1 }))
+        .rejects.toThrow('unavailable');
+      await expect(new DrizzleChatMessageRepository().claimQuestion(meetingA, 1, 'free retry?'))
+        .rejects.toThrow(CapExceededError);
+      await repo.releaseQuestion(claim.id);
+      expect(await repo.countUserMessages(meetingA)).toBe(1);
+    });
+
+    it('counts an empty provider response while admitting a later question within the cap', async () => {
+      const generateContent = vi.fn()
+        .mockResolvedValueOnce({
+          text: '   ', usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 1 },
+        })
+        .mockResolvedValueOnce({
+          text: 'A grounded answer', usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 3 },
+        });
+      const client: GeminiClient = { models: { generateContent } };
+      const transcript = { getByMeetingId: vi.fn().mockResolvedValue([
+        { startMs: 0, endMs: 1000, speaker: 'A', text: 'Test transcript' },
+      ]), save: vi.fn(), deleteByMeeting: vi.fn() };
+      const billing = { getAccess: vi.fn().mockResolvedValue({
+        plan: 'free', status: 'none', hasPaidAccess: false,
+        entitlements: { ...PLAN_ENTITLEMENTS.free, chatQuestionsPerMeeting: 2 },
+        subscription: null,
+      }) };
+      const adapter = new GeminiChatAdapter(client);
+      const firstReplica = new ChatService(transcript, repo, adapter, billing);
+      const secondReplica = new ChatService(transcript, new DrizzleChatMessageRepository(), adapter, billing);
+
+      await expect(firstReplica.ask('owner', meetingA, 'first?')).rejects.toThrow();
+      expect(generateContent).toHaveBeenCalledTimes(1);
+      expect(await repo.countUserMessages(meetingA)).toBe(1);
+      expect(await repo.listByMeeting(meetingA)).toEqual([]);
+      expect(await firstReplica.getHistory('owner', meetingA)).toEqual({ messages: [], remaining: 1 });
+      await expect(secondReplica.ask('owner', meetingA, 'second?'))
+        .resolves.toEqual({ answer: 'A grounded answer', remaining: 0 });
+      expect(generateContent).toHaveBeenCalledTimes(2);
+      expect(await repo.countUserMessages(meetingA)).toBe(2);
+      expect(await repo.listByMeeting(meetingA)).toEqual([
+        { role: 'user', content: 'second?' },
+        { role: 'assistant', content: 'A grounded answer' },
+      ]);
+      await expect(firstReplica.ask('owner', meetingA, 'third?')).rejects.toThrow(CapExceededError);
+      expect(generateContent).toHaveBeenCalledTimes(2);
     });
   });
 

@@ -1,11 +1,11 @@
 import { db } from '../client';
 import { chatMessages, meetings } from '../schema';
 import { eq, asc, sql, and, inArray } from 'drizzle-orm';
-import type { ChatMessageRepository } from '../../../ports/repositories.port';
+import type { ChatQuestionRepository } from '../../../ports/repositories.port';
 import type { ChatMessage } from '../../../ports/chat.port';
 import { CapExceededError } from '../../../domain/errors';
 
-export class DrizzleChatMessageRepository implements ChatMessageRepository {
+export class DrizzleChatMessageRepository implements ChatQuestionRepository {
   async claimQuestion(meetingId: string, limit: number, question: string): Promise<{ id: string; remaining: number }> {
     return db.transaction(async tx => {
       // The meeting row serializes all claims across API replicas. Pending claims count even if
@@ -19,7 +19,7 @@ export class DrizzleChatMessageRepository implements ChatMessageRepository {
         pending: sql<number>`count(*) filter (where ${chatMessages.role} = 'pending_user')::int`,
       }).from(chatMessages)
         .where(and(eq(chatMessages.meetingId, meetingId),
-          inArray(chatMessages.role, ['user', 'pending_user'])));
+          inArray(chatMessages.role, ['user', 'pending_user', 'unknown_user'])));
       // Concurrent answers could otherwise reach the model with incomplete conversation history
       // and finish out of order, leaving mismatched user/assistant turns.
       if (used.pending > 0) throw new CapExceededError('A question is already being answered for this meeting');
@@ -54,6 +54,18 @@ export class DrizzleChatMessageRepository implements ChatMessageRepository {
       eq(chatMessages.role, 'pending_user')));
   }
 
+  async markQuestionOutcomeUnknown(id: string): Promise<void> {
+    const updated = await db.update(chatMessages).set({ role: 'unknown_user' })
+      .where(and(eq(chatMessages.id, id), eq(chatMessages.role, 'pending_user')))
+      .returning({ id: chatMessages.id });
+    if (updated.length > 0) return;
+
+    // Safe to repeat after a lost database response; never change a completed exchange.
+    const [existing] = await db.select({ role: chatMessages.role }).from(chatMessages)
+      .where(eq(chatMessages.id, id));
+    if (existing?.role !== 'unknown_user') throw new Error('Chat question claim is unavailable');
+  }
+
   async add(
     meetingId: string,
     role: 'user' | 'assistant',
@@ -84,7 +96,7 @@ export class DrizzleChatMessageRepository implements ChatMessageRepository {
       .select({ count: sql<number>`count(*)::int` })
       .from(chatMessages)
       .where(and(eq(chatMessages.meetingId, meetingId),
-        inArray(chatMessages.role, ['user', 'pending_user'])));
+        inArray(chatMessages.role, ['user', 'pending_user', 'unknown_user'])));
     return row?.count ?? 0;
   }
 

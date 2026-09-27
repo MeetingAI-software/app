@@ -88,6 +88,10 @@ export default function ChatPanel({ meetingId }: { meetingId: string }) {
         setError('Transcript is not ready yet.');
       } else {
         setError(err instanceof Error ? err.message : 'Something went wrong.');
+        if (err instanceof ApiError && err.code === 'CHAT_PROVIDER_ERROR') {
+          // The provider outcome may have consumed this question. Refresh the durable counter.
+          getChat(meetingId).then((history) => setRemaining(history.remaining)).catch(() => {});
+        }
       }
       setInput(question); // let them retry without retyping
     } finally {

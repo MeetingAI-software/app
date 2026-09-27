@@ -1,6 +1,6 @@
-import type { TranscriptRepository, ChatMessageRepository } from '../ports/repositories.port';
-import type { MeetingChatPort, ChatMessage } from '../ports/chat.port';
-import { MeetingNotReadyError } from '../domain/errors';
+import type { TranscriptRepository, ChatQuestionRepository } from '../ports/repositories.port';
+import { ChatPreflightError, type MeetingChatPort, type ChatMessage } from '../ports/chat.port';
+import { MeetingNotReadyError, ChatProviderError } from '../domain/errors';
 import { logger } from '../config/logger';
 import type { BillingAccessProvider } from '../domain/billing';
 
@@ -22,7 +22,7 @@ export interface ChatHistory {
 export class ChatService {
   constructor(
     private readonly transcriptRepo: TranscriptRepository,
-    private readonly chatRepo: ChatMessageRepository,
+    private readonly chatRepo: ChatQuestionRepository,
     private readonly chatAdapter: MeetingChatPort,
     private readonly billingAccess: BillingAccessProvider,
   ) {}
@@ -39,12 +39,31 @@ export class ChatService {
     // Claim capacity in Postgres before paid model work. A pending claim is hidden from history
     // but counts toward the cap, including across API replicas and after a worker crash.
     const claim = await this.chatRepo.claimQuestion(meetingId, maxQuestionsPerMeeting, question);
+    let history: ChatMessage[];
+    try {
+      history = await this.chatRepo.listByMeeting(meetingId);
+    } catch (err) {
+      // No provider call was started, so this claim cannot represent paid model work.
+      await this.chatRepo.releaseQuestion(claim.id);
+      throw err;
+    }
+
+    // After entering the adapter, an error may mean a charged response was lost or empty.
+    // Count that attempt without keeping it in flight, so later questions can use remaining capacity.
     let result: Awaited<ReturnType<MeetingChatPort['answerQuestion']>>;
     try {
-      const history = await this.chatRepo.listByMeeting(meetingId);
       result = await this.chatAdapter.answerQuestion(segments, question, history);
     } catch (err) {
-      await this.chatRepo.releaseQuestion(claim.id);
+      if (err instanceof ChatPreflightError) {
+        await this.chatRepo.releaseQuestion(claim.id);
+      } else {
+        await this.chatRepo.markQuestionOutcomeUnknown(claim.id);
+        if (err instanceof ChatProviderError) {
+          throw new ChatProviderError(
+            'The AI response could not be confirmed. This question counted toward the meeting limit.'
+          );
+        }
+      }
       throw err;
     }
 
