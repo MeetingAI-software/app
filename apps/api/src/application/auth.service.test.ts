@@ -384,7 +384,7 @@ function build(meetingStore: Meeting[] = []) {
     add: vi.fn(), listByMeeting: vi.fn(), countUserMessages: vi.fn(), deleteByMeeting: vi.fn() };
   const usage: UsageRepository = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
   const storage: AudioStoragePort = { pathForUpload: vi.fn(), upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
-  const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn(), fetchTranscript: vi.fn(),
+  const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn().mockResolvedValue('done'), fetchTranscript: vi.fn(),
     getRecordedDurationSeconds: vi.fn(), deleteRecording: vi.fn() };
   const billing = { anonymizeCustomerForUser: vi.fn() } as unknown as PaddleBillingRepository;
   // Mutable clock: lets a test step past the resend cooldown without actually waiting a minute.
@@ -824,6 +824,39 @@ describe('AuthService', () => {
   });
 
   describe('deleteAccount', () => {
+    it.each(['joining', 'in_call'])('keeps account and external references while a bot is %s', async status => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user } = await c.service.signup(`active-${status}@example.com`, 'a-good-password');
+      store.push(makeMeeting({ id: 'active-bot', ownerUserId: user.id, botId: 'bot-active',
+        status: 'failed', audioStoragePath: 'audio/active.webm' }));
+      vi.mocked(c.bot.getBotStatus).mockResolvedValueOnce(status as 'joining' | 'in_call');
+
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(c.bot.deleteRecording).not.toHaveBeenCalled();
+      expect(c.storage.delete).not.toHaveBeenCalled();
+      expect(c.billing.anonymizeCustomerForUser).not.toHaveBeenCalled();
+      expect(store).toHaveLength(1);
+      expect(c.users.size()).toBe(1);
+    });
+
+    it('fails closed when the bot state cannot be confirmed, then permits a terminal retry', async () => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user } = await c.service.signup('unknown-bot@example.com', 'a-good-password');
+      store.push(makeMeeting({ id: 'unknown-bot', ownerUserId: user.id, botId: 'bot-unknown' }));
+      vi.mocked(c.bot.getBotStatus).mockRejectedValueOnce(new Error('Recall unavailable'));
+
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(c.bot.deleteRecording).not.toHaveBeenCalled();
+      expect(store).toHaveLength(1);
+      await c.service.deleteAccount(user.id, 'a-good-password');
+      expect(c.bot.deleteRecording).toHaveBeenCalledWith('bot-unknown');
+      expect(c.users.size()).toBe(0);
+    });
+
     it('does not purge a pending upload while storage or AssemblyAI work may still finish', async () => {
       const store: Meeting[] = [];
       const c = build(store);

@@ -71,6 +71,11 @@ export class SweepJob {
 
           // Clean up Recall recording
           if (meeting.source === 'bot' && meeting.botId) {
+            const botStatus = await this.botAdapter.getBotStatus(meeting.botId);
+            if (botStatus !== 'done' && botStatus !== 'fatal') {
+              logger.warn({ meetingId: meeting.id }, 'Retained transcribed bot media while bot remains active');
+              continue;
+            }
             logger.info({ meetingId: meeting.id }, 'Deleting Recall bot recording');
             await this.botAdapter.deleteRecording(meeting.botId);
             logger.info({ meetingId: meeting.id }, 'Recall bot recording deletion request complete');
@@ -117,6 +122,11 @@ export class SweepJob {
       for (const meeting of failedBotMedia) {
         if (!meeting.botId) continue;
         try {
+          const botStatus = await this.botAdapter.getBotStatus(meeting.botId);
+          if (botStatus !== 'done' && botStatus !== 'fatal') {
+            logger.warn({ meetingId: meeting.id }, 'Retained failed bot media while bot remains active');
+            continue;
+          }
           await this.botAdapter.deleteRecording(meeting.botId);
           await this.meetingRepo.markBotMediaDeleted(meeting.id, meeting.botId);
           logger.info({ meetingId: meeting.id }, 'Sweep deleted failed bot recording');

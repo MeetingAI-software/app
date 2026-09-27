@@ -261,6 +261,7 @@ Standard-skanning `196e4386-e3f1-402f-b9cc-02ba02b775c5` av den samlade committe
 | 76 | medium | csf_806b7f463e8f1e1bc9cf9872 | occ_62d42918474cd85a1ebc06c9 | G19 | apps/api/src/adapters/http/server.ts | Mixed-case share paths expose bearer tokens in API request logs |
 | 77 | medium | local_recall_delete_media_conflict_20260927 | occ_local_recall_delete_media_conflict_20260927 | G36 | apps/api/src/adapters/recall/recall-request.ts | Recall 409 can incorrectly acknowledge recording deletion |
 | 78 | medium | local_upload_erasure_provider_race_20260927 | occ_local_upload_erasure_provider_race_20260927 | G37 | apps/api/src/adapters/http/routes/upload.routes.ts | Account deletion can orphan uploaded audio or an AssemblyAI job during erasure |
+| 79 | medium | local_active_recall_bot_erasure_20260927 | occ_local_active_recall_bot_erasure_20260927 | G38 | apps/api/src/application/auth.service.ts | Account deletion can lose the reference to a still-active Recall bot |
 
 **G12, G13, G17 och G19 är kvarstående angreppsvägar i befintliga paket.** G12 kräver offentlig registrering för anonym uppslagning; `change-email` kräver egen session och eget lösenord. G13 kräver ett osäkert eller tomt modellsvar efter anrop; faktisk debitering är inte verifierad. G17 kräver fördröjd eller samtidig signerad Recall-leverans. G19 kan utlösas av blandade versaler även när begäran senare avvisas. Samtliga är öppna tills fix, negativa tester och ny skanning finns. Den tvåhopps proxykonfigurationen och återstående filer är uppskjutna frågor i skanningens `coverage.json`, inte bekräftade fynd.
 
@@ -300,6 +301,20 @@ Standard-skanning `196e4386-e3f1-402f-b9cc-02ba02b775c5` av den samlade committe
 - **Fixkrav:** spara en deterministisk lagringsnyckel innan skrivning, spärra nya provideranspråk atomiskt mot samma ägarlås som kontoradering, behåll pågående/okända anspråk och bind sent jobb-ID även efter timeout. Frigör kvot och raderingsspärr endast vid dokumenterat definitivt avslag före providerstart.
 - **Verifiera:** negativa HTTP- och PGlite-test för radering under lagringsskrivning, spärrat AssemblyAI-anspråk, sent jobb-ID efter timeout, definitivt provideravslag och legitim kontoradering. Verkliga providerns tvetydiga svar och historiska `failed`-rader kräver manuell avstämning innan kontot kan raderas.
 - **Tillägg i integrationen:** om lagringsanropets svar försvinner eller avbryts behålls den förregistrerade objektnyckeln och raderingsspärren. Ett omedelbart DELETE-svar med 404 bevisar inte att en ännu pågående skrivning aldrig blir klar. Negativa HTTP- och databastest täcker denna sena skrivväg; manuell lagringsavstämning krävs innan spärren kan hävas.
+
+### N09 — Kontoradering kan tappa referensen till en fortfarande aktiv Recall-bot (`local_active_recall_bot_erasure_20260927`, G38)
+
+- **Spår:** `auth.service.ts` kunde radera media och lokal botreferens för varje känt bot-ID utan att kontrollera om boten fortfarande var i samtalet. `sweep.ts` kunde dessutom kvittera en misslyckad bots media som raderad trots att boten fortfarande var aktiv. Recalls `delete_media` och `leave_call` är skilda API-operationer; om mediaradering accepteras medan boten spelar in kan ny media uppstå efter lokal kontoradering. Leverantörens svar på `delete_media` under ett aktivt samtal är inte verifierat, så faktisk extern kvarlagring är villkorlig.
+- **Fix i integrationsgrenen:** kontoradering begär aktuell botstatus för alla kända bot-ID:n, även lokalt misslyckade möten, innan någon extern eller lokal radering startar. Aktiv, okänd eller otillgänglig status blockerar radering; terminal `done`/`fatal` tillåter mediaradering och legitimt flöde. Retentionssvepet gör samma kontroll. Okända Recall-statuskoder tolkas inte längre som terminala, och senaste `status_changes` har företräde framför ett äldre toppfält.
+- **Verifiera:** negativa test för `joining`, `in_call`, providerfel, okänd status och äldre terminalt toppfält; positivt test för terminal bot och omförsök. Kontrollera Recall-beteendet med syntetisk bot innan extern retention kan påstås vara stängd. Om Recall inte kan bekräfta tillståndet behövs manuell avstämning enligt D24.
+
+## Uppföljningsskanning av integrationscommit 71218b6
+
+Standard-skanning `be275612-cec7-48af-aa2f-0034a7f4adf8` avslutades på commit `71218b65388990a1007e2501d843f5f343578207` med **ett rapporterat lågt fynd**: G12. Den granskade 121 av 487 inventerade filrader fullständigt och har **delvis täckning**; uteblivna fynd stänger därför inte automatiskt något av de 66 ursprungliga ID:na. Skanningen kördes utan produktionsmiljö eller live-provider. G38 upptäcktes i separat källgranskning efter att denna commit frysts och dokumenteras ovan. En ny skanning krävs på den slutliga integrationscommitten.
+
+| Nr | Grad | findingId | occurrenceId | Paket | Primär plats | Exakt titel |
+| ---: | --- | --- | --- | --- | --- | --- |
+| 80 | low | csf_c4315967e18f44bf2c9c96fb | occ_37e4d88e737d42b6a6faf10a | G12 | apps/api/src/adapters/http/routes/auth.routes.ts | Public signup reveals whether an email address is registered |
 
 ## Gemensamma avslutskriterier
 

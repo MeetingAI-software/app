@@ -290,6 +290,25 @@ export class AuthService implements AuthServiceApi {
     const owned = await this.meetings.listForUser(userId);
     logger.info({ userId, meetingCount: owned.length }, 'Account erasure: begin');
 
+    // Recall's delete_media endpoint removes stored media, not a bot that is still in a call.
+    // Check every known bot, including locally failed meetings: a timeout sweep can mark a bot
+    // failed while it remains active at the provider. No local or external deletion starts until
+    // all known bots are confirmed terminal. A failed/unknown status lookup also blocks erasure.
+    for (const m of owned) {
+      if (m.source !== 'bot' || !m.botId) continue;
+      let status: Awaited<ReturnType<MeetingBotPort['getBotStatus']>>;
+      try {
+        status = await this.bot.getBotStatus(m.botId);
+      } catch {
+        logger.warn({ userId, meetingId: m.id }, 'Account erasure: bot status unavailable');
+        throw new AccountDeletionBlockedError();
+      }
+      if (status !== 'done' && status !== 'fatal') {
+        logger.warn({ userId, meetingId: m.id }, 'Account erasure: bot remains active');
+        throw new AccountDeletionBlockedError();
+      }
+    }
+
     let externalDeleteFailed = false;
     for (const m of owned) {
       if (m.audioStoragePath) {

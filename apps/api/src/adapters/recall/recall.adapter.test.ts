@@ -133,6 +133,17 @@ describe('Recall error boundary', () => {
     await expect(adapter.getRecordedDurationSeconds('synthetic-bot')).resolves.toBe(1800);
   });
 
+  it('does not treat an unrecognized bot state as terminal', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ status_changes: [{ code: 'new_provider_state' }] }));
+    await expect(adapter.getBotStatus('synthetic-bot')).rejects.toMatchObject({ name: 'BotProviderError' });
+  });
+
+  it('uses the latest status change over a stale terminal field', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ status: { code: 'done' },
+      status_changes: [{ code: 'done' }, { code: 'in_call_recording' }] }));
+    await expect(adapter.getBotStatus('synthetic-bot')).resolves.toBe('in_call');
+  });
+
   it('requires conservative quota settlement for malformed or missing provider timing', async () => {
     fetchMock.mockResolvedValueOnce(Response.json({ recordings: [{
       started_at: '2026-09-26T10:00:00Z', completed_at: 'not-a-date',
