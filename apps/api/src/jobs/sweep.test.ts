@@ -126,6 +126,19 @@ describe('SweepJob', () => {
       });
     });
 
+    it('keeps a claimed upload open for a late transcription job and callback', async () => {
+      meetingRepo.findStuckActiveOlderThan.mockResolvedValue([{
+        id: 'upload-with-provider-claim', source: 'upload', status: 'processing',
+        botId: null, transcriptionJobId: null,
+        uploadSubmissionClaimedAt: new Date(Date.now() - 30 * 60_000),
+        uploadProviderExcludedAt: null,
+      }]);
+
+      await sweepJob.runSweep();
+
+      expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
+    });
+
     it('deletes retained audio for failed meetings after one hour', async () => {
       meetingRepo.findFailedWithAudioOlderThan.mockResolvedValue([{
         id: 'meeting-failed',

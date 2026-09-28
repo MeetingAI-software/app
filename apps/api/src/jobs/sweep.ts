@@ -174,6 +174,13 @@ export class SweepJob {
             }
           } else {
             // Stuck active meeting without botId (e.g., upload stuck in processing, or bot creation failed)
+            // Once an upload was submitted, AssemblyAI may still return a job ID or callback.
+            // Failing it here would make that callback unable to finish a terminal meeting.
+            if (meeting.source === 'upload' && meeting.uploadSubmissionClaimedAt
+              && !meeting.uploadProviderExcludedAt) {
+              logger.warn({ meetingId: meeting.id }, 'Retained upload with unresolved provider submission');
+              continue;
+            }
             assertTransition(meeting.status, 'failed');
             const msg = meeting.source === 'upload'
               ? 'Sweep: Upload processing timed out after 15 minutes'

@@ -90,4 +90,35 @@ describe('failed webhook meeting resolution', () => {
       log.mockRestore();
     }
   });
+
+  it.each(['audio_uploaded', 'transcription_ready'])('%s exhaustion retains a claimed upload for provider reconciliation', async eventType => {
+    const { worker, meetingRepo, webhookRepo, uploadMeeting } = makeWorker();
+    uploadMeeting.uploadSubmissionClaimedAt = new Date(Date.now() - 30 * 60_000);
+    uploadMeeting.uploadProviderExcludedAt = null;
+    const payload = eventType === 'audio_uploaded'
+      ? { meetingId: uploadMeeting.id }
+      : { jobId: uploadMeeting.transcriptionJobId };
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await worker['handleProcessingFailure']({ id: 'exhausted-upload', eventType, payload },
+        new Error('provider outcome unknown'));
+      expect(webhookRepo.markProcessed).toHaveBeenCalledWith('exhausted-upload');
+      expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('still fails an upload that exhausted retries before provider admission', async () => {
+    const { worker, meetingRepo, webhookRepo, uploadMeeting } = makeWorker();
+    uploadMeeting.status = 'pending';
+    uploadMeeting.uploadSubmissionClaimedAt = null;
+    await worker['handleProcessingFailure']({ id: 'pre-provider-failure',
+      eventType: 'audio_uploaded', payload: { meetingId: uploadMeeting.id } },
+      new Error('signed URL failed'));
+    expect(webhookRepo.markProcessed).toHaveBeenCalledWith('pre-provider-failure');
+    expect(meetingRepo.updateStatus).toHaveBeenCalledWith(uploadMeeting.id, 'failed', {
+      errorMessage: 'Processing failed after max retries',
+    });
+  });
 });

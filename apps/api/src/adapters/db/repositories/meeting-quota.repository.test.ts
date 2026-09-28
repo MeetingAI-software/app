@@ -5,6 +5,8 @@ import { meetingQuotaReservations, meetings, usageLedger, users } from '../schem
 import { DrizzleMeetingRepository } from './meeting.repository';
 import { DrizzleUserRepository } from './user.repository';
 import { DrizzleUsageRepository } from './usage.repository';
+import { SweepJob } from '../../../jobs/sweep';
+import { ProcessUploadEventService } from '../../../application/process-upload-event.service';
 import { AccountDeletionBlockedError, CapExceededError } from '../../../domain/errors';
 import type { PlanEntitlements } from '../../../domain/billing';
 
@@ -234,6 +236,37 @@ describe('durable meeting quota admission', () => {
     expect(await meetingsRepo.bindTranscriptionJob(first.id, 'job-1')).toBe(true);
     expect(await meetingsRepo.bindTranscriptionJob(first.id, 'job-2')).toBe(false);
     expect((await meetingsRepo.findById(first.id))?.transcriptionJobId).toBe('job-1');
+  });
+
+  it('settles a late claimed upload after the timeout sweep and signed callback', async () => {
+    const pending = await meetingsRepo.reserve(upload(ownerUserId, 60), plan, 2);
+    await meetingsRepo.setUploadInfo(pending.id, { audioStoragePath: 'audio/late.webm' });
+    expect(await meetingsRepo.claimUploadSubmission(pending.id)).toBe(true);
+    await db.update(meetings).set({ updatedAt: new Date(Date.now() - 30 * 60_000) })
+      .where(eq(meetings.id, pending.id));
+
+    const storage = { delete: vi.fn(), getSignedUrl: vi.fn() };
+    const sweep = new SweepJob(meetingsRepo, storage as any, {} as any,
+      { deleteExpired: vi.fn().mockResolvedValue(0) } as any,
+      { deleteOlderThan: vi.fn().mockResolvedValue(0) } as any,
+      { deleteExpired: vi.fn().mockResolvedValue(0) } as any);
+    await sweep.runSweep();
+    expect((await meetingsRepo.findById(pending.id))?.status).toBe('processing');
+    expect(await meetingsRepo.bindTranscriptionJob(pending.id, 'late-job')).toBe(true);
+
+    const processor = new ProcessUploadEventService(meetingsRepo,
+      { save: vi.fn() } as any, usageRepo,
+      { fetchResult: vi.fn().mockResolvedValue([]) } as any,
+      storage as any, { generateSummary: vi.fn().mockResolvedValue('summary') } as any);
+    await processor.process('transcription_ready', { jobId: 'late-job' });
+
+    expect((await meetingsRepo.findById(pending.id))?.status).toBe('transcribed');
+    const [charge] = await db.select().from(usageLedger)
+      .where(eq(usageLedger.meetingId, pending.id));
+    expect(charge.secondsRecorded).toBe(60);
+    const [claim] = await db.select().from(meetingQuotaReservations)
+      .where(eq(meetingQuotaReservations.meetingId, pending.id));
+    expect(claim.releasedAt).not.toBeNull();
   });
 
   it('fences a pending storage upload before provider admission and retains its object reference', async () => {

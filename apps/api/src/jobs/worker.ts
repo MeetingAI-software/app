@@ -117,7 +117,13 @@ export class WebhookWorker {
       console.error(`❌ Event ${event.id} failed after 5 attempts. Marking processed and failing meeting.`);
       await this.webhookRepo.markProcessed(event.id);
 
-      if (meeting && meeting.status !== 'transcribed' && meeting.status !== 'failed') {
+      // A submitted upload can still have a paid AssemblyAI job in flight. Keep its
+      // processing state and quota claim so a late job ID/callback can be reconciled.
+      const unresolvedUpload = meeting?.source === 'upload'
+        && meeting.uploadSubmissionClaimedAt && !meeting.uploadProviderExcludedAt;
+      if (unresolvedUpload) {
+        console.error(`Upload ${meeting.id} needs provider reconciliation after retry exhaustion`);
+      } else if (meeting && meeting.status !== 'transcribed' && meeting.status !== 'failed') {
         await this.meetingRepo.updateStatus(meeting.id, 'failed', {
           errorMessage: 'Processing failed after max retries',
         });
