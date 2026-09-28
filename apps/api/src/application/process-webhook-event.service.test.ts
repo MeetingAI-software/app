@@ -87,7 +87,8 @@ describe('ProcessWebhookEventService', () => {
     // Reading `payload.bot_id` threw "bot_id is missing from payload" on every real event.
     await service.processEvent('bot_status_change', botEvent('in_call_recording'));
 
-    expect(meetingRepo.findById).toHaveBeenCalledWith('m1');
+    expect(meetingRepo.findByBotId).toHaveBeenCalledWith('bot-1');
+    expect(meetingRepo.findById).not.toHaveBeenCalled();
     expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'recording');
   });
 
@@ -134,7 +135,7 @@ describe('ProcessWebhookEventService', () => {
   });
 
   it('fails the meeting when the provider reports transcription failure', async () => {
-    vi.mocked(meetingRepo.findById).mockResolvedValue(meeting({ status: 'processing' }));
+    vi.mocked(meetingRepo.findByBotId).mockResolvedValue(meeting({ status: 'processing' }));
 
     await service.processEvent('transcript_failed', {
       event: 'transcript.failed',
@@ -150,7 +151,7 @@ describe('ProcessWebhookEventService', () => {
   });
 
   it('does not fail a meeting that already transcribed', async () => {
-    vi.mocked(meetingRepo.findById).mockResolvedValue(meeting({ status: 'transcribed' }));
+    vi.mocked(meetingRepo.findByBotId).mockResolvedValue(meeting({ status: 'transcribed' }));
 
     await service.processEvent('transcript_failed', {
       event: 'transcript.failed',
@@ -159,4 +160,34 @@ describe('ProcessWebhookEventService', () => {
 
     expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
   });
+
+  it('rejects cross-account meeting metadata before any status or transcript change', async () => {
+    vi.mocked(meetingRepo.findById).mockResolvedValue(meeting({ id: 'victim', ownerUserId: 'other' }));
+    const forged = botEvent('in_call_recording');
+    forged.data.bot.metadata.meetingId = 'victim';
+    await expect(service.processEvent('bot_status_change', forged))
+      .rejects.toThrow('Webhook meeting binding mismatch');
+    expect(meetingRepo.findById).not.toHaveBeenCalled();
+    expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
+    expect(transcriptRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bot lookup that is missing or bound to a different stored bot', async () => {
+    vi.mocked(meetingRepo.findByBotId).mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(meeting({ botId: 'other-bot' }));
+    await expect(service.processEvent('bot_status_change', botEvent('in_call_recording')))
+      .rejects.toThrow('Webhook bot is not bound');
+    await expect(service.processEvent('bot_status_change', botEvent('in_call_recording')))
+      .rejects.toThrow('Webhook bot is not bound');
+    expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it.each(['transcribed', 'failed'] as const)
+    ('ignores a replayed transcript for terminal state %s before provider or billing calls', async status => {
+      vi.mocked(meetingRepo.findByBotId).mockResolvedValue(meeting({ status }));
+      await service.processEvent('transcript_ready', botEvent('done'));
+      expect(bot.fetchTranscript).not.toHaveBeenCalled();
+      expect(transcriptRepo.save).not.toHaveBeenCalled();
+      expect(usageRepo.addSeconds).not.toHaveBeenCalled();
+    });
 });

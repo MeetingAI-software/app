@@ -126,17 +126,14 @@ export class ProcessWebhookEventService {
       throw new Error('bot_id is missing from payload');
     }
 
-    // Resolve meeting
-    let meeting = null;
-    if (meetingId) {
-      meeting = await this.meetingRepo.findById(meetingId);
+    // The stored bot ID is the authority. Provider metadata is only a consistency check; using
+    // it as a lookup would let one bot's event mutate another account's meeting.
+    const meeting = await this.meetingRepo.findByBotId(botId);
+    if (!meeting || meeting.botId !== botId || meeting.source !== 'bot') {
+      throw new Error('Webhook bot is not bound to a meeting');
     }
-    if (!meeting) {
-      meeting = await this.meetingRepo.findByBotId(botId);
-    }
-
-    if (!meeting) {
-      throw new Error(`Meeting not found for botId: ${botId} / meetingId: ${meetingId}`);
+    if (meetingId && meetingId !== meeting.id) {
+      throw new Error('Webhook meeting binding mismatch');
     }
 
     if (action === 'transcript_failed') {
@@ -188,6 +185,9 @@ export class ProcessWebhookEventService {
         console.error(`⚠️ Illegal transition attempted from ${meeting.status} to ${nextStatus} for meeting ${meeting.id}:`, err.message);
       }
     } else if (action === 'transcript_ready') {
+      // A distinct signed event ID can still replay a completed transcript. Do not fetch, save,
+      // bill or delete media again once the meeting reached a terminal state.
+      if (meeting.status === 'transcribed' || meeting.status === 'failed') return;
       console.log(`👷 Processing transcript_ready for meeting ${meeting.id} (bot: ${botId})`);
       
       // Fetch transcript segments
@@ -210,7 +210,7 @@ export class ProcessWebhookEventService {
       const transitionSteps: MeetingStatus[] = ['bot_joining', 'recording', 'processing', 'transcribed'];
       const startIndex = transitionSteps.indexOf(currentStatus);
 
-      if (startIndex !== -1 && currentStatus !== 'transcribed') {
+      if (startIndex !== -1) {
         for (let i = startIndex; i < transitionSteps.length - 1; i++) {
           const from = transitionSteps[i];
           const to = transitionSteps[i + 1];

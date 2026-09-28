@@ -133,6 +133,11 @@ describe('DrizzleMeetingRepository', () => {
         await repo.findByIdForUser('00000000-0000-0000-0000-000000000000', alice),
       ).toBeNull();
     });
+
+    it.each(['not-a-uuid', '1', '00000000-0000-0000-0000-00000000000g'])
+      ('returns an ordinary miss for malformed route id %s without a Postgres cast error', async id => {
+        await expect(repo.findByIdForUser(id, alice)).resolves.toBeNull();
+      });
   });
 
   // findById is deliberately NOT owner-scoped: the webhook worker and sweep look meetings up without

@@ -1,5 +1,6 @@
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
+import { request } from 'http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../../../config/env';
 import { FeatureUnavailableError } from '../../../domain/errors';
@@ -18,6 +19,44 @@ const WEBM_BYTES = (() => {
 })();
 
 describe('upload admission lifetime', () => {
+  it('releases the upload slot when a client keeps a multipart body open', async () => {
+    const storage = {
+      upload: vi.fn().mockResolvedValue({ path: 'audio/valid.webm' }),
+      delete: vi.fn(), getSignedUrl: vi.fn(),
+    };
+    const app = createServer([createUploadRoutes(
+      { create: vi.fn().mockResolvedValue({ id: 'valid-upload' }), setUploadInfo: vi.fn() } as never,
+      { insertIfNew: vi.fn() } as never,
+      { assertCanStartMeeting: vi.fn() } as never,
+      storage,
+      { parseTimeoutMs: 80 },
+    )], async (token) => ({ id: token, email: 'synthetic@example.test', emailVerified: true, createdAt: new Date() }));
+    const server = app.listen(0);
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/meetings/upload`;
+    const headers = {
+      origin: config.WEB_ORIGIN, cookie: 'session=synthetic',
+      'x-recording-notice-confirmed': 'true',
+      'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+    };
+    try {
+      const disconnected = new Promise<void>((resolve) => {
+        const slow = request(url, {
+          method: 'POST',
+          headers: { ...headers, 'content-type': 'multipart/form-data; boundary=slow-boundary' },
+        }, (response) => { response.resume(); response.once('end', resolve); });
+        slow.once('error', () => resolve());
+        slow.write('--slow-boundary\r\nContent-Disposition: form-data; name="audio"; filename="slow.webm"\r\nContent-Type: audio/webm\r\n\r\n');
+      });
+      await disconnected;
+      const body = new FormData();
+      body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'valid.webm');
+      expect((await fetch(url, { method: 'POST', headers, body })).status).toBe(201);
+      expect(storage.upload).toHaveBeenCalledTimes(1);
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
   it.each(['resolve', 'reject'])('holds a disconnected upload through pending storage %s and cleanup', async (outcome) => {
     const originalLimit = config.MAX_CONCURRENT_UPLOADS;
     config.MAX_CONCURRENT_UPLOADS = 1;
@@ -251,5 +290,61 @@ describe('in-room upload content validation', () => {
     // The reason sniffing runs before the meter: no meeting row, and nothing billable downstream.
     expect(assertCanStartMeeting).not.toHaveBeenCalled();
     expect(meetingCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['sparse participant index', 'participantNames[999999999]', '[]'],
+    ['unexpected scalar field', 'other', '[]'],
+  ])('rejects %s before the usage meter', async (_name, field, value) => {
+    const body = new FormData();
+    body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+    body.append(field, value);
+    const response = await fetch(`${baseUrl}/api/meetings/upload`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+        'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+      },
+      body,
+    });
+    expect(response.status).toBe(400);
+    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(meetingCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects repeated text fields before the usage meter', async () => {
+    const body = new FormData();
+    body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+    body.append('participantNames', '[]');
+    body.append('participantNames', '[]');
+    const response = await fetch(`${baseUrl}/api/meetings/upload`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+        'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+      },
+      body,
+    });
+    expect(response.status).toBe(400);
+    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized participant field before parsing JSON or charging', async () => {
+    const body = new FormData();
+    body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+    body.append('participantNames', 'x'.repeat(9000));
+    const response = await fetch(`${baseUrl}/api/meetings/upload`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+        'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+      },
+      body,
+    });
+    expect(response.status).toBe(400);
+    expect(assertCanStartMeeting).not.toHaveBeenCalled();
   });
 });

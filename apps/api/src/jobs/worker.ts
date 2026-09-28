@@ -97,16 +97,13 @@ export class WebhookWorker {
   }
 
   /** Shared retry/backoff/give-up-after-5 for every event type — identical to Day 1. */
-  private async handleProcessingFailure(event: { id: string; payload: unknown }, err: any): Promise<void> {
+  private async handleProcessingFailure(event: { id: string; eventType: string; payload: unknown }, err: any): Promise<void> {
     console.error(`❌ Error processing event ${event.id}:`, err);
 
-    // Day 6 §5: push the failure to Sentry, tagged with the meeting so DoD item 6 (broken Anthropic
-    // key → alert within ~1 min, tagged with meetingId) is satisfied on the very first attempt.
-    const p = (event.payload ?? {}) as any;
-    // Bot webhooks carry the id at data.bot.metadata.meetingId; upload events use the flat shape.
-    const meetingId =
-      p.data?.bot?.metadata?.meetingId || p.meeting_id || p.data?.meeting_id || p.meetingId;
-    captureError(err, { eventId: event.id, ...(meetingId ? { meetingId: String(meetingId) } : {}) });
+    // Provider metadata is not an authority for a meeting ID. Resolve through the stored bot/job
+    // binding before tagging telemetry or changing a meeting after the last retry.
+    const meeting = await this.resolveMeetingFromPayload(event.eventType, event.payload);
+    captureError(err, { eventId: event.id, ...(meeting ? { meetingId: meeting.id } : {}) });
 
     const [row] = await db
       .select({ attempts: webhookEvents.attempts })
@@ -118,8 +115,7 @@ export class WebhookWorker {
       console.error(`❌ Event ${event.id} failed after 5 attempts. Marking processed and failing meeting.`);
       await this.webhookRepo.markProcessed(event.id);
 
-      const meeting = await this.resolveMeetingFromPayload(event.payload);
-      if (meeting) {
+      if (meeting && meeting.status !== 'transcribed' && meeting.status !== 'failed') {
         await this.meetingRepo.updateStatus(meeting.id, 'failed', {
           errorMessage: err?.message || 'Processing failed after max retries',
         });
@@ -133,26 +129,27 @@ export class WebhookWorker {
     }
   }
 
-  /** Resolve the meeting a failed event belongs to, across both pipelines (meetingId / botId / jobId). */
-  private async resolveMeetingFromPayload(payload: unknown): Promise<Meeting | null> {
+  /** Resolve a failed event through a stored provider binding, never a Recall metadata ID. */
+  private async resolveMeetingFromPayload(eventType: string, payload: unknown): Promise<Meeting | null> {
     const p = (payload ?? {}) as any;
-    const meetingId = p.meeting_id || p.data?.meeting_id || p.meetingId;
-    const botId = p.bot_id || p.data?.bot_id;
-    const jobId = p.jobId;
-
-    if (meetingId) {
-      const m = await this.meetingRepo.findById(meetingId);
-      if (m) return m;
+    if (eventType === 'audio_uploaded') {
+      const meetingId = p.meetingId;
+      const meeting = typeof meetingId === 'string' ? await this.meetingRepo.findById(meetingId) : null;
+      return meeting?.source === 'upload' ? meeting : null;
     }
-    if (botId) {
-      const m = await this.meetingRepo.findByBotId(botId);
-      if (m) return m;
+    if (eventType === 'transcription_ready') {
+      const jobId = p.jobId;
+      const meeting = typeof jobId === 'string' ? await this.meetingRepo.findByTranscriptionJobId(jobId) : null;
+      return meeting?.source === 'upload' && meeting.transcriptionJobId === jobId ? meeting : null;
     }
-    if (jobId) {
-      const m = await this.meetingRepo.findByTranscriptionJobId(jobId);
-      if (m) return m;
-    }
-    return null;
+    if (routeRecallEvent(eventType) === 'ignore') return null;
+    const botId = p.data?.bot?.id ?? p.bot_id ?? p.data?.bot_id;
+    if (typeof botId !== 'string' || !botId) return null;
+    const meeting = await this.meetingRepo.findByBotId(botId);
+    if (!meeting || meeting.source !== 'bot' || meeting.botId !== botId) return null;
+    const claimedMeetingId = p.data?.bot?.metadata?.meetingId ?? p.metadata?.meetingId ??
+      p.meeting_id ?? p.data?.meeting_id;
+    return claimedMeetingId != null && String(claimedMeetingId) !== meeting.id ? null : meeting;
   }
 
   private async reconcileMeetings(): Promise<void> {
