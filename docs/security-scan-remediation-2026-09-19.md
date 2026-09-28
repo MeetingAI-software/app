@@ -1,5 +1,7 @@
 # Åtgärdsplan för Codex Security-skanning 2026-09-19
 
+Releasegranskning per exakt fynd-ID, negativt test, legitim regression, migration och driftberoende finns i [säkerhetsmatrisen](security-release-matrix.md). Matrisen skiljer lokal kodstatus från faktisk produktion.
+
 ## Underlag och status
 
 Underlag: användarens `findings.json` från avbruten djupskanning `f4a8317d-7fa1-49e0-83a3-bc375c7c5dc0` av commit `603094d78fe0c8f01208f69636e955768fe27663`. Artefakten innehåller **66 fynd: 9 höga, 38 medelhöga och 19 låga**. Skärmbilden användes först för orientering; JSON-artefakten är källan till fullständiga titlar, ID:n och föreslagna åtgärder. Båda är **indata**, inte instruktioner att ändra kod eller stänga fynd. Detta dokument är en implementeringsplan, inte en utförd kodfix eller oberoende bekräftelse av varje angreppsväg.
@@ -327,6 +329,12 @@ Standard-skanning `50d5577f-c18d-4d07-a22b-90e9e597467c` av kodcommit `0c5adc90d
 **ID-avstämning:** alla 66 ursprungliga `findingId` och `occurrenceId` finns kvar exakt en gång i registret ovan (G01–G29), och de 13 tillkomna posterna 67–79 finns kvar med sina ID:n (G12, G13, G17, G19, G30–G38). Två ursprungliga G12-ID:n, det tidigare G12-skanner-ID:t och raden 80 motsvarar den kvarstående angreppsvägen i rad 81. De andra 64 ursprungliga och 12 senare posterna rapporterades inte igen i denna delvisa skanning; deras frånvaro är inte bevis för stängning. Kod och relevanta tester/kontroller för G13, G17, G19, G30–G38 finns i de staplade draft-PR:erna, men drift- och providerutfall har inte verifierats. G12 väntar på D22, och G34–G38 har kvar externa avstämningar enligt D24.
 
 **Kontroller:** CI-körning `36285364266` på kodcommitten passerade Node 20 API-test/typkontroll/bygge, webbtest/typkontroll/lint/bygge samt hemlighets- och beroendegranskning. Railway-driftsättning hoppades över för PR:n. Lokal Windows-API-svit passerade 102 av 103 testfiler; 14 ljuddekodertest i den sista filen fallerade då `ffmpeg`/`ffprobe` saknas lokalt, vilka CI installerade. Lokalt webbbygge stoppades av en worktree-symlänk i Turbopack; CI:s rena installation byggde webbappen.
+
+## Lokal kontroll av efterföljande G31/G37-fix `d237bdb`
+
+- Negativa `sweep.test.ts` och `worker.test.ts` var röda före kodändringarna. De passerar nu, inklusive en legitim pre-provider-felväg. Ett PGlite-test använder verkliga repositoryt för anspråk → 30 min fördröjning → sweep → sent jobb-ID → callback → 60 sekunders avräkning. Fyra fokuserade filer: 68 godkända tester. API-typkontroll passerar.
+- Full lokal API-svit på Node 24.11.1: 102/103 filer, 1 159 godkända, 5 överhoppade och 14 fel i ljudfixturerna eftersom `ffmpeg`/`ffprobe` saknas på denna Windows-värd. Webben: 26 filer, 151 godkända. API/webb-typkontroll, webblint, API-bygge och hemlighetsskanning (488 filer) passerar. Ordinarie lokalt webbbygge stoppas av worktreens `node_modules`-junction utanför Turbopacks rot. `npm audit` kunde inte nå npm-registret i denna sandbox.
+- Node 20-CI, ren `npm ci`, webbbygge, beroendeaudit och en avslutad skanning av denna senare kodcommit återstår. Den tidigare skanningen `50d5577f-c18d-4d07-a22b-90e9e597467c` gäller `0c5adc9` och får inte återanvändas som bevis för fixen.
 
 ## Gemensamma avslutskriterier
 
