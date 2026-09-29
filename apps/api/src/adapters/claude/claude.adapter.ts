@@ -6,6 +6,7 @@ import { documentContentSchema } from '../../domain/document.schema';
 import type { DocumentContent } from '../../domain/document';
 import type { DocumentGeneratorPort } from '../../ports/document-generator.port';
 import type { TranscriptSegment } from '../../domain/types';
+import { hasOnlyCanonicalOwners } from '../../domain/speaker-label';
 import { buildDocumentPrompt, buildRetryPrompt, buildSummaryPrompt, renderTranscript } from './prompts';
 
 /** Documents should be boringly consistent, not creative. */
@@ -48,7 +49,7 @@ type ValidationOutcome =
   | { ok: true; content: DocumentContent }
   | { ok: false; issues: string };
 
-function parseAndValidate(text: string): ValidationOutcome {
+function parseAndValidate(text: string, segments: TranscriptSegment[]): ValidationOutcome {
   let raw: unknown;
   try {
     raw = JSON.parse(extractJson(text));
@@ -62,6 +63,9 @@ function parseAndValidate(text: string): ValidationOutcome {
       .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
       .join('; ');
     return { ok: false, issues };
+  }
+  if (!hasOnlyCanonicalOwners(result.data, segments)) {
+    return { ok: false, issues: 'actionPoints.owner: must match a speaker label in the untrusted label list or be null' };
   }
   return { ok: true, content: result.data };
 }
@@ -148,7 +152,7 @@ export class ClaudeAdapter implements DocumentGeneratorPort {
       inputTokens += message.usage.input_tokens;
       outputTokens += message.usage.output_tokens;
 
-      const outcome = parseAndValidate(extractText(message));
+      const outcome = parseAndValidate(extractText(message), segments);
       if (outcome.ok) {
         logger.info(
           { model, inputTokens, outputTokens, attempts: attempt, operation: 'generateDocument' },
@@ -159,16 +163,16 @@ export class ClaudeAdapter implements DocumentGeneratorPort {
 
       issues = outcome.issues;
       logger.warn(
-        { attempt, issues, operation: 'generateDocument' },
+        { attempt, operation: 'generateDocument' },
         'Claude document failed validation'
       );
       prompt = buildRetryPrompt(basePrompt, issues);
     }
 
     logger.error(
-      { model, inputTokens, outputTokens, issues, operation: 'generateDocument' },
+      { model, inputTokens, outputTokens, operation: 'generateDocument' },
       'Claude document failed validation after retry — nothing saved'
     );
-    throw new DocumentGenerationError(`document failed validation after retry: ${issues}`);
+    throw new DocumentGenerationError('document failed validation after retry');
   }
 }

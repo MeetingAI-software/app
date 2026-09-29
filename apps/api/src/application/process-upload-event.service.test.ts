@@ -9,6 +9,8 @@ import type { TranscriptionPort } from '../ports/transcription.port';
 import type { AudioStoragePort } from '../ports/audio-storage.port';
 import type { DocumentGeneratorPort } from '../ports/document-generator.port';
 import type { Meeting, MeetingStatus, TranscriptSegment } from '../domain/types';
+import { TranscriptionSubmitRejectedError } from '../domain/errors';
+import { logger } from '../config/logger';
 
 const DIARIZED: TranscriptSegment[] = [
   { startMs: 0, endMs: 2000, speaker: 'Speaker A', text: 'Kicking off the in-room sync.' },
@@ -24,7 +26,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     source: 'upload',
     botId: null,
     ownerUserId: 'u1',
-    durationSeconds: null,
+    durationSeconds: 1800,
     errorMessage: null,
     summary: null,
     shareToken: 'tok',
@@ -52,15 +54,28 @@ describe('ProcessUploadEventService', () => {
       create: vi.fn(),
       findById: vi.fn(),
       findByBotId: vi.fn(),
+      claimBotTranscript: vi.fn(),
+      releaseBotTranscript: vi.fn(),
       findByShareToken: vi.fn(),
       enableShare: vi.fn(),
       revokeShare: vi.fn(),
       findByTranscriptionJobId: vi.fn(),
+      claimUploadSubmission: vi.fn().mockResolvedValue(true),
+      bindTranscriptionJob: vi.fn().mockResolvedValue(true),
+      failRejectedUploadSubmission: vi.fn(),
+      findFailedBotMediaOlderThan: vi.fn(),
+      markBotMediaDeleted: vi.fn(),
       updateStatus: vi.fn(),
+      markBotCreationRejected: vi.fn(),
+      bindCreatedBot: vi.fn(),
+      hasUnresolvedBotClaimForUser: vi.fn(),
+      hasUnresolvedUploadClaimForUser: vi.fn(),
+      markUploadBeforeProviderFailed: vi.fn(),
+      abortUploadIfDeleting: vi.fn(),
       setSummary: vi.fn(),
       setUploadInfo: vi.fn(),
       countActive: vi.fn(),
-      countActiveForUser: vi.fn(),
+      reserve: vi.fn(), countActiveForUser: vi.fn(),
       list: vi.fn(),
       findByIdForUser: vi.fn(),
       listForUser: vi.fn(),
@@ -71,7 +86,7 @@ describe('ProcessUploadEventService', () => {
     transcriptRepo = { save: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
     usageRepo = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
     transcription = { submit: vi.fn(), fetchResult: vi.fn() };
-    storage = { upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
+    storage = { pathForUpload: vi.fn(), upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
     docGen = { generateDocument: vi.fn(), generateSummary: vi.fn() };
     service = new ProcessUploadEventService(meetingRepo, transcriptRepo, usageRepo, transcription, storage, docGen);
   });
@@ -84,10 +99,10 @@ describe('ProcessUploadEventService', () => {
 
       await service.process('audio_uploaded', { meetingId: 'm1' });
 
-      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'processing');
+      expect(meetingRepo.claimUploadSubmission).toHaveBeenCalledWith('m1');
       expect(storage.getSignedUrl).toHaveBeenCalledWith('m1/audio.webm');
       expect(transcription.submit).toHaveBeenCalledWith('https://signed/audio.webm', { meetingId: 'm1' });
-      expect(meetingRepo.setUploadInfo).toHaveBeenCalledWith('m1', { transcriptionJobId: 'job-1' });
+      expect(meetingRepo.bindTranscriptionJob).toHaveBeenCalledWith('m1', 'job-1');
     });
 
     it('throws when the meeting is missing', async () => {
@@ -106,7 +121,45 @@ describe('ProcessUploadEventService', () => {
       await service.process('audio_uploaded', { meetingId: 'm1' });
 
       expect(transcription.submit).not.toHaveBeenCalled();
-      expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
+      expect(meetingRepo.claimUploadSubmission).not.toHaveBeenCalled();
+    });
+
+    it('does not repeat an ambiguous paid submit on worker replay', async () => {
+      vi.mocked(meetingRepo.findById).mockResolvedValueOnce(meeting({ status: 'pending' }))
+        .mockResolvedValueOnce(meeting({ status: 'processing' }));
+      vi.mocked(storage.getSignedUrl).mockResolvedValue('https://signed/audio.webm');
+      vi.mocked(meetingRepo.claimUploadSubmission).mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false);
+      vi.mocked(transcription.submit).mockRejectedValueOnce(new Error('unknown provider outcome'));
+
+      await expect(service.process('audio_uploaded', { meetingId: 'm1' }))
+        .rejects.toThrow('unknown provider outcome');
+      await service.process('audio_uploaded', { meetingId: 'm1' });
+
+      expect(transcription.submit).toHaveBeenCalledTimes(1);
+      expect(meetingRepo.bindTranscriptionJob).not.toHaveBeenCalled();
+    });
+
+    it('does not submit if the stored meeting is already failed', async () => {
+      vi.mocked(meetingRepo.findById).mockResolvedValue(meeting({ status: 'failed' }));
+      vi.mocked(storage.getSignedUrl).mockResolvedValue('https://signed/audio.webm');
+      vi.mocked(meetingRepo.claimUploadSubmission).mockResolvedValue(false);
+
+      await service.process('audio_uploaded', { meetingId: 'm1' });
+      expect(transcription.submit).not.toHaveBeenCalled();
+    });
+
+    it('fails and releases a definitely rejected submission', async () => {
+      vi.mocked(meetingRepo.findById).mockResolvedValue(meeting({ status: 'pending' }));
+      vi.mocked(storage.getSignedUrl).mockResolvedValue('https://signed/audio.webm');
+      vi.mocked(transcription.submit).mockRejectedValue(
+        new TranscriptionSubmitRejectedError('AssemblyAI submit rejected: 401'));
+
+      await service.process('audio_uploaded', { meetingId: 'm1' });
+
+      expect(meetingRepo.failRejectedUploadSubmission)
+        .toHaveBeenCalledWith('m1', 'Transcription request rejected');
+      expect(meetingRepo.bindTranscriptionJob).not.toHaveBeenCalled();
     });
   });
 
@@ -123,8 +176,8 @@ describe('ProcessUploadEventService', () => {
 
       const savedSegments = vi.mocked(transcriptRepo.save).mock.calls[0][1] as TranscriptSegment[];
       expect(savedSegments.map((s) => s.speaker)).toEqual(['Alper', 'AbdulRehman']);
-      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 31 });
-      expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', 31);
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 1800 });
+      expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', 1800);
       expect(meetingRepo.setSummary).toHaveBeenCalledWith('m1', 'A short summary.');
       expect(storage.delete).toHaveBeenCalledWith('m1/audio.webm');
     });
@@ -136,20 +189,45 @@ describe('ProcessUploadEventService', () => {
 
       expect(meetingRepo.findByTranscriptionJobId).toHaveBeenCalledWith('job-1');
       expect(meetingRepo.findById).not.toHaveBeenCalled();
-      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 31 });
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 1800 });
+    });
+
+    it('charges the decoded duration even when the transcript is completely silent', async () => {
+      vi.mocked(meetingRepo.findById).mockResolvedValue(meeting());
+      vi.mocked(transcription.fetchResult).mockResolvedValue([]);
+      await service.process('transcription_ready', { jobId: 'job-1', meetingId: 'm1' });
+      expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', 1800);
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 1800 });
+    });
+
+    it('conservatively settles the full reservation for a pre-upgrade upload', async () => {
+      vi.mocked(meetingRepo.findById).mockResolvedValue(meeting({ durationSeconds: null }));
+      vi.mocked(usageRepo.addSeconds).mockResolvedValue(7200);
+      await service.process('transcription_ready', { jobId: 'job-1', meetingId: 'm1' });
+      expect(usageRepo.addSeconds).toHaveBeenCalledWith('m1', null);
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 7200 });
     });
 
     it('does NOT delete the audio when the summary fails (GDPR: delete only after summary success)', async () => {
       vi.mocked(meetingRepo.findById).mockResolvedValue(meeting());
-      vi.mocked(docGen.generateSummary).mockRejectedValue(new Error('claude down'));
+      const marker = 'PRIVATE-MEETING-SPEECH-and-bearer-token';
+      vi.mocked(docGen.generateSummary).mockRejectedValue(new Error(marker));
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+      const error = vi.spyOn(logger, 'error').mockImplementation(() => logger);
 
-      await service.process('transcription_ready', { jobId: 'job-1', meetingId: 'm1' });
+      try {
+        await service.process('transcription_ready', { jobId: 'job-1', meetingId: 'm1' });
+        expect(JSON.stringify([warn.mock.calls, error.mock.calls])).not.toContain(marker);
+      } finally {
+        warn.mockRestore();
+        error.mockRestore();
+      }
 
       expect(meetingRepo.setSummary).not.toHaveBeenCalled();
       expect(storage.delete).not.toHaveBeenCalled();
       // ...but the transcript and status still land.
       expect(transcriptRepo.save).toHaveBeenCalled();
-      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 31 });
+      expect(meetingRepo.updateStatus).toHaveBeenCalledWith('m1', 'transcribed', { durationSeconds: 1800 });
     });
 
     it('treats a storage.delete failure as non-fatal', async () => {

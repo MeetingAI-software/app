@@ -13,6 +13,9 @@ export const EMAIL_SEND_BUDGET_WINDOW_MS = 24 * 60 * 60 * 1000;
 export interface EmailSendBudget {
   /** Claims one send, or throws EmailSendBudgetExhaustedError. Call BEFORE spending the email. */
   reserve(trigger: EmailSendTrigger, userId: string | null): Promise<void>;
+  /** Atomic admission for the only path that can issue a verification link. */
+  reserveAndIssue(input: { trigger: EmailSendTrigger; userId: string;
+    tokenHash: string; expiresAt: Date; cooldownMs: number }): Promise<{ email: string } | null>;
   /** Non-consuming probe, for callers that must decide before doing any other work. */
   hasRemaining(): Promise<boolean>;
 }
@@ -28,10 +31,7 @@ interface BudgetDependencies {
  */
 export class EmailSendBudgetService implements EmailSendBudget {
   private readonly now: () => Date;
-  /**
-   * Fail-open is loud, but only once. During a flood every request hits the same fault, and an
-   * unlatched report would bury Sentry in the middle of the incident it exists for.
-   */
+  /** A persistent fault during a flood should produce one monitoring event per process. */
   private ledgerFaultReported = false;
 
   constructor(
@@ -43,51 +43,60 @@ export class EmailSendBudgetService implements EmailSendBudget {
   }
 
   async reserve(trigger: EmailSendTrigger, userId: string | null): Promise<void> {
-    const spent = await this.countSpent();
-
-    // A failed read is the only path that skips the cap. Never fail open on a *successful* read —
-    // that line is what makes this a control rather than advice.
-    if (spent === null) return;
-    if (spent >= this.dailyBudget) {
-      logger.warn(
-        { trigger, spent, budget: this.dailyBudget },
-        'Verification email suppressed: daily send budget exhausted',
-      );
+    const now = this.now();
+    let admitted: boolean;
+    try {
+      admitted = await this.ledger.tryReserve({
+        userId, trigger, now,
+        since: new Date(now.getTime() - EMAIL_SEND_BUDGET_WINDOW_MS),
+        limit: this.dailyBudget,
+      });
+    } catch (err) {
+      this.reportLedgerFault(err, 'Email send ledger unavailable; send blocked');
       throw new EmailSendBudgetExhaustedError();
     }
-
-    try {
-      await this.ledger.record({ userId, trigger });
-    } catch (err) {
-      // The count above was authoritative and said there was room. Refusing the send now because
-      // the bookkeeping failed is pure downside — it costs a legitimate email and protects nothing.
-      this.reportLedgerFault(err, 'Email send ledger write failed; send allowed unrecorded');
+    if (!admitted) {
+      logger.warn({ trigger, budget: this.dailyBudget }, 'Verification email suppressed: daily send budget exhausted');
+      throw new EmailSendBudgetExhaustedError();
     }
+  }
+
+  async reserveAndIssue(input: { trigger: EmailSendTrigger; userId: string;
+    tokenHash: string; expiresAt: Date; cooldownMs: number }): Promise<{ email: string } | null> {
+    const now = this.now();
+    let result: Awaited<ReturnType<EmailSendLedgerRepository['tryReserveAndIssue']>>;
+    try {
+      result = await this.ledger.tryReserveAndIssue({
+        ...input, now, since: new Date(now.getTime() - EMAIL_SEND_BUDGET_WINDOW_MS),
+        limit: this.dailyBudget,
+      });
+    } catch (err) {
+      this.reportLedgerFault(err, 'Verification send admission unavailable; send blocked');
+      throw new EmailSendBudgetExhaustedError();
+    }
+    if (result.status === 'budget') throw new EmailSendBudgetExhaustedError();
+    if (result.status !== 'issued') return null;
+    return { email: result.email };
   }
 
   async hasRemaining(): Promise<boolean> {
     const spent = await this.countSpent();
-    return spent === null || spent < this.dailyBudget;
+    return spent !== null && spent < this.dailyBudget;
   }
 
-  /** Sends inside the rolling window, or null when the ledger is unreadable (→ fail open). */
+  /** Non-consuming probe only; the transactional reservation is authoritative. */
   private async countSpent(): Promise<number | null> {
     const since = new Date(this.now().getTime() - EMAIL_SEND_BUDGET_WINDOW_MS);
     try {
       return await this.ledger.countSince(since);
     } catch (err) {
-      // Migrations are a manual step here (railway.json only builds and starts), so "deployed
-      // before migrated" is the default outcome of forgetting one command — and the table is
-      // simply absent. Failing closed on that would create accounts that are never emailed AND
-      // 500 the resend that would rescue them: a silent, unrecoverable outage. Failing open
-      // degrades to exactly the behaviour that shipped before this budget existed.
-      this.reportLedgerFault(err, 'Email send ledger unreadable; budget not enforced');
+      this.reportLedgerFault(err, 'Email send ledger unreadable; send blocked');
       return null;
     }
   }
 
   private reportLedgerFault(err: unknown, msg: string): void {
-    logger.error({ err: err instanceof Error ? err.message : String(err) }, msg);
+    logger.error(msg);
     if (this.ledgerFaultReported) return;
     this.ledgerFaultReported = true;
     captureError(err, { component: 'email-send-budget' });

@@ -1,9 +1,11 @@
 import crypto from 'crypto';
 import type { EmailVerificationToken } from '../domain/types';
 import type {
+  EmailSendTrigger,
   VerificationTokenConsumeResult,
   VerificationTokenRepository,
 } from '../ports/repositories.port';
+import type { EmailSendBudget } from './email-send-budget.service';
 
 const TOKEN_BYTES = 32;
 export const EMAIL_VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
@@ -18,10 +20,13 @@ export const EMAIL_VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
 export interface IssuedEmailVerificationToken {
   token: string;
   expiresAt: Date;
+  email: string;
 }
 
 export interface EmailVerificationTokenIssuer {
   issueForUser(userId: string): Promise<IssuedEmailVerificationToken>;
+  issueForDelivery(userId: string, trigger: EmailSendTrigger,
+    budget: EmailSendBudget): Promise<IssuedEmailVerificationToken | null>;
 }
 
 interface TokenServiceDependencies {
@@ -50,12 +55,23 @@ export class EmailVerificationTokenService implements EmailVerificationTokenIssu
   async issueForUser(userId: string): Promise<IssuedEmailVerificationToken> {
     const token = this.generateToken();
     const expiresAt = new Date(this.now().getTime() + EMAIL_VERIFICATION_TOKEN_TTL_MS);
-    await this.tokens.replaceForUser({
+    const { email } = await this.tokens.replaceForUser({
       userId,
       tokenHash: hashEmailVerificationToken(token),
       expiresAt,
     });
-    return { token, expiresAt };
+    return { token, expiresAt, email };
+  }
+
+  async issueForDelivery(userId: string, trigger: EmailSendTrigger,
+    budget: EmailSendBudget): Promise<IssuedEmailVerificationToken | null> {
+    const token = this.generateToken();
+    const expiresAt = new Date(this.now().getTime() + EMAIL_VERIFICATION_TOKEN_TTL_MS);
+    const admission = await budget.reserveAndIssue({
+      trigger, userId, tokenHash: hashEmailVerificationToken(token), expiresAt,
+      cooldownMs: EMAIL_VERIFICATION_RESEND_COOLDOWN_MS,
+    });
+    return admission ? { token, expiresAt, email: admission.email } : null;
   }
 
   findByToken(token: string): Promise<EmailVerificationToken | null> {
@@ -74,10 +90,11 @@ export class EmailVerificationTokenService implements EmailVerificationTokenIssu
     return this.tokens.deleteByTokenHash(hashEmailVerificationToken(token));
   }
 
-  consumeAndVerify(token: string): Promise<VerificationTokenConsumeResult> {
+  consumeAndVerify(token: string, passwordHash: string): Promise<VerificationTokenConsumeResult> {
     return this.tokens.consumeAndVerify({
       tokenHash: hashEmailVerificationToken(token),
       now: this.now(),
+      passwordHash,
     });
   }
 }

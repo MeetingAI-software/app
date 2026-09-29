@@ -28,6 +28,8 @@ describe('SweepJob', () => {
       list: vi.fn(),
       findTranscribedOlderThan: vi.fn().mockResolvedValue([]),
       findFailedWithAudioOlderThan: vi.fn().mockResolvedValue([]),
+      findFailedBotMediaOlderThan: vi.fn().mockResolvedValue([]),
+      markBotMediaDeleted: vi.fn().mockResolvedValue(true),
       findStuckActiveOlderThan: vi.fn().mockResolvedValue([]),
     } as any;
 
@@ -39,7 +41,7 @@ describe('SweepJob', () => {
 
     botAdapter = {
       createBot: vi.fn(),
-      getBotStatus: vi.fn(),
+      getBotStatus: vi.fn().mockResolvedValue('done'),
       fetchTranscript: vi.fn(),
       deleteRecording: vi.fn().mockResolvedValue(undefined),
     };
@@ -124,6 +126,19 @@ describe('SweepJob', () => {
       });
     });
 
+    it('keeps a claimed upload open for a late transcription job and callback', async () => {
+      meetingRepo.findStuckActiveOlderThan.mockResolvedValue([{
+        id: 'upload-with-provider-claim', source: 'upload', status: 'processing',
+        botId: null, transcriptionJobId: null,
+        uploadSubmissionClaimedAt: new Date(Date.now() - 30 * 60_000),
+        uploadProviderExcludedAt: null,
+      }]);
+
+      await sweepJob.runSweep();
+
+      expect(meetingRepo.updateStatus).not.toHaveBeenCalled();
+    });
+
     it('deletes retained audio for failed meetings after one hour', async () => {
       meetingRepo.findFailedWithAudioOlderThan.mockResolvedValue([{
         id: 'meeting-failed',
@@ -137,6 +152,46 @@ describe('SweepJob', () => {
       expect(meetingRepo.findFailedWithAudioOlderThan).toHaveBeenCalledWith(1);
       expect(storage.delete).toHaveBeenCalledWith('audio/failed.webm');
       expect(meetingRepo.setUploadInfo).toHaveBeenCalledWith('meeting-failed', { audioStoragePath: null });
+    });
+
+    it('deletes old failed bot media and marks it only after provider success', async () => {
+      meetingRepo.findFailedBotMediaOlderThan.mockResolvedValue([{
+        id: 'failed-bot', source: 'bot', status: 'failed', botId: 'recall-bot',
+      }]);
+      await sweepJob.runSweep();
+      expect(meetingRepo.findFailedBotMediaOlderThan).toHaveBeenCalledWith(1);
+      expect(botAdapter.deleteRecording).toHaveBeenCalledWith('recall-bot');
+      expect(meetingRepo.markBotMediaDeleted).toHaveBeenCalledWith('failed-bot', 'recall-bot');
+      expect(botAdapter.deleteRecording.mock.invocationCallOrder[0])
+        .toBeLessThan(meetingRepo.markBotMediaDeleted.mock.invocationCallOrder[0]);
+    });
+
+    it('does not acknowledge media deletion while a failed bot is still in the call', async () => {
+      meetingRepo.findFailedBotMediaOlderThan.mockResolvedValue([{
+        id: 'failed-active-bot', source: 'bot', status: 'failed', botId: 'recall-active',
+      }]);
+      botAdapter.getBotStatus.mockResolvedValueOnce('in_call');
+      await sweepJob.runSweep();
+      expect(botAdapter.deleteRecording).not.toHaveBeenCalled();
+      expect(meetingRepo.markBotMediaDeleted).not.toHaveBeenCalled();
+    });
+
+    it('retains a transcribed bot recording while Recall still reports an active call', async () => {
+      meetingRepo.findTranscribedOlderThan.mockResolvedValue([{
+        id: 'transcribed-active-bot', source: 'bot', status: 'transcribed', botId: 'recall-active',
+      }]);
+      botAdapter.getBotStatus.mockResolvedValueOnce('in_call');
+      await sweepJob.runSweep();
+      expect(botAdapter.deleteRecording).not.toHaveBeenCalled();
+    });
+
+    it('retains the failed bot reference for retry after provider failure', async () => {
+      meetingRepo.findFailedBotMediaOlderThan.mockResolvedValue([{
+        id: 'failed-bot', source: 'bot', status: 'failed', botId: 'recall-bot',
+      }]);
+      botAdapter.deleteRecording.mockRejectedValueOnce(new Error('Recall unavailable'));
+      await expect(sweepJob.runSweep()).resolves.toBeUndefined();
+      expect(meetingRepo.markBotMediaDeleted).not.toHaveBeenCalled();
     });
 
     it('should transition to recording if bot is in call', async () => {

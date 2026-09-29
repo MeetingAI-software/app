@@ -32,6 +32,12 @@ function signRecall(body: string, id: string, timestamp: string): string {
   return crypto.createHmac('sha256', secretBytes).update(`${id}.${timestamp}.${body}`).digest('base64');
 }
 
+function signedRecallHeaders(body: string, id: string): Record<string, string> {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  return { 'webhook-id': id, 'webhook-timestamp': timestamp,
+    'webhook-signature': `v1,${signRecall(body, id, timestamp)}` };
+}
+
 describe('provider webhook routes', () => {
   const insertIfNew = vi.fn();
   let server: Server;
@@ -59,8 +65,8 @@ describe('provider webhook routes', () => {
   beforeEach(() => {
     insertIfNew.mockReset();
     insertIfNew.mockResolvedValue(true);
-    config.BOT_PROVIDER = previousProvider;
-    config.RECALL_WEBHOOK_SECRET = previousRecallSecret;
+    config.BOT_PROVIDER = 'recall';
+    config.RECALL_WEBHOOK_SECRET = RECALL_SECRET;
     config.TRANSCRIPTION_WEBHOOK_SECRET = TRANSCRIPTION_SECRET;
   });
 
@@ -179,8 +185,16 @@ describe('provider webhook routes', () => {
     const payload = { event: 'transcript.done', data: { bot_id: 'bot-1' } };
     const body = JSON.stringify(payload);
 
+    it('rejects unsigned deliveries even if the fake bot adapter is selected', async () => {
+      config.BOT_PROVIDER = 'fake';
+      config.RECALL_WEBHOOK_SECRET = undefined;
+      const response = await post('/webhooks/recall', body, { 'webhook-id': 'forged' });
+      expect(response.status).toBe(401);
+      expect(insertIfNew).not.toHaveBeenCalled();
+    });
+
     it('accepts a delivery and files it under the provider’s own event id', async () => {
-      const response = await post('/webhooks/recall', body, { 'webhook-id': 'msg_abc' });
+      const response = await post('/webhooks/recall', body, signedRecallHeaders(body, 'msg_abc'));
 
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({ received: true });
@@ -193,32 +207,24 @@ describe('provider webhook routes', () => {
     });
 
     it('reads the svix-id spelling too', async () => {
-      await post('/webhooks/recall', body, { 'svix-id': 'msg_xyz' });
+      const headers = signedRecallHeaders(body, 'msg_xyz');
+      await post('/webhooks/recall', body, {
+        'svix-id': headers['webhook-id'], 'svix-timestamp': headers['webhook-timestamp'],
+        'svix-signature': headers['webhook-signature'],
+      });
 
       expect(insertIfNew.mock.calls[0][0].externalEventId).toBe('msg_xyz');
     });
 
-    // No provider id means the body itself has to supply a stable key, or a retry would arrive
-    // under a brand new id and be processed a second time.
-    it('falls back to a fingerprint of the body when the provider sends no id', async () => {
-      await post('/webhooks/recall', body);
-      await post('/webhooks/recall', body);
-
-      const [first, second] = insertIfNew.mock.calls.map(([event]) => event.externalEventId);
-      expect(first).toMatch(/^[0-9a-f]{64}$/);
-      expect(second).toBe(first);
-    });
-
-    it('gives two genuinely different deliveries two different fingerprints', async () => {
-      await post('/webhooks/recall', JSON.stringify({ event: 'transcript.done', data: { bot_id: 'bot-1' } }));
-      await post('/webhooks/recall', JSON.stringify({ event: 'transcript.done', data: { bot_id: 'bot-2' } }));
-
-      const [first, second] = insertIfNew.mock.calls.map(([event]) => event.externalEventId);
-      expect(first).not.toBe(second);
+    it('rejects a delivery without a signed provider ID', async () => {
+      const response = await post('/webhooks/recall', body);
+      expect(response.status).toBe(401);
+      expect(insertIfNew).not.toHaveBeenCalled();
     });
 
     it('defaults the event type when the body does not name one', async () => {
-      await post('/webhooks/recall', JSON.stringify({ data: { bot_id: 'bot-1' } }), { 'webhook-id': 'msg_1' });
+      const noEvent = JSON.stringify({ data: { bot_id: 'bot-1' } });
+      await post('/webhooks/recall', noEvent, signedRecallHeaders(noEvent, 'msg_1'));
 
       expect(insertIfNew.mock.calls[0][0].eventType).toBe('transcript_ready');
     });
@@ -274,7 +280,7 @@ describe('provider webhook routes', () => {
     it('does not acknowledge a delivery it failed to store', async () => {
       insertIfNew.mockRejectedValue(new Error('database unavailable'));
 
-      const response = await post('/webhooks/recall', body, { 'webhook-id': 'msg_db_down' });
+      const response = await post('/webhooks/recall', body, signedRecallHeaders(body, 'msg_db_down'));
 
       expect(response.status).toBe(500);
     });
@@ -288,7 +294,8 @@ describe('provider webhook routes', () => {
       JSON.stringify({ transcript_id: 'tr_open', status: 'completed' }),
       { [TRANSCRIPTION_WEBHOOK_HEADER]: TRANSCRIPTION_SECRET },
     );
-    const recall = await post('/webhooks/recall', JSON.stringify({ event: 'x' }), { 'webhook-id': 'msg_open' });
+    const recallBody = JSON.stringify({ event: 'x' });
+    const recall = await post('/webhooks/recall', recallBody, signedRecallHeaders(recallBody, 'msg_open'));
 
     expect(transcription.status).toBe(200);
     expect(recall.status).toBe(200);

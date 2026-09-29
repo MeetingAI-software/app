@@ -20,7 +20,7 @@ function subscription(patch: Partial<PaddleSubscriptionRecord> = {}): PaddleSubs
 function service(rows: PaddleSubscriptionRecord[]) {
   const repo: PaddleBillingRepository = {
     findCustomerForUser: vi.fn(),
-    findCustomerByEmail: vi.fn(),
+    attachCustomerToUser: vi.fn(),
     upsertCustomer: vi.fn(), upsertSubscription: vi.fn(),
     listSubscriptionsForUser: vi.fn().mockResolvedValue(rows),
   };

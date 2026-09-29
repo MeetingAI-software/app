@@ -1,5 +1,5 @@
 import { config } from './config/env';
-import { initObservability } from './adapters/observability/sentry';
+import { initObservability, captureError } from './adapters/observability/sentry';
 import { createServer } from './adapters/http/server';
 import { DrizzleMeetingRepository } from './adapters/db/repositories/meeting.repository';
 import { DrizzleTranscriptRepository } from './adapters/db/repositories/transcript.repository';
@@ -10,6 +10,12 @@ import { DrizzleDocumentRepository } from './adapters/db/repositories/document.r
 import { DrizzleChatMessageRepository } from './adapters/db/repositories/chat-message.repository';
 import { DrizzleUserRepository } from './adapters/db/repositories/user.repository';
 import { DrizzleSessionRepository } from './adapters/db/repositories/session.repository';
+import { DrizzleGoogleOAuthStateRepository } from './adapters/db/repositories/google-oauth-state.repository';
+import { DrizzleGoogleOAuthExchangeRepository } from './adapters/db/repositories/google-oauth-exchange.repository';
+import { GoogleOAuthExchangeService } from './application/google-oauth-exchange.service';
+import { DrizzleLoginAdmissionRepository } from './adapters/db/repositories/login-admission.repository';
+import { LoginAdmissionService } from './application/login-admission.service';
+import { GoogleOAuthStateService } from './application/google-oauth-state.service';
 import { DrizzleEmailSendLedgerRepository } from './adapters/db/repositories/email-send-ledger.repository';
 import { DrizzleVerificationTokenRepository } from './adapters/db/repositories/verification-token.repository';
 import { DrizzlePaddleBillingRepository } from './adapters/db/repositories/paddle-billing.repository';
@@ -52,6 +58,8 @@ import { createUploadRoutes } from './adapters/http/routes/upload.routes';
 import { createAuthRoutes } from './adapters/http/routes/auth.routes';
 import { createMeRoutes } from './adapters/http/routes/me.routes';
 import { createBillingRoutes } from './adapters/http/routes/billing.routes';
+import { PaddleBillingAdmissionService } from './application/paddle-billing-admission.service';
+import { DrizzlePaddleBillingAdmissionRepository } from './adapters/db/repositories/paddle-billing-admission.repository';
 import { createWaitlistRoutes } from './adapters/http/routes/waitlist.routes';
 import { PaddleCustomerPortalAdapter } from './adapters/paddle/paddle-customer-portal.adapter';
 import { PaddleCheckoutAdapter } from './adapters/paddle/paddle-checkout.adapter';
@@ -209,9 +217,12 @@ async function bootstrap() {
     emailSendBudget,
   );
   const passwordHasher = new Argon2Hasher();
+  const googleExchanges = new GoogleOAuthExchangeService(new DrizzleGoogleOAuthExchangeRepository());
   const deletionAuthorization = new DeletionAuthorizationService(
-    new DrizzleDeletionAuthorizationRepository(), sessionRepo, userRepo, new GoogleDeletionIdentityAdapter(),
+    new DrizzleDeletionAuthorizationRepository(), sessionRepo, userRepo, new GoogleDeletionIdentityAdapter(googleExchanges),
   );
+  const googleOAuthStates = new GoogleOAuthStateService(new DrizzleGoogleOAuthStateRepository());
+  const loginAdmission = new LoginAdmissionService(new DrizzleLoginAdmissionRepository());
   const authService = new AuthService(
     userRepo, sessionRepo, passwordHasher, config.SESSION_TTL_DAYS,
     meetingRepo, transcriptRepo, documentRepo, chatRepo, usageRepo, audioStorage, botAdapter,
@@ -237,7 +248,7 @@ async function bootstrap() {
   const routes = [
     createHealthRoutes(),
     createWaitlistRoutes(waitlistRepo),
-    createAuthRoutes(authService, deletionAuthorization),
+    createAuthRoutes(authService, deletionAuthorization, googleOAuthStates, loginAdmission, googleExchanges),
     createMeRoutes(usageRepo, billingAccess, config.IN_ROOM_RECORDING_ENABLED),
     createBillingRoutes(
       customerPortal,
@@ -245,6 +256,7 @@ async function bootstrap() {
       subscriptionUpdate,
       billingContext,
       config.BILLING_MUTATIONS_ENABLED,
+      new PaddleBillingAdmissionService(new DrizzlePaddleBillingAdmissionRepository()),
     ),
     createMeetingRoutes(meetingRepo, transcriptRepo, documentRepo, startMeetingService, docGen, liveTranscriptRepo, liveTranscriptBus),
     createChatRoutes(meetingRepo, chatService),
@@ -277,7 +289,8 @@ async function bootstrap() {
 }
 
 bootstrap().catch(err => {
-  console.error('❌ Bootstrap failed:', err);
+  console.error('❌ Bootstrap failed');
+  captureError(err);
   process.exit(1);
 });
 

@@ -21,6 +21,10 @@ export interface Meeting {
   status: MeetingStatus;
   source: MeetingSource;                  // Day 3: 'bot' | 'upload'
   botId: string | null;
+  botStartRejectedAt?: Date | null;
+  uploadSubmissionClaimedAt?: Date | null;
+  uploadProviderExcludedAt?: Date | null;
+  botMediaDeletedAt?: Date | null;
   ownerUserId: string;                    // Day 6 §6: NOT NULL in the DB — every meeting has an owner
   durationSeconds: number | null;
   errorMessage: string | null;
@@ -62,6 +66,8 @@ export interface Session {
 export interface EmailVerificationToken {
   id: string;
   userId: string;
+  emailAtIssue?: string | null;
+  emailVersion?: number | null;
   expiresAt: Date;
   consumedAt: Date | null;
   createdAt: Date;

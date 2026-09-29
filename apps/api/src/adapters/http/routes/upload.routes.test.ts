@@ -1,5 +1,6 @@
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
+import { request } from 'http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../../../config/env';
 import { FeatureUnavailableError } from '../../../domain/errors';
@@ -7,7 +8,8 @@ import type { MeetingRepository, WebhookEventRepository } from '../../../ports/r
 import type { AudioStoragePort } from '../../../ports/audio-storage.port';
 import type { UsageMeterService } from '../../../application/usage-meter.service';
 import { createServer } from '../server';
-import { createUploadRoutes } from './upload.routes';
+import { createUploadRoutes as createUploadRoutesReal } from './upload.routes';
+import { AudioDurationError, measureAudioDuration } from './audio-duration';
 import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
 
 /** Passes the content sniffer: an EBML header, which is what a real WebM recording opens with. */
@@ -17,21 +19,79 @@ const WEBM_BYTES = (() => {
   return bytes;
 })();
 
+// Legacy route tests exercise multipart, notice, storage and outbox behavior with a synthetic
+// container header. Supply a measured duration; the real decoder has its own integration tests.
+function createUploadRoutes(
+  meetingRepo: MeetingRepository, webhookRepo: WebhookEventRepository,
+  usageMeter: UsageMeterService, storage: AudioStoragePort,
+  options: Parameters<typeof createUploadRoutesReal>[4] = {},
+) {
+  const meter = usageMeter as UsageMeterService & { getUploadMaxSeconds?: (id: string) => Promise<number> };
+  meter.getUploadMaxSeconds ??= vi.fn().mockResolvedValue(86_400);
+  return createUploadRoutesReal(meetingRepo, webhookRepo, usageMeter, storage, {
+    ...options,
+    inspectAudio: options.inspectAudio ?? (async () => 1) as typeof measureAudioDuration,
+  });
+}
+
 describe('upload admission lifetime', () => {
+  it('releases the upload slot when a client keeps a multipart body open', async () => {
+    const storage = {
+      pathForUpload: vi.fn().mockReturnValue('audio/valid.webm'),
+      upload: vi.fn().mockResolvedValue({ path: 'audio/valid.webm' }),
+      delete: vi.fn(), getSignedUrl: vi.fn(),
+    };
+    const app = createServer([createUploadRoutes(
+      { create: vi.fn().mockResolvedValue({ id: 'valid-upload' }), setUploadInfo: vi.fn(),
+        abortUploadIfDeleting: vi.fn().mockResolvedValue(false) } as never,
+      { insertIfNew: vi.fn() } as never,
+      { reserveMeeting: vi.fn().mockResolvedValue({ meeting: { id: 'valid-upload' } }) } as never,
+      storage,
+      { parseTimeoutMs: 80 },
+    )], async (token) => ({ id: token, email: 'synthetic@example.test', emailVerified: true, createdAt: new Date() }));
+    const server = app.listen(0);
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/meetings/upload`;
+    const headers = {
+      origin: config.WEB_ORIGIN, cookie: 'session=synthetic',
+      'x-recording-notice-confirmed': 'true',
+      'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+    };
+    try {
+      const disconnected = new Promise<void>((resolve) => {
+        const slow = request(url, {
+          method: 'POST',
+          headers: { ...headers, 'content-type': 'multipart/form-data; boundary=slow-boundary' },
+        }, (response) => { response.resume(); response.once('end', resolve); });
+        slow.once('error', () => resolve());
+        slow.write('--slow-boundary\r\nContent-Disposition: form-data; name="audio"; filename="slow.webm"\r\nContent-Type: audio/webm\r\n\r\n');
+      });
+      await disconnected;
+      const body = new FormData();
+      body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'valid.webm');
+      expect((await fetch(url, { method: 'POST', headers, body })).status).toBe(201);
+      expect(storage.upload).toHaveBeenCalledTimes(1);
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
   it.each(['resolve', 'reject'])('holds a disconnected upload through pending storage %s and cleanup', async (outcome) => {
     const originalLimit = config.MAX_CONCURRENT_UPLOADS;
     config.MAX_CONCURRENT_UPLOADS = 1;
     let settle!: (value: { path: string }) => void;
     let fail!: (error: Error) => void;
     const pending = new Promise<{ path: string }>((resolve, reject) => { settle = resolve; fail = reject; });
-    const storage = { upload: vi.fn().mockReturnValueOnce(pending).mockResolvedValue({ path: 'audio/next.webm' }),
+    const storage = { pathForUpload: vi.fn().mockReturnValueOnce('audio/abandoned.webm').mockReturnValue('audio/next.webm'),
+      upload: vi.fn().mockReturnValueOnce(pending).mockResolvedValue({ path: 'audio/next.webm' }),
       delete: vi.fn().mockResolvedValue(undefined), getSignedUrl: vi.fn() };
     const updateStatus = vi.fn().mockResolvedValue(undefined);
     const enqueue = vi.fn().mockResolvedValue(undefined);
-    const meetingCreate = vi.fn().mockResolvedValue({ id: 'synthetic-upload' });
+    const reserveMeeting = vi.fn().mockResolvedValue({ meeting: { id: 'synthetic-upload' } });
     const app = createServer([createUploadRoutes(
-      { create: meetingCreate, setUploadInfo: vi.fn(), updateStatus } as never,
-      { insertIfNew: enqueue } as never, { assertCanStartMeeting: vi.fn() } as never, storage,
+      { setUploadInfo: vi.fn(), updateStatus, markUploadBeforeProviderFailed: updateStatus,
+        abortUploadIfDeleting: vi.fn().mockResolvedValue(false) } as never,
+      { insertIfNew: enqueue } as never,
+      { reserveMeeting } as never, storage,
     )], async (token) => ({ id: token, email: 'synthetic@example.test', emailVerified: true, createdAt: new Date() }));
     const server = app.listen(0);
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/meetings/upload`;
@@ -57,13 +117,15 @@ describe('upload admission lifetime', () => {
         expect(rejected.headers.get('retry-after')).toBe('5');
         expect(await rejected.json()).toMatchObject({ error: { code: 'UPLOAD_CAPACITY_REACHED' } });
       }
-      expect(meetingCreate).toHaveBeenCalledTimes(1);
+      expect(reserveMeeting).toHaveBeenCalledTimes(1);
       if (outcome === 'resolve') settle({ path: 'audio/abandoned.webm' });
       else fail(new Error('synthetic storage failure'));
-      await vi.waitFor(() => expect(updateStatus).toHaveBeenCalledTimes(1));
+      if (outcome === 'resolve') await vi.waitFor(() => expect(updateStatus).toHaveBeenCalledTimes(1));
       expect(enqueue).not.toHaveBeenCalled();
       if (outcome === 'resolve') expect(storage.delete).toHaveBeenCalledWith('audio/abandoned.webm');
-      expect((await request('next')).status).toBe(201);
+      else expect(storage.delete).not.toHaveBeenCalled();
+      await vi.waitFor(async () => expect((await request('next')).status).toBe(201));
+      expect(updateStatus).toHaveBeenCalledTimes(outcome === 'resolve' ? 1 : 0);
       expect(enqueue).toHaveBeenCalledTimes(1);
     } finally {
       settle({ path: 'audio/abandoned.webm' });
@@ -76,17 +138,17 @@ describe('upload admission lifetime', () => {
 describe('in-room upload availability', () => {
   let server: Server;
   let baseUrl: string;
-  const assertCanStartMeeting = vi.fn();
+  const reserveMeeting = vi.fn();
   const meetingCreate = vi.fn();
 
   beforeAll(() => {
-    assertCanStartMeeting.mockRejectedValue(
+    reserveMeeting.mockRejectedValue(
       new FeatureUnavailableError('In-room recording is not available in this environment'),
     );
     const route = createUploadRoutes(
       { create: meetingCreate } as unknown as MeetingRepository,
       {} as WebhookEventRepository,
-      { assertCanStartMeeting } as unknown as UsageMeterService,
+      { reserveMeeting } as unknown as UsageMeterService,
       {} as AudioStoragePort,
     );
     const app = createServer([route], async (token) => token === 'valid-token' ? {
@@ -101,7 +163,7 @@ describe('in-room upload availability', () => {
   }));
 
   beforeEach(() => {
-    assertCanStartMeeting.mockClear();
+    reserveMeeting.mockClear();
     meetingCreate.mockClear();
   });
 
@@ -118,7 +180,7 @@ describe('in-room upload availability', () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ error: { code: 'RECORDING_NOTICE_REQUIRED' } });
-    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(reserveMeeting).not.toHaveBeenCalled();
     expect(meetingCreate).not.toHaveBeenCalled();
   });
 
@@ -157,6 +219,7 @@ describe('in-room upload availability', () => {
     } as const;
     const updateStatus = vi.fn().mockResolvedValue(storedMeeting);
     const storage = {
+      pathForUpload: vi.fn().mockReturnValue('meeting-orphan/audio.webm'),
       upload: vi.fn().mockResolvedValue({ path: 'meeting-orphan/audio.webm' }),
       getSignedUrl: vi.fn(),
       delete: vi.fn().mockResolvedValue(undefined),
@@ -165,10 +228,10 @@ describe('in-room upload availability', () => {
       {
         create: vi.fn().mockResolvedValue(storedMeeting),
         setUploadInfo: vi.fn().mockRejectedValue(new Error('database unavailable')),
-        updateStatus,
+        updateStatus, markUploadBeforeProviderFailed: updateStatus,
       } as unknown as MeetingRepository,
       { insertIfNew: vi.fn() } as unknown as WebhookEventRepository,
-      { assertCanStartMeeting: vi.fn().mockResolvedValue(undefined) } as unknown as UsageMeterService,
+      { reserveMeeting: vi.fn().mockResolvedValue({ meeting: storedMeeting }) } as unknown as UsageMeterService,
       storage,
     );
     const localServer = createServer([route], async () => ({
@@ -192,10 +255,137 @@ describe('in-room upload availability', () => {
       });
 
       expect(response.status).toBe(500);
-      expect(storage.delete).toHaveBeenCalledWith('meeting-orphan/audio.webm');
-      expect(updateStatus).toHaveBeenCalledWith('meeting-orphan', 'failed', expect.any(Object));
+      expect(storage.upload).not.toHaveBeenCalled();
+      expect(storage.delete).not.toHaveBeenCalled();
+      expect(updateStatus).toHaveBeenCalledWith('meeting-orphan', 'Upload failed');
     } finally {
       await new Promise<void>((resolve, reject) => localServer.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it('retains audio and quota if the upload event insert might have committed', async () => {
+    const meeting = { id: 'meeting-ambiguous' };
+    const storage = { pathForUpload: vi.fn().mockReturnValue('audio/ambiguous.webm'),
+      upload: vi.fn().mockResolvedValue({ path: 'audio/ambiguous.webm' }),
+      delete: vi.fn() };
+    const updateStatus = vi.fn();
+    const route = createUploadRoutes(
+      { setUploadInfo: vi.fn(), updateStatus, abortUploadIfDeleting: vi.fn().mockResolvedValue(false) } as never,
+      { insertIfNew: vi.fn().mockRejectedValue(new Error('lost insert response')) } as never,
+      { reserveMeeting: vi.fn().mockResolvedValue({ meeting }) } as never,
+      storage as never,
+    );
+    const localServer = createServer([route], async () => ({
+      id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
+    })).listen(0);
+    try {
+      const body = new FormData();
+      body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+      const response = await fetch(`http://127.0.0.1:${(localServer.address() as AddressInfo).port}/api/meetings/upload`, {
+        method: 'POST',
+        headers: { origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+          'x-recording-notice-confirmed': 'true',
+          'x-recording-notice-version': RECORDING_NOTICE_VERSION },
+        body,
+      });
+      expect(response.status).toBe(500);
+      expect(storage.delete).not.toHaveBeenCalled();
+      expect(updateStatus).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>(resolve => localServer.close(() => resolve()));
+    }
+  });
+
+  it('persists the object key before storage and cleans up when deletion starts during upload', async () => {
+    let finishUpload!: (value: { path: string }) => void;
+    const pendingUpload = new Promise<{ path: string }>(resolve => { finishUpload = resolve; });
+    const storage = {
+      pathForUpload: vi.fn().mockReturnValue('audio/deleting.webm'),
+      upload: vi.fn().mockReturnValue(pendingUpload),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+    const setUploadInfo = vi.fn().mockResolvedValue(undefined);
+    const abortUploadIfDeleting = vi.fn().mockResolvedValue(true);
+    const insertIfNew = vi.fn();
+    const route = createUploadRoutes(
+      { setUploadInfo, abortUploadIfDeleting,
+        markUploadBeforeProviderFailed: vi.fn().mockResolvedValue(undefined) } as never,
+      { insertIfNew } as never,
+      { reserveMeeting: vi.fn().mockResolvedValue({ meeting: { id: 'deleting' } }) } as never,
+      storage as never,
+    );
+    const localServer = createServer([route], async () => ({
+      id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
+    })).listen(0);
+    try {
+      const body = new FormData();
+      body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+      const responsePromise = fetch(`http://127.0.0.1:${(localServer.address() as AddressInfo).port}/api/meetings/upload`, {
+        method: 'POST',
+        headers: { origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+          'x-recording-notice-confirmed': 'true',
+          'x-recording-notice-version': RECORDING_NOTICE_VERSION },
+        body,
+      });
+      await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(1));
+      expect(setUploadInfo).toHaveBeenCalledWith('deleting', {
+        audioStoragePath: 'audio/deleting.webm',
+      });
+      finishUpload({ path: 'audio/deleting.webm' });
+      const response = await responsePromise;
+      expect(response.status).toBe(503);
+      expect(abortUploadIfDeleting).toHaveBeenCalledWith('deleting');
+      expect(storage.delete).toHaveBeenCalledWith('audio/deleting.webm');
+      expect(insertIfNew).not.toHaveBeenCalled();
+    } finally {
+      finishUpload({ path: 'audio/deleting.webm' });
+      await new Promise<void>(resolve => localServer.close(() => resolve()));
+    }
+  });
+
+  it('keeps the object key and claim when the storage response is ambiguous', async () => {
+    let failUpload!: (error: Error) => void;
+    const pendingUpload = new Promise<{ path: string }>((_resolve, reject) => { failUpload = reject; });
+    const storage = {
+      pathForUpload: vi.fn().mockReturnValue('audio/uncertain.webm'),
+      upload: vi.fn().mockReturnValue(pendingUpload),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+    const setUploadInfo = vi.fn().mockResolvedValue(undefined);
+    const markUploadBeforeProviderFailed = vi.fn().mockResolvedValue(undefined);
+    const insertIfNew = vi.fn();
+    const route = createUploadRoutes(
+      { setUploadInfo, markUploadBeforeProviderFailed } as never,
+      { insertIfNew } as never,
+      { reserveMeeting: vi.fn().mockResolvedValue({ meeting: { id: 'uncertain' } }) } as never,
+      storage as never,
+    );
+    const localServer = createServer([route], async () => ({
+      id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
+    })).listen(0);
+    try {
+      const body = new FormData();
+      body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+      const responsePromise = fetch(`http://127.0.0.1:${(localServer.address() as AddressInfo).port}/api/meetings/upload`, {
+        method: 'POST',
+        headers: { origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+          'x-recording-notice-confirmed': 'true',
+          'x-recording-notice-version': RECORDING_NOTICE_VERSION },
+        body,
+      });
+      await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(1));
+      failUpload(new Error('response lost after possible remote object write'));
+      expect((await responsePromise).status).toBe(500);
+      expect(setUploadInfo).toHaveBeenCalledTimes(1);
+      expect(setUploadInfo).toHaveBeenCalledWith('uncertain', {
+        audioStoragePath: 'audio/uncertain.webm',
+      });
+      expect(storage.delete).not.toHaveBeenCalled();
+      expect(markUploadBeforeProviderFailed).not.toHaveBeenCalled();
+      expect(insertIfNew).not.toHaveBeenCalled();
+    } finally {
+      failUpload(new Error('closing test'));
+      await new Promise<void>(resolve => localServer.close(() => resolve()));
     }
   });
 });
@@ -203,14 +393,14 @@ describe('in-room upload availability', () => {
 describe('in-room upload content validation', () => {
   let server: Server;
   let baseUrl: string;
-  const assertCanStartMeeting = vi.fn();
+  const reserveMeeting = vi.fn();
   const meetingCreate = vi.fn();
 
   beforeAll(() => {
     const route = createUploadRoutes(
       { create: meetingCreate } as unknown as MeetingRepository,
       {} as WebhookEventRepository,
-      { assertCanStartMeeting } as unknown as UsageMeterService,
+      { reserveMeeting } as unknown as UsageMeterService,
       {} as AudioStoragePort,
     );
     const app = createServer([route], async (token) => token === 'valid-token' ? {
@@ -249,7 +439,126 @@ describe('in-room upload content validation', () => {
       },
     });
     // The reason sniffing runs before the meter: no meeting row, and nothing billable downstream.
-    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(reserveMeeting).not.toHaveBeenCalled();
     expect(meetingCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['sparse participant index', 'participantNames[999999999]', '[]'],
+    ['unexpected scalar field', 'other', '[]'],
+  ])('rejects %s before the usage meter', async (_name, field, value) => {
+    const body = new FormData();
+    body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+    body.append(field, value);
+    const response = await fetch(`${baseUrl}/api/meetings/upload`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+        'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+      },
+      body,
+    });
+    expect(response.status).toBe(400);
+    expect(reserveMeeting).not.toHaveBeenCalled();
+    expect(meetingCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects repeated text fields before the usage meter', async () => {
+    const body = new FormData();
+    body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+    body.append('participantNames', '[]');
+    body.append('participantNames', '[]');
+    const response = await fetch(`${baseUrl}/api/meetings/upload`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+        'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+      },
+      body,
+    });
+    expect(response.status).toBe(400);
+    expect(reserveMeeting).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized participant field before parsing JSON or charging', async () => {
+    const body = new FormData();
+    body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+    body.append('participantNames', 'x'.repeat(9000));
+    const response = await fetch(`${baseUrl}/api/meetings/upload`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN, cookie: 'session=valid-token',
+        'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+      },
+      body,
+    });
+    expect(response.status).toBe(400);
+    expect(reserveMeeting).not.toHaveBeenCalled();
+  });
+});
+
+describe('upload duration admission', () => {
+  const send = async (server: Server) => {
+    const body = new FormData();
+    body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording.webm');
+    return fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/meetings/upload`, {
+      method: 'POST', body,
+      headers: { origin: config.WEB_ORIGIN, cookie: 'session=verified',
+        'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION },
+    });
+  };
+
+  it.each([
+    ['invalid', 400, 'INVALID_AUDIO'],
+    ['too_long', 413, 'AUDIO_TOO_LONG'],
+    ['unavailable', 503, 'AUDIO_INSPECTION_UNAVAILABLE'],
+  ] as const)('rejects %s inspection before reservation or storage', async (reason, status, code) => {
+    const reserveMeeting = vi.fn();
+    const upload = vi.fn();
+    const inspectAudio = vi.fn().mockRejectedValue(new AudioDurationError(reason));
+    const route = createUploadRoutes({} as MeetingRepository, {} as WebhookEventRepository,
+      { reserveMeeting, getUploadMaxSeconds: vi.fn().mockResolvedValue(2) } as unknown as UsageMeterService,
+      { upload } as unknown as AudioStoragePort, { inspectAudio });
+    const server = createServer([route], async () => ({
+      id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
+    })).listen(0);
+    try {
+      const response = await send(server);
+      expect(response.status).toBe(status);
+      expect(await response.json()).toMatchObject({ error: { code } });
+      expect(reserveMeeting).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  it('reserves exactly the accepted decoded duration before storing audio', async () => {
+    const reserveMeeting = vi.fn().mockResolvedValue({ meeting: { id: 'meeting-1' } });
+    const upload = vi.fn().mockResolvedValue({ path: 'audio/recording.webm' });
+    const inspectAudio = vi.fn().mockResolvedValue(2);
+    const route = createUploadRoutes(
+      { setUploadInfo: vi.fn(), abortUploadIfDeleting: vi.fn().mockResolvedValue(false) } as unknown as MeetingRepository,
+      { insertIfNew: vi.fn() } as unknown as WebhookEventRepository,
+      { reserveMeeting, getUploadMaxSeconds: vi.fn().mockResolvedValue(2) } as unknown as UsageMeterService,
+      { pathForUpload: vi.fn().mockReturnValue('audio/recording.webm'), upload } as unknown as AudioStoragePort, { inspectAudio },
+    );
+    const server = createServer([route], async () => ({
+      id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
+    })).listen(0);
+    try {
+      expect((await send(server)).status).toBe(201);
+      expect(inspectAudio).toHaveBeenCalledWith(expect.any(Buffer),
+        { format: 'webm', mime: 'audio/webm' }, 2, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+      expect(reserveMeeting).toHaveBeenCalledWith('user-1', 'upload',
+        expect.objectContaining({ uploadDurationSeconds: 2 }));
+      expect(upload).toHaveBeenCalledTimes(1);
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
   });
 });

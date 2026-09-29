@@ -10,36 +10,75 @@ import type {
 } from '../domain/types';
 import type { DocumentContent } from '../domain/document';
 import type { ChatMessage } from './chat.port';
+import type { PlanEntitlements } from '../domain/billing';
 
 export interface MeetingRepository {
+  reserve(input: { ownerUserId: string; source: MeetingSource; meetingUrl?: string;
+    platform?: MeetingPlatform; participantNames?: string[];
+    recordingNoticeConfirmedAt?: Date; recordingNoticeVersion?: string;
+    uploadDurationSeconds?: number },
+    entitlements: PlanEntitlements, maxConcurrent: number): Promise<Meeting>;
   create(input: { ownerUserId: string; source: MeetingSource; meetingUrl?: string;
     platform?: MeetingPlatform; participantNames?: string[];
     recordingNoticeConfirmedAt?: Date; recordingNoticeVersion?: string }): Promise<Meeting>;
   findById(id: string): Promise<Meeting | null>;
   findByBotId(botId: string): Promise<Meeting | null>;
+  /** One durable transcript processor per bound bot, across all workers and event IDs. */
+  claimBotTranscript(id: string, botId: string, claimId: string): Promise<boolean>;
+  /** Release only this processor's claim after a retryable pre-completion failure. */
+  releaseBotTranscript(id: string, claimId: string): Promise<void>;
   findByShareToken(token: string): Promise<Meeting | null>;
   enableShare(id: string, userId: string, expiresAt: Date): Promise<Meeting | null>;
   revokeShare(id: string, userId: string): Promise<boolean>;
   findByTranscriptionJobId(jobId: string): Promise<Meeting | null>;   // Day 3: map a transcription webhook back to its meeting
+  /** Claim the one possible paid transcription submit before calling the provider. */
+  claimUploadSubmission(id: string): Promise<boolean>;
+  /** No provider call can follow this definitive pre-outbox failure. */
+  markUploadBeforeProviderFailed(id: string, reason: string): Promise<void>;
+  /** Resolve a prepared upload after account erasure begins, before outbox submission. */
+  abortUploadIfDeleting(id: string): Promise<boolean>;
+  /** Bind the returned provider job at most once to the claimed upload. */
+  bindTranscriptionJob(id: string, jobId: string): Promise<boolean>;
+  /** Fail and release an upload only after a definite pre-job provider rejection. */
+  failRejectedUploadSubmission(id: string, reason: string): Promise<void>;
   updateStatus(id: string, to: MeetingStatus,
     patch?: Partial<Pick<Meeting, 'botId' | 'durationSeconds' | 'errorMessage'>>): Promise<Meeting>;
+  /** Record a provider rejection that proves no bot was created, and release its quota atomically. */
+  markBotCreationRejected(id: string, errorMessage: string): Promise<Meeting>;
+  /** Bind a returned bot even if a timeout sweep has already marked the meeting failed. */
+  bindCreatedBot(id: string, botId: string): Promise<Meeting>;
+  /** Conservative erasure gate, independent of meeting status (the sweep can mark unknown outcomes failed). */
+  hasUnresolvedBotClaimForUser(userId: string): Promise<boolean>;
+  hasUnresolvedUploadClaimForUser(userId: string): Promise<boolean>;
   setSummary(id: string, summary: string): Promise<void>;
   setShareEnabled(id: string, userId: string, enabled: boolean): Promise<Meeting | null>;   // owner-scoped: turn a public link on or off
   rotateShareToken(id: string, userId: string): Promise<Meeting | null>;                    // owner-scoped: mint a new token; the old link dies
   setUploadInfo(id: string, patch: { audioStoragePath?: string | null;
     transcriptionJobId?: string }): Promise<void>;                    // Day 3: upload path
-  countActive(): Promise<number>;   // status in (bot_joining, recording, processing)
+  countActive(): Promise<number>;   // includes pending; informational, not an admission gate
   list(): Promise<Meeting[]>;
   findByIdForUser(id: string, userId: string): Promise<Meeting | null>;   // Day 5: owner-scoped read (HTTP uses ONLY this)
   listForUser(userId: string): Promise<Meeting[]>;   // Day 5: owner-scoped, newest first
-  countActiveForUser(userId: string): Promise<number>;   // Day 5: per-user concurrency cap
+  countActiveForUser(userId: string): Promise<number>;   // informational; use reserve() for admission
   deleteById(id: string): Promise<void>;             // Day 5: account erasure
   findTranscribedOlderThan?(hours: number): Promise<Meeting[]>;
   findFailedWithAudioOlderThan?(hours: number): Promise<Meeting[]>;
+  findFailedBotMediaOlderThan(hours: number): Promise<Meeting[]>;
+  /** Acknowledge deletion only for the same terminal meeting and bot ID. */
+  markBotMediaDeleted(meetingId: string, botId: string): Promise<boolean>;
   findStuckActiveOlderThan?(minutes: number): Promise<Meeting[]>;
 }
 
 export interface DocumentRepository {
+  claimGeneration(meetingId: string, regenerate: boolean): Promise<
+    | { status: 'claimed'; claimId: string }
+    | { status: 'cached'; document: { content: DocumentContent; createdAt: Date } }
+    | { status: 'pending' }
+    | { status: 'limit' }
+  >;
+  completeGeneration(meetingId: string, claimId: string, content: DocumentContent,
+    meta: { model: string; inputTokens: number; outputTokens: number }): Promise<void>;
+  failGeneration(meetingId: string, claimId: string): Promise<void>;
   upsertForMeeting(meetingId: string, content: DocumentContent,
     meta: { model: string; inputTokens: number; outputTokens: number }): Promise<{ id: string }>;
   getByMeetingId(meetingId: string): Promise<{ content: DocumentContent; createdAt: Date } | null>;
@@ -79,17 +118,29 @@ export interface WebhookEventRepository {
 }
 
 export interface UsageRepository {
-  addSeconds(meetingId: string, seconds: number): Promise<void>;
+  /** null conservatively settles the meeting's full reserved duration. */
+  addSeconds(meetingId: string, seconds: number | null): Promise<number>;
   monthlyTotalSeconds(userId: string): Promise<number>;   // current calendar month, owner-scoped
   deleteByMeeting(meetingId: string): Promise<void>;            // Day 5: account erasure
 }
 
 export interface ChatMessageRepository {
+  /** Atomically reserve one paid question before the model call. */
+  claimQuestion(meetingId: string, limit: number, question: string): Promise<{ id: string; remaining: number }>;
+  /** Publish both sides of a completed exchange in one transaction. */
+  completeQuestion(id: string, answer: string, tokens: { input: number; output: number }): Promise<void>;
+  /** Release a claim only before any provider request was started. */
+  releaseQuestion(id: string): Promise<void>;
   add(meetingId: string, role: 'user' | 'assistant', content: string,
       tokens?: { input: number; output: number }): Promise<void>;
   listByMeeting(meetingId: string): Promise<ChatMessage[]>;     // oldest first
   countUserMessages(meetingId: string): Promise<number>;        // the cap counter
   deleteByMeeting(meetingId: string): Promise<void>;            // Day 5: account erasure
+}
+
+export interface ChatQuestionRepository extends ChatMessageRepository {
+  /** Count an uncertain provider outcome against the cap without leaving an in-flight lock. */
+  markQuestionOutcomeUnknown(id: string): Promise<void>;
 }
 
 // Day 5: accounts + sessions
@@ -102,15 +153,18 @@ export interface UserRepository {
     organizationName?: string | null;
     businessUseConfirmedAt?: Date | null;
     termsVersionAccepted?: string | null;
-  }): Promise<User>;
+  }): Promise<User & { authVersion: number }>;
   /** Includes passwordHash — for AuthService only. */
-  findByEmailWithHash(email: string): Promise<(User & { passwordHash: string | null; googleId?: string | null }) | null>;
-  findByGoogleId(googleId: string): Promise<User | null>;
-  linkGoogleId(id: string, googleId: string): Promise<void>;
+  findByEmailWithHash(email: string): Promise<(User & { passwordHash: string | null; googleId?: string | null; authVersion: number }) | null>;
+  findByGoogleId(googleId: string): Promise<(User & { authVersion: number }) | null>;
+  linkGoogleId(input: { userId: string; googleId: string; email: string;
+    expectedAuthVersion: number }): Promise<boolean>;
   markEmailVerified(id: string): Promise<void>;
   findById(id: string): Promise<User | null>;
-  updatePassword(id: string, passwordHash: string): Promise<void>;         // account settings: change password
-  updateEmail(id: string, email: string): Promise<User>;                   // lowercased; unique-violation → EmailTakenError
+  /** Fence new meetings across replicas before account erasure inspects provider claims. */
+  beginDeletion(id: string): Promise<void>;
+  updatePassword(id: string, passwordHash: string, expectedAuthVersion: number): Promise<number>;
+  updateEmail(id: string, email: string, expectedAuthVersion: number): Promise<User>;
   deleteById(id: string): Promise<void>;
 }
 
@@ -123,7 +177,7 @@ export type VerificationTokenConsumeResult =
 
 export interface VerificationTokenRepository {
   /** Atomically invalidates the user's previous token and stores the replacement. */
-  replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<void>;
+  replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<{ email: string }>;
   findByTokenHash(tokenHash: string): Promise<EmailVerificationToken | null>;
   /** The user's single live token (unique index on user_id) — backs the resend cooldown. */
   findForUser(userId: string): Promise<EmailVerificationToken | null>;
@@ -133,6 +187,7 @@ export interface VerificationTokenRepository {
   consumeAndVerify(input: {
     tokenHash: string;
     now: Date;
+    passwordHash: string;
   }): Promise<VerificationTokenConsumeResult>;
 }
 
@@ -145,20 +200,26 @@ export type EmailSendTrigger = 'signup' | 'resend' | 'change_email';
  * `countSince` takes the window start rather than computing it, so the service owns the clock and
  * the window constant — which is what keeps the budget testable without a database.
  *
- * Read-then-write is only near-atomic, which is fine at one replica: the gap is a single Postgres
- * round-trip, so overshoot is a row or two against 70 emails of headroom. If numReplicas ever
- * exceeds 1, replace this with an atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count`.
+ * Admission must serialize the rolling-window count and insert across all API replicas.
  */
 export interface EmailSendLedgerRepository {
   /** Rows created at or after `since`. */
   countSince(since: Date): Promise<number>;
+  /** Claim one send in a transaction, or return false when the shared budget is exhausted. */
+  tryReserve(input: { userId: string | null; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number }): Promise<boolean>;
+  /** Claim the global send slot, account cooldown and replacement token in one transaction. */
+  tryReserveAndIssue(input: { userId: string; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number; cooldownMs: number;
+    tokenHash: string; expiresAt: Date }): Promise<{ status: 'issued'; email: string }
+      | { status: 'cooldown' | 'budget' | 'already_verified' }>;
   record(input: { userId: string | null; trigger: EmailSendTrigger }): Promise<void>;
   /** Retention janitor, mirroring SessionRepository.deleteExpired. Returns the count removed. */
   deleteOlderThan(cutoff: Date): Promise<number>;
 }
 
 export interface SessionRepository {
-  create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<Session>;
+  create(input: { userId: string; tokenHash: string; expiresAt: Date; authVersion?: number }): Promise<Session>;
   findByTokenHash(tokenHash: string): Promise<Session | null>;
   deleteByTokenHash(tokenHash: string): Promise<void>;
   deleteAllForUser(userId: string): Promise<void>;
@@ -171,10 +232,9 @@ export interface PaddleBillingRepository {
     customerId: string;
     subscriptionIds: string[];
   } | null>;
-  findCustomerByEmail(email: string): Promise<{
-    customerId: string;
-    subscriptionIds: string[];
-  } | null>;
+  /** Bind only a newly created or explicitly unowned customer to the authenticated app user. */
+  attachCustomerToUser(input: { customerId: string; email: string; userId: string }): Promise<boolean>;
+  /** Synchronize provider contact details without changing the local owner. */
   upsertCustomer(input: {
     customerId: string;
     email: string;

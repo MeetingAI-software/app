@@ -4,6 +4,7 @@ import { createSpeakerResolver, toSeconds } from '../adapters/recall/transcript.
 import { assertTransition } from '../domain/state-machine';
 import type { MeetingStatus, TranscriptSegment } from '../domain/types';
 import { logger } from '../config/logger';
+import { LiveTranscriptClosedError } from '../domain/errors';
 
 /**
  * Recall's realtime webhook payload. Unlike the workspace webhooks handled by
@@ -77,6 +78,13 @@ export class IngestLiveTranscriptService {
     if (!segment) return;
 
     if (!isFinal) {
+      // The bot mapping can be cached while another worker fails the meeting. Check the
+      // committed status before publishing any new partial; partials have no DB insert fence.
+      const current = await this.meetingRepo.findById(entry.meetingId);
+      if (!current || current.status === 'failed' || current.status === 'transcribed') {
+        this.forget(botId);
+        return;
+      }
       const key = `${entry.meetingId}:${speaker}`;
       if (this.partials.get(key) === segment.text) return; // unchanged guess, don't re-broadcast
       this.partials.set(key, segment.text);
@@ -85,7 +93,14 @@ export class IngestLiveTranscriptService {
     }
 
     this.partials.delete(`${entry.meetingId}:${speaker}`);
-    const stored = await this.liveRepo.append(entry.meetingId, segment);
+    let stored;
+    try {
+      stored = await this.liveRepo.append(entry.meetingId, segment);
+    } catch (err) {
+      if (!(err instanceof LiveTranscriptClosedError)) throw err;
+      this.forget(botId);
+      return;
+    }
     this.bus.publish(entry.meetingId, { type: 'segment', segment: stored });
 
     await this.nudgeToRecording(entry);
@@ -93,6 +108,12 @@ export class IngestLiveTranscriptService {
 
   /** Drop a meeting's cached mapping once it is over, so the map doesn't grow unbounded. */
   forget(botId: string): void {
+    const entry = this.cache.get(botId);
+    if (entry) {
+      for (const key of this.partials.keys()) {
+        if (key.startsWith(`${entry.meetingId}:`)) this.partials.delete(key);
+      }
+    }
     this.cache.delete(botId);
   }
 
@@ -102,7 +123,11 @@ export class IngestLiveTranscriptService {
 
     const meeting = await this.meetingRepo.findByBotId(botId);
     if (!meeting) {
-      logger.debug({ botId }, 'Live transcript event for unknown bot — ignoring');
+      logger.debug('Live transcript event for unknown bot — ignoring');
+      return null;
+    }
+    if (meeting.status === 'failed' || meeting.status === 'transcribed') {
+      this.forget(botId);
       return null;
     }
 
@@ -133,7 +158,7 @@ export class IngestLiveTranscriptService {
       logger.info({ meetingId: entry.meetingId }, 'Live transcript started — meeting marked recording');
     } catch (err: any) {
       logger.debug(
-        { meetingId: entry.meetingId, err: err?.message },
+        { meetingId: entry.meetingId },
         'Could not nudge meeting to recording from live transcript',
       );
       // Don't retry on every subsequent utterance.

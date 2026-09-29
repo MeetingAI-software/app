@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, migrateOnce, truncateAll } from '../pglite-harness';
 import { meetings, transcripts, users } from '../schema';
 import { DrizzleMeetingRepository } from './meeting.repository';
+import { ProcessWebhookEventService } from '../../../application/process-webhook-event.service';
 
 // Real Postgres (PGlite) stands in for the live-DATABASE_URL singleton. See pglite-harness.ts for
 // why the factory closes over `db` rather than importing inside itself.
@@ -112,6 +113,100 @@ describe('DrizzleMeetingRepository', () => {
     });
   });
 
+  describe('claimBotTranscript', () => {
+    it('serializes distinct event workers on the canonical bot binding', async () => {
+      const target = await insertMeeting({ botId: 'bot-a', status: 'processing' });
+      const other = await insertMeeting({ ownerUserId: bob, botId: 'bot-b', status: 'processing' });
+      const workerA = new DrizzleMeetingRepository();
+      const workerB = new DrizzleMeetingRepository();
+      const [first, second] = await Promise.all([
+        workerA.claimBotTranscript(target.id, 'bot-a', '00000000-0000-4000-8000-000000000011'),
+        workerB.claimBotTranscript(target.id, 'bot-a', '00000000-0000-4000-8000-000000000012'),
+      ]);
+      expect([first, second].filter(Boolean)).toHaveLength(1);
+      expect(await repo.claimBotTranscript(target.id, 'bot-b', '00000000-0000-4000-8000-000000000013'))
+        .toBe(false);
+      expect(await repo.claimBotTranscript(other.id, 'bot-b', '00000000-0000-4000-8000-000000000014'))
+        .toBe(true);
+    });
+
+    it('does not let a stale worker release another claim or reopen a terminal meeting', async () => {
+      const target = await insertMeeting({ botId: 'bot-a', status: 'processing' });
+      const first = '00000000-0000-4000-8000-000000000011';
+      const second = '00000000-0000-4000-8000-000000000012';
+      expect(await repo.claimBotTranscript(target.id, 'bot-a', first)).toBe(true);
+      await repo.releaseBotTranscript(target.id, second);
+      expect(await repo.claimBotTranscript(target.id, 'bot-a', second)).toBe(false);
+      await repo.releaseBotTranscript(target.id, first);
+      expect(await repo.claimBotTranscript(target.id, 'bot-a', second)).toBe(true);
+      await repo.updateStatus(target.id, 'transcribed');
+      await repo.releaseBotTranscript(target.id, second);
+      expect(await repo.claimBotTranscript(target.id, 'bot-a', first)).toBe(false);
+    });
+
+    it('runs one paid summary across two services handling distinct signed events', async () => {
+      const target = await insertMeeting({ botId: 'bot-a', status: 'processing' });
+      let finishFetch!: (segments: []) => void;
+      const pendingFetch = new Promise<[]>(resolve => { finishFetch = resolve; });
+      const bot = {
+        fetchTranscript: vi.fn().mockReturnValue(pendingFetch),
+        getRecordedDurationSeconds: vi.fn().mockResolvedValue(8),
+        deleteRecording: vi.fn(),
+      };
+      const transcriptRepo = { save: vi.fn() };
+      const usageRepo = { addSeconds: vi.fn().mockResolvedValue(8) };
+      const docGen = { generateSummary: vi.fn().mockResolvedValue('Summary') };
+      const first = new ProcessWebhookEventService(
+        new DrizzleMeetingRepository(), transcriptRepo as never, usageRepo as never,
+        bot as never, docGen as never,
+      );
+      const second = new ProcessWebhookEventService(
+        new DrizzleMeetingRepository(), transcriptRepo as never, usageRepo as never,
+        bot as never, docGen as never,
+      );
+      const event = { bot_id: 'bot-a', meeting_id: target.id };
+      const firstRun = first.processEvent('transcript_ready', { ...event, event_id: 'event-a' });
+      await vi.waitFor(() => expect(bot.fetchTranscript).toHaveBeenCalledTimes(1));
+      await second.processEvent('transcript_ready', { ...event, event_id: 'event-b' });
+      expect(bot.fetchTranscript).toHaveBeenCalledTimes(1);
+      finishFetch([]);
+      await firstRun;
+      expect(docGen.generateSummary).toHaveBeenCalledTimes(1);
+      expect(transcriptRepo.save).toHaveBeenCalledTimes(1);
+      expect((await repo.findById(target.id))?.status).toBe('transcribed');
+    });
+
+    it('does not reopen a failure when a claimed transcript arrives after reconciliation', async () => {
+      const target = await insertMeeting({ botId: 'bot-late', status: 'bot_joining' });
+      let finishFetch!: (segments: []) => void;
+      const pendingFetch = new Promise<[]>(resolve => { finishFetch = resolve; });
+      const bot = {
+        fetchTranscript: vi.fn().mockReturnValue(pendingFetch),
+        getRecordedDurationSeconds: vi.fn().mockResolvedValue(8),
+        deleteRecording: vi.fn(),
+      };
+      const transcriptRepo = { save: vi.fn() };
+      const usageRepo = { addSeconds: vi.fn().mockResolvedValue(8) };
+      const docGen = { generateSummary: vi.fn().mockResolvedValue('Summary') };
+      const service = new ProcessWebhookEventService(
+        new DrizzleMeetingRepository(), transcriptRepo as never, usageRepo as never,
+        bot as never, docGen as never,
+      );
+      const processing = service.processEvent('transcript_ready', {
+        bot_id: 'bot-late', meeting_id: target.id,
+      });
+      await vi.waitFor(() => expect(bot.fetchTranscript).toHaveBeenCalledOnce());
+      await new DrizzleMeetingRepository().updateStatus(target.id, 'failed', {
+        errorMessage: 'Reconciled terminal failure',
+      });
+      finishFetch([]);
+      await expect(processing).rejects.toThrow();
+      expect((await repo.findById(target.id))?.status).toBe('failed');
+      expect(docGen.generateSummary).not.toHaveBeenCalled();
+      expect(bot.deleteRecording).not.toHaveBeenCalled();
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // The ownership boundary. These are the tests that would catch one user being
   // able to read another user's meeting — nothing else in the suite can.
@@ -133,6 +228,11 @@ describe('DrizzleMeetingRepository', () => {
         await repo.findByIdForUser('00000000-0000-0000-0000-000000000000', alice),
       ).toBeNull();
     });
+
+    it.each(['not-a-uuid', '1', '00000000-0000-0000-0000-00000000000g'])
+      ('returns an ordinary miss for malformed route id %s without a Postgres cast error', async id => {
+        await expect(repo.findByIdForUser(id, alice)).resolves.toBeNull();
+      });
   });
 
   // findById is deliberately NOT owner-scoped: the webhook worker and sweep look meetings up without
@@ -182,13 +282,12 @@ describe('DrizzleMeetingRepository', () => {
   });
 
   describe('countActiveForUser', () => {
-    // 'pending', 'transcribed' and 'failed' are NOT active. Getting this set wrong would let a user
-    // exceed MAX_CONCURRENT_BOTS, or block them from starting a meeting they are entitled to.
-    it('counts only bot_joining, recording and processing', async () => {
+    // Pending work has already claimed paid capacity, even before the provider responds.
+    it('counts pending, bot_joining, recording and processing', async () => {
       for (const status of ['bot_joining', 'recording', 'processing', 'pending', 'transcribed', 'failed']) {
         await insertMeeting({ ownerUserId: alice, status });
       }
-      expect(await repo.countActiveForUser(alice)).toBe(3);
+      expect(await repo.countActiveForUser(alice)).toBe(4);
     });
 
     it("does not count another user's active meetings", async () => {
@@ -210,6 +309,16 @@ describe('DrizzleMeetingRepository', () => {
       const m = await insertMeeting({ botId: 'bot-42' });
       expect((await repo.findByBotId('bot-42'))?.id).toBe(m.id);
       expect(await repo.findByBotId('bot-nope')).toBeNull();
+    });
+
+    it('rejects a bot ID bound to a different owner while allowing unbound meetings', async () => {
+      const first = await insertMeeting({ botId: 'shared-bot' });
+      const second = await insertMeeting({ ownerUserId: bob });
+      await expect(repo.updateStatus(second.id, 'bot_joining', { botId: 'shared-bot' }))
+        .rejects.toThrow();
+      expect((await repo.findByBotId('shared-bot'))?.id).toBe(first.id);
+      expect((await repo.findByIdForUser(second.id, bob))?.botId).toBeNull();
+      await insertMeeting({ ownerUserId: bob });
     });
 
     it('finds only an enabled, unexpired share token', async () => {
@@ -321,8 +430,32 @@ describe('DrizzleMeetingRepository', () => {
   });
 
   describe('updateStatus', () => {
+    it('rejects a stale event after another repository marks the meeting failed', async () => {
+      const meeting = await insertMeeting({ status: 'bot_joining' });
+      const otherReplica = new DrizzleMeetingRepository();
+      await otherReplica.updateStatus(meeting.id, 'failed', { errorMessage: 'reconciled' });
+
+      await expect(repo.updateStatus(meeting.id, 'recording')).rejects.toThrow();
+      const current = await repo.findById(meeting.id);
+      expect(current?.status).toBe('failed');
+      expect(current?.errorMessage).toBe('reconciled');
+    });
+
+    it('does not let a late failure replace a completed transcript', async () => {
+      const meeting = await insertMeeting({ status: 'transcribed' });
+      await expect(repo.updateStatus(meeting.id, 'failed', { errorMessage: 'late failure' })).rejects.toThrow();
+      expect((await repo.findById(meeting.id))?.status).toBe('transcribed');
+    });
+
+    it('treats a replayed failure as a no-op without replacing its reason', async () => {
+      const meeting = await insertMeeting({ status: 'failed', errorMessage: 'first reason' });
+      const replay = await repo.updateStatus(meeting.id, 'failed', { errorMessage: 'late reason' });
+      expect(replay.errorMessage).toBe('first reason');
+      expect(replay.updatedAt).toEqual(meeting.updatedAt);
+    });
+
     it('changes status and advances updatedAt', async () => {
-      const m = await insertMeeting({ updatedAt: new Date(Date.now() - HOUR) });
+      const m = await insertMeeting({ status: 'bot_joining', updatedAt: new Date(Date.now() - HOUR) });
 
       const updated = await repo.updateStatus(m.id, 'recording');
 
@@ -345,7 +478,7 @@ describe('DrizzleMeetingRepository', () => {
     });
 
     it('leaves fields alone when no patch is given', async () => {
-      const m = await insertMeeting({ botId: 'keep-me', durationSeconds: 30 });
+      const m = await insertMeeting({ status: 'processing', botId: 'keep-me', durationSeconds: 30 });
 
       const updated = await repo.updateStatus(m.id, 'transcribed');
 
@@ -355,7 +488,7 @@ describe('DrizzleMeetingRepository', () => {
 
     // A missing WHERE would pass every single-row test above while rewriting the whole table.
     it('touches only the target row', async () => {
-      const target = await insertMeeting({ shareToken: 'target' });
+      const target = await insertMeeting({ shareToken: 'target', status: 'bot_joining' });
       const other = await insertMeeting({ shareToken: 'other' });
 
       await repo.updateStatus(target.id, 'recording');
@@ -486,6 +619,30 @@ describe('DrizzleMeetingRepository', () => {
       const found = await repo.findFailedWithAudioOlderThan(1);
 
       expect(found.map((m) => m.shareToken)).toEqual(['failed-old']);
+    });
+  });
+
+  describe('failed bot media cleanup', () => {
+    it('selects only old failed bots with unacknowledged media', async () => {
+      const now = Date.now();
+      const old = new Date(now - 2 * HOUR);
+      const recent = new Date(now - 5 * MINUTE);
+      await insertMeeting({ shareToken: 'old-failed-bot', source: 'bot', status: 'failed', botId: 'bot-old', updatedAt: old });
+      await insertMeeting({ shareToken: 'young-failed-bot', source: 'bot', status: 'failed', botId: 'bot-young', updatedAt: recent });
+      await insertMeeting({ shareToken: 'failed-upload', source: 'upload', status: 'failed', updatedAt: old });
+      await insertMeeting({ shareToken: 'active-bot', source: 'bot', status: 'recording', botId: 'bot-active', updatedAt: old });
+      const found = await repo.findFailedBotMediaOlderThan(1);
+      expect(found.map(m => m.shareToken)).toEqual(['old-failed-bot']);
+      expect(await repo.markBotMediaDeleted(found[0].id, 'bot-old')).toBe(true);
+      expect(await repo.findFailedBotMediaOlderThan(1)).toEqual([]);
+      expect(await repo.markBotMediaDeleted(found[0].id, 'bot-old')).toBe(false);
+    });
+
+    it('does not acknowledge a different or active bot', async () => {
+      const failed = await insertMeeting({ status: 'failed', source: 'bot', botId: 'bot-failed' });
+      const active = await insertMeeting({ status: 'recording', source: 'bot', botId: 'bot-active' });
+      expect(await repo.markBotMediaDeleted(failed.id, 'wrong-bot')).toBe(false);
+      expect(await repo.markBotMediaDeleted(active.id, 'bot-active')).toBe(false);
     });
   });
 

@@ -9,6 +9,8 @@ import type { AudioStoragePort } from '../../../ports/audio-storage.port';
 import { parseParticipantNames, isAudioMime, detectAudioFormat } from './upload-inputs';
 import { perUserRouteLimiter, SPEND_LIMITS } from '../middleware/rate-limit';
 import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
+import { AudioDurationError, measureAudioDuration } from './audio-duration';
+import { AccountDeletionBlockedError } from '../../../domain/errors';
 
 /**
  * POST /api/meetings/upload — in-room recording upload.
@@ -21,7 +23,8 @@ export function createUploadRoutes(
   meetingRepo: MeetingRepository,
   webhookRepo: WebhookEventRepository,
   usageMeter: UsageMeterService,
-  storage: AudioStoragePort
+  storage: AudioStoragePort,
+  options: { parseTimeoutMs?: number; inspectAudio?: typeof measureAudioDuration } = {},
 ): Router {
   const router = Router();
 
@@ -45,7 +48,19 @@ export function createUploadRoutes(
 
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: config.MAX_UPLOAD_MB * 1024 * 1024, files: 1 },
+    // Busboy enforces these before Multer's append-field can turn a sparse bracket index into
+    // a huge array. The only accepted key is exactly "participantNames" (16 bytes).
+    limits: {
+      fileSize: config.MAX_UPLOAD_MB * 1024 * 1024,
+      files: 1,
+      fields: 1,
+      // Keep one part of headroom for Multer's limit event; the files/fields limits below
+      // still permit only one audio part and one scalar text part.
+      parts: 3,
+      fieldSize: 8192,
+      fieldNameSize: 16,
+      headerPairs: 16,
+    },
     fileFilter: (_req, file, cb) => {
       if (isAudioMime(file.mimetype)) {
         cb(null, true);
@@ -70,10 +85,19 @@ export function createUploadRoutes(
     const close = () => { if (!res.writableFinished) abort(); };
     req.once('aborted', abort);
     res.once('close', close);
+    // A slow client must not own the shared in-memory upload slot indefinitely. This bounds
+    // total multipart parsing time, including a sender that trickles data to avoid idle limits.
+    const parseTimer = setTimeout(() => {
+      controller.abort();
+      req.destroy();
+    }, options.parseTimeoutMs ?? 120_000);
     let parsed = false;
     try {
       await new Promise<void>((resolve, reject) => {
-        upload.single('audio')(req, res, (err: unknown) => err ? reject(err) : resolve());
+        upload.single('audio')(req, res, (err: unknown) => {
+          clearTimeout(parseTimer);
+          err ? reject(err) : resolve();
+        });
       });
       parsed = true;
       controller.signal.throwIfAborted();
@@ -86,18 +110,19 @@ export function createUploadRoutes(
             error: { code: 'FILE_TOO_LARGE', message: `Audio exceeds the ${config.MAX_UPLOAD_MB}MB limit` },
           });
         }
-        return res.status(400).json({ error: { code: 'UPLOAD_ERROR', message: err.message } });
+        return res.status(400).json({ error: { code: 'UPLOAD_ERROR', message: 'Invalid upload' } });
       }
       if (!parsed) {
         // fileFilter rejection (non-audio) or malformed multipart — a client error either way.
         return res.status(400).json({
-          error: { code: 'INVALID_AUDIO', message: err instanceof Error ? err.message : 'Invalid upload' },
+          error: { code: 'INVALID_AUDIO', message: 'Invalid upload' },
         });
       }
       return next(err);
     } finally {
       // Response close only signals cancellation. Parser, storage, DB and cleanup retain their
       // reservation until settled, even if an adapter ignores cancellation. Release exactly once.
+      clearTimeout(parseTimer);
       delete req.file;
       req.off('aborted', abort);
       res.off('close', close);
@@ -106,6 +131,13 @@ export function createUploadRoutes(
   });
 
   async function handleUpload(req: Request, res: Response, signal: AbortSignal): Promise<Response> {
+    const fieldNames = Object.keys(req.body ?? {});
+    if (fieldNames.some((name) => name !== 'participantNames') ||
+        (req.body?.participantNames !== undefined && typeof req.body.participantNames !== 'string')) {
+      return res.status(400).json({
+        error: { code: 'INVALID_UPLOAD_FIELDS', message: 'Only participantNames is accepted as a text field' },
+      });
+    }
     const file = req.file;
     if (!file) {
       return res.status(400).json({ error: { code: 'NO_FILE', message: 'An audio file is required (field "audio")' } });
@@ -126,28 +158,62 @@ export function createUploadRoutes(
     // Throws ZodError (→ 400) on a malformed participantNames field.
     const participantNames = parseParticipantNames(req.body?.participantNames);
 
-    // Monthly hours protect the wallet on BOTH the bot and the upload path (→ 429), per user.
-    await usageMeter.assertCanStartMeeting(req.userId!, 'upload');
-    signal.throwIfAborted();
+    // Decode actual audio before storage or a paid transcription. Container duration and
+    // spoken transcript timestamps are not evidence of recording time, especially for silence.
+    const maxSeconds = await usageMeter.getUploadMaxSeconds(req.userId!);
+    let durationSeconds: number;
+    try {
+      durationSeconds = await (options.inspectAudio ?? measureAudioDuration)(
+        file.buffer, audio, maxSeconds, { signal },
+      );
+    } catch (error) {
+      if (error instanceof AudioDurationError) {
+        const response = error.reason === 'too_long'
+          ? { status: 413, code: 'AUDIO_TOO_LONG', message: 'Audio exceeds the plan duration limit' }
+          : error.reason === 'invalid'
+            ? { status: 400, code: 'INVALID_AUDIO', message: 'The uploaded audio could not be decoded' }
+            : { status: 503, code: 'AUDIO_INSPECTION_UNAVAILABLE', message: 'Audio inspection is temporarily unavailable' };
+        return res.status(response.status).json({ error: { code: response.code, message: response.message } });
+      }
+      throw error;
+    }
+    if (!Number.isSafeInteger(durationSeconds) || durationSeconds < 1 || durationSeconds > maxSeconds) {
+      return res.status(400).json({
+        error: { code: 'INVALID_AUDIO', message: 'The uploaded audio could not be decoded' },
+      });
+    }
 
-    const meeting = await meetingRepo.create({
-      ownerUserId: req.userId!,
-      source: 'upload',
+    // Monthly hours protect the wallet on BOTH the bot and the upload path (→ 429), per user.
+    signal.throwIfAborted();
+    const { meeting } = await usageMeter.reserveMeeting(req.userId!, 'upload', {
       participantNames,
       recordingNoticeConfirmedAt: new Date(),
       recordingNoticeVersion: RECORDING_NOTICE_VERSION,
+      uploadDurationSeconds: durationSeconds,
     });
 
     let uploadedPath: string | null = null;
+    let outboxAttempted = false;
+    let storageUploadAttempted = false;
+    let storageUploadConfirmed = false;
     try {
       signal.throwIfAborted();
-      // The detected type, not the declared one — the stored object key is then derived entirely
-      // from bytes we verified rather than from a header the caller chose.
+      // Persist the deterministic key before the external upload. An uncertain storage response
+      // or account-erasure race still leaves a durable object reference for cleanup.
+      const plannedPath = storage.pathForUpload(meeting.id, audio.mime);
+      await meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: plannedPath });
+      uploadedPath = plannedPath;
+      signal.throwIfAborted();
+      storageUploadAttempted = true;
       const { path } = await storage.upload(meeting.id, file.buffer, audio.mime, { signal });
-      uploadedPath = path;
+      if (path !== plannedPath) throw new Error('Storage upload returned a different object path');
+      storageUploadConfirmed = true;
       signal.throwIfAborted();
-      await meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: path });
+      if (await meetingRepo.abortUploadIfDeleting(meeting.id)) {
+        throw new AccountDeletionBlockedError('Account deletion is in progress');
+      }
       signal.throwIfAborted();
+      outboxAttempted = true;
       await webhookRepo.insertIfNew({
         provider: 'upload',
         externalEventId: `audio_uploaded:${meeting.id}`,
@@ -155,18 +221,34 @@ export function createUploadRoutes(
         payload: { meetingId: meeting.id },
       });
     } catch (err) {
-      // If storage succeeded but the DB/outbox failed, remove the object immediately. The meeting
+      if (storageUploadAttempted && !storageUploadConfirmed) {
+        // A lost response or local abort does not prove that the remote object was never written.
+        // Even a DELETE returning 404 could race a still-running remote upload. Keep its key and
+        // unresolved claim so account erasure cannot discard the only cleanup reference.
+        logger.warn({ meetingId: meeting.id }, 'Storage upload outcome unknown; retaining object key and quota');
+        throw err;
+      }
+      if (outboxAttempted) {
+        // The event insert may have committed even if its response was lost. A worker could
+        // already be submitting the paid job, so retain audio and quota for reconciliation.
+        logger.warn({ meetingId: meeting.id }, 'Upload event outcome unknown; retaining audio and quota');
+        throw err;
+      }
+      // If storage succeeded but pre-outbox preparation failed, remove the object immediately. The meeting
       // row remains failed for support/audit purposes and the original error still propagates.
       if (uploadedPath) {
-        await storage.delete(uploadedPath).catch(() => {
-          logger.error({ meetingId: meeting.id }, 'Failed to remove an incomplete upload');
-        });
+        try {
+          await storage.delete(uploadedPath);
+          // No provider job was submitted. Clear the stale path after successful deletion.
+          await meetingRepo.setUploadInfo(meeting.id, { audioStoragePath: null });
+        } catch {
+          logger.error({ meetingId: meeting.id }, 'Failed to reconcile an incomplete upload');
+        }
       }
-      // Don't leave the row stuck in 'pending' with no audio behind it.
+      // This branch never enqueued provider work. Mark that fact durably so deletion can retry
+      // storage cleanup without treating a failed upload as an unknown AssemblyAI job.
       await meetingRepo
-        .updateStatus(meeting.id, 'failed', {
-          errorMessage: err instanceof Error ? err.message : 'Upload failed',
-        })
+        .markUploadBeforeProviderFailed(meeting.id, 'Upload failed')
         .catch(() => {
           /* best effort — the original error is what matters */
         });

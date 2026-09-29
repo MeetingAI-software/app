@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import crypto from 'crypto';
 import { config } from '../../../config/env';
 import type { WebhookEventRepository } from '../../../ports/repositories.port';
 import type { PaddleBillingRepository } from '../../../ports/repositories.port';
@@ -42,8 +41,8 @@ export function createWebhookRoutes(
     res.status(200).json({ received: true });
 
     if (!liveTranscript) return;
-    liveTranscript.processLiveEvent(req.body).catch((err) => {
-      console.error('⚠️ Live transcript ingest failed:', err?.message);
+    liveTranscript.processLiveEvent(req.body).catch(() => {
+      console.error('⚠️ Live transcript ingest failed');
     });
   });
 
@@ -55,13 +54,9 @@ export function createWebhookRoutes(
         return res.status(401).json({ error: 'Invalid signature' });
       }
 
-      // 2. Extract provider event ID or hash the raw body
-      const svixId = req.headers['webhook-id'] || req.headers['svix-id'];
-      let eventId = svixId ? String(svixId) : '';
-      if (!eventId) {
-        const rawBody = (req as any).rawBody ? (req as any).rawBody.toString('utf8') : '';
-        eventId = crypto.createHash('sha256').update(rawBody).digest('hex');
-      }
+      // Signature verification requires this same provider ID, so an unsigned/idless fallback
+      // would only create a second unauthenticated ingress path.
+      const eventId = String(req.headers['webhook-id'] || req.headers['svix-id']);
 
       // 3. Extract event type (Recall uses req.body.event)
       const eventType = req.body.event || 'transcript_ready';

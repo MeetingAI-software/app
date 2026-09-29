@@ -32,14 +32,16 @@ export class WebhookWorker {
     
     this.intervalId = setInterval(() => {
       this.pollAndProcess().catch(err => {
-        console.error('Worker loop error:', err);
+        console.error('Worker loop error');
+        captureError(err);
       });
     }, 2000);
 
     // Reconciler runs every 60s
     this.reconcileIntervalId = setInterval(() => {
       this.reconcileMeetings().catch(err => {
-        console.error('Reconciler error:', err);
+        console.error('Reconciler error');
+        captureError(err);
       });
     }, 60000);
   }
@@ -67,12 +69,12 @@ export class WebhookWorker {
 
       const handler = this.resolveHandler(event.eventType, event.payload);
       if (!handler) {
-        console.log(`   Ignoring event ${event.id} of type ${event.eventType}`);
+        console.log(`   Ignoring event ${event.id}`);
         await this.webhookRepo.markProcessed(event.id);
         return;
       }
 
-      console.log(`👷 Processing event ${event.id} (${event.eventType})`);
+      console.log(`👷 Processing event ${event.id}`);
       try {
         await handler();
         await this.webhookRepo.markProcessed(event.id);
@@ -97,16 +99,13 @@ export class WebhookWorker {
   }
 
   /** Shared retry/backoff/give-up-after-5 for every event type — identical to Day 1. */
-  private async handleProcessingFailure(event: { id: string; payload: unknown }, err: any): Promise<void> {
-    console.error(`❌ Error processing event ${event.id}:`, err);
+  private async handleProcessingFailure(event: { id: string; eventType: string; payload: unknown }, err: any): Promise<void> {
+    console.error(`❌ Error processing event ${event.id}`);
 
-    // Day 6 §5: push the failure to Sentry, tagged with the meeting so DoD item 6 (broken Anthropic
-    // key → alert within ~1 min, tagged with meetingId) is satisfied on the very first attempt.
-    const p = (event.payload ?? {}) as any;
-    // Bot webhooks carry the id at data.bot.metadata.meetingId; upload events use the flat shape.
-    const meetingId =
-      p.data?.bot?.metadata?.meetingId || p.meeting_id || p.data?.meeting_id || p.meetingId;
-    captureError(err, { eventId: event.id, ...(meetingId ? { meetingId: String(meetingId) } : {}) });
+    // Provider metadata is not an authority for a meeting ID. Resolve through the stored bot/job
+    // binding before tagging telemetry or changing a meeting after the last retry.
+    const meeting = await this.resolveMeetingFromPayload(event.eventType, event.payload);
+    captureError(err, meeting ? { meetingId: meeting.id } : undefined);
 
     const [row] = await db
       .select({ attempts: webhookEvents.attempts })
@@ -118,10 +117,15 @@ export class WebhookWorker {
       console.error(`❌ Event ${event.id} failed after 5 attempts. Marking processed and failing meeting.`);
       await this.webhookRepo.markProcessed(event.id);
 
-      const meeting = await this.resolveMeetingFromPayload(event.payload);
-      if (meeting) {
+      // A submitted upload can still have a paid AssemblyAI job in flight. Keep its
+      // processing state and quota claim so a late job ID/callback can be reconciled.
+      const unresolvedUpload = meeting?.source === 'upload'
+        && meeting.uploadSubmissionClaimedAt && !meeting.uploadProviderExcludedAt;
+      if (unresolvedUpload) {
+        console.error(`Upload ${meeting.id} needs provider reconciliation after retry exhaustion`);
+      } else if (meeting && meeting.status !== 'transcribed' && meeting.status !== 'failed') {
         await this.meetingRepo.updateStatus(meeting.id, 'failed', {
-          errorMessage: err?.message || 'Processing failed after max retries',
+          errorMessage: 'Processing failed after max retries',
         });
       }
     } else {
@@ -133,26 +137,27 @@ export class WebhookWorker {
     }
   }
 
-  /** Resolve the meeting a failed event belongs to, across both pipelines (meetingId / botId / jobId). */
-  private async resolveMeetingFromPayload(payload: unknown): Promise<Meeting | null> {
+  /** Resolve a failed event through a stored provider binding, never a Recall metadata ID. */
+  private async resolveMeetingFromPayload(eventType: string, payload: unknown): Promise<Meeting | null> {
     const p = (payload ?? {}) as any;
-    const meetingId = p.meeting_id || p.data?.meeting_id || p.meetingId;
-    const botId = p.bot_id || p.data?.bot_id;
-    const jobId = p.jobId;
-
-    if (meetingId) {
-      const m = await this.meetingRepo.findById(meetingId);
-      if (m) return m;
+    if (eventType === 'audio_uploaded') {
+      const meetingId = p.meetingId;
+      const meeting = typeof meetingId === 'string' ? await this.meetingRepo.findById(meetingId) : null;
+      return meeting?.source === 'upload' ? meeting : null;
     }
-    if (botId) {
-      const m = await this.meetingRepo.findByBotId(botId);
-      if (m) return m;
+    if (eventType === 'transcription_ready') {
+      const jobId = p.jobId;
+      const meeting = typeof jobId === 'string' ? await this.meetingRepo.findByTranscriptionJobId(jobId) : null;
+      return meeting?.source === 'upload' && meeting.transcriptionJobId === jobId ? meeting : null;
     }
-    if (jobId) {
-      const m = await this.meetingRepo.findByTranscriptionJobId(jobId);
-      if (m) return m;
-    }
-    return null;
+    if (routeRecallEvent(eventType) === 'ignore') return null;
+    const botId = p.data?.bot?.id ?? p.bot_id ?? p.data?.bot_id;
+    if (typeof botId !== 'string' || !botId) return null;
+    const meeting = await this.meetingRepo.findByBotId(botId);
+    if (!meeting || meeting.source !== 'bot' || meeting.botId !== botId) return null;
+    const claimedMeetingId = p.data?.bot?.metadata?.meetingId ?? p.metadata?.meetingId ??
+      p.meeting_id ?? p.data?.meeting_id;
+    return claimedMeetingId != null && String(claimedMeetingId) !== meeting.id ? null : meeting;
   }
 
   private async reconcileMeetings(): Promise<void> {
@@ -169,10 +174,10 @@ export class WebhookWorker {
 
       for (const meeting of stuckMeetings) {
         const botId = meeting.botId!;
-        console.log(`   Reconciling stuck meeting ${meeting.id} (status: ${meeting.status}, bot: ${botId})`);
+        console.log(`   Reconciling stuck meeting ${meeting.id} (status: ${meeting.status})`);
         try {
           const botStatus = await this.botAdapter.getBotStatus(botId);
-          console.log(`   Recall reported bot status: ${botStatus}`);
+          console.log('   Recall bot status checked');
           
           if (botStatus === 'joining') {
             if (meeting.status !== 'bot_joining') {
@@ -183,7 +188,7 @@ export class WebhookWorker {
               await this.meetingRepo.updateStatus(meeting.id, 'recording');
             }
           } else if (botStatus === 'done') {
-            console.log(`   Triggering recovery transcript processing for bot: ${botId}`);
+            console.log(`   Triggering recovery transcript processing for meeting ${meeting.id}`);
             await this.processService.processEvent('transcript_ready', {
               bot_id: botId,
               meeting_id: meeting.id,
@@ -194,12 +199,12 @@ export class WebhookWorker {
             });
           }
         } catch (botErr: any) {
-          console.error(`❌ Reconciler failed to check bot ${botId} status:`, botErr.message);
-          captureError(botErr, { meetingId: meeting.id, botId });
+          console.error(`❌ Reconciler failed to check meeting ${meeting.id}`);
+          captureError(botErr, { meetingId: meeting.id });
         }
       }
     } catch (err: any) {
-      console.error('❌ Reconciler tick error:', err.message);
+      console.error('❌ Reconciler tick error');
       captureError(err);
     }
   }

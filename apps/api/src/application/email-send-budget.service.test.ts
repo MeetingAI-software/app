@@ -12,6 +12,17 @@ class FakeEmailSendLedgerRepository implements EmailSendLedgerRepository {
 
   constructor(private readonly now: () => Date) {}
 
+  async tryReserveAndIssue(input: { userId: string; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number; cooldownMs: number;
+    tokenHash: string; expiresAt: Date }) {
+    if (this.readFailure || this.writeFailure) throw this.readFailure ?? this.writeFailure;
+    if (this.rows.filter(row => row.createdAt >= input.since).length >= input.limit) {
+      return { status: 'budget' as const };
+    }
+    this.rows.push({ userId: input.userId, trigger: input.trigger, createdAt: input.now });
+    return { status: 'issued' as const, email: 'person@example.test' };
+  }
+
   async countSince(since: Date) {
     if (this.readFailure) throw this.readFailure;
     return this.rows.filter((row) => row.createdAt.getTime() >= since.getTime()).length;
@@ -20,6 +31,15 @@ class FakeEmailSendLedgerRepository implements EmailSendLedgerRepository {
   async record(input: { userId: string | null; trigger: EmailSendTrigger }) {
     if (this.writeFailure) throw this.writeFailure;
     this.rows.push({ ...input, createdAt: this.now() });
+  }
+
+  async tryReserve(input: { userId: string | null; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number }) {
+    if (this.readFailure) throw this.readFailure;
+    if (this.rows.filter((row) => row.createdAt >= input.since).length >= input.limit) return false;
+    if (this.writeFailure) throw this.writeFailure;
+    this.rows.push({ userId: input.userId, trigger: input.trigger, createdAt: input.now });
+    return true;
   }
 
   async deleteOlderThan(cutoff: Date) {
@@ -74,28 +94,23 @@ describe('EmailSendBudgetService', () => {
     expect(ledger.rows).toHaveLength(BUDGET + 1);
   });
 
-  // Migrations are a manual step here, so "deployed before migrated" means this table is simply
-  // absent. Failing closed on that would break account creation AND the resend that rescues it.
-  it('allows the send when the ledger read fails', async () => {
+  it('blocks the send when the ledger read fails', async () => {
     const { service, ledger } = build();
     ledger.readFailure = new Error('relation "email_send_ledger" does not exist');
 
-    await expect(service.reserve('signup', 'user-1')).resolves.toBeUndefined();
-    await expect(service.hasRemaining()).resolves.toBe(true);
+    await expect(service.reserve('signup', 'user-1')).rejects.toThrow(EmailSendBudgetExhaustedError);
+    await expect(service.hasRemaining()).resolves.toBe(false);
   });
 
-  it('allows the send when the ledger write fails', async () => {
+  it('blocks the send when the ledger write fails', async () => {
     const { service, ledger } = build();
     ledger.writeFailure = new Error('ledger write timed out');
 
-    // The count already said there was room; refusing now would cost a legitimate email and
-    // protect nothing.
-    await expect(service.reserve('signup', 'user-1')).resolves.toBeUndefined();
+    await expect(service.reserve('signup', 'user-1')).rejects.toThrow(EmailSendBudgetExhaustedError);
+    expect(ledger.rows).toHaveLength(0);
   });
 
-  // A successful read that says "over budget" is the one case that must never fail open — that is
-  // the line between a control and mere advice.
-  it('still refuses once the budget is spent even though other faults fail open', async () => {
+  it('still refuses once the budget is spent even when writes fail', async () => {
     const { service, ledger } = build();
     for (let i = 0; i < BUDGET; i++) await service.reserve('signup', `user-${i}`);
     ledger.writeFailure = new Error('ledger write timed out');
@@ -138,9 +153,11 @@ describe('EmailSendBudgetService', () => {
     ledger.readFailure = new Error('ledger unreachable');
 
     try {
-      for (let i = 0; i < 5; i++) await service.reserve('signup', `user-${i}`);
-      // Fail-open during a flood means every request hits the same fault; an unlatched report
-      // would bury Sentry in the middle of the incident it exists for.
+      for (let i = 0; i < 5; i++) {
+        await expect(service.reserve('signup', `user-${i}`))
+          .rejects.toThrow(EmailSendBudgetExhaustedError);
+      }
+      // A persistent fault should not bury monitoring in duplicate reports.
       expect(captureError).toHaveBeenCalledTimes(1);
     } finally {
       captureError.mockRestore();

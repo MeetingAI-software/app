@@ -6,6 +6,8 @@ import type { CustomerPortalService } from '../../../application/customer-portal
 import type { CheckoutService } from '../../../application/checkout.service';
 import type { SubscriptionUpdateService } from '../../../application/subscription-update.service';
 import type { BillingContextService } from '../../../application/billing-context.service';
+import type { PaddleBillingAdmissionService } from '../../../application/paddle-billing-admission.service';
+import { PaddleBillingAdmissionError } from '../../../domain/errors';
 import { SubscriptionPaymentDeclinedError } from '../../../domain/errors';
 import { createServer } from '../server';
 import { createBillingRoutes } from './billing.routes';
@@ -16,6 +18,7 @@ describe('billing portal route', () => {
   const previewForUser = vi.fn();
   const updateForUser = vi.fn();
   const getBillingContextForUser = vi.fn();
+  const admit = vi.fn();
   let server: Server;
   let baseUrl: string;
 
@@ -24,7 +27,8 @@ describe('billing portal route', () => {
     const checkout = { createForUser: createCheckoutForUser } as unknown as CheckoutService;
     const subscriptionUpdate = { previewForUser, updateForUser } as unknown as SubscriptionUpdateService;
     const billingContext = { getForUser: getBillingContextForUser } as unknown as BillingContextService;
-    const app = createServer([createBillingRoutes(service, checkout, subscriptionUpdate, billingContext, true)], async (token) => token === 'valid-token' ? {
+    const admission = { run: admit } as unknown as PaddleBillingAdmissionService;
+    const app = createServer([createBillingRoutes(service, checkout, subscriptionUpdate, billingContext, true, admission)], async (token) => token === 'valid-token' ? {
       id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date(),
     } : null);
     server = app.listen(0);
@@ -32,6 +36,8 @@ describe('billing portal route', () => {
   });
 
   beforeEach(() => {
+    admit.mockReset();
+    admit.mockImplementation(async (_userId: string, call: () => Promise<unknown>) => call());
     createForUser.mockReset();
     createForUser.mockResolvedValue('https://sandbox-login.paddle.com/session');
     createCheckoutForUser.mockReset();
@@ -52,6 +58,7 @@ describe('billing portal route', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ paddleCustomerId: 'ctm_1' });
     expect(getBillingContextForUser).toHaveBeenCalledWith('user-1');
+    expect(admit).not.toHaveBeenCalled();
   });
 
   it('previews a plan change using only the authenticated user and target price', async () => {
@@ -67,6 +74,7 @@ describe('billing portal route', () => {
 
     expect(response.status).toBe(200);
     expect(previewForUser).toHaveBeenCalledWith('user-1', 'pri_team');
+    expect(admit).toHaveBeenCalledWith('user-1', expect.any(Function));
   });
 
   it('commits a plan change using only the authenticated user and target price', async () => {
@@ -83,6 +91,7 @@ describe('billing portal route', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ accepted: true, status: 'active', priceId: 'pri_team' });
     expect(updateForUser).toHaveBeenCalledWith('user-1', 'pri_team');
+    expect(admit).toHaveBeenCalledWith('user-1', expect.any(Function));
   });
 
   it('returns a useful client error when Paddle declines the plan-change charge', async () => {
@@ -121,6 +130,7 @@ describe('billing portal route', () => {
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ transactionId: 'txn_1' });
     expect(createCheckoutForUser).toHaveBeenCalledWith('user-1', 'pri_solo', 1);
+    expect(admit).toHaveBeenCalledWith('user-1', expect.any(Function));
   });
 
   it('passes a validated Team seat quantity to checkout', async () => {
@@ -151,6 +161,30 @@ describe('billing portal route', () => {
 
     expect(response.status).toBe(400);
     expect(createCheckoutForUser).not.toHaveBeenCalled();
+    expect(admit).not.toHaveBeenCalled();
+  });
+
+  it('rejects a rate-limited billing request before any Paddle operation', async () => {
+    admit.mockRejectedValueOnce(new PaddleBillingAdmissionError('rate_limited'));
+    const response = await fetch(`${baseUrl}/api/me/checkout`, {
+      method: 'POST',
+      headers: { origin: config.WEB_ORIGIN, cookie: 'session=valid-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ priceId: 'pri_solo' }),
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('60');
+    expect(createCheckoutForUser).not.toHaveBeenCalled();
+  });
+
+  it('rejects a busy billing request before minting a portal session', async () => {
+    admit.mockRejectedValueOnce(new PaddleBillingAdmissionError('busy'));
+    const response = await fetch(`${baseUrl}/api/me/billing-portal`, {
+      method: 'POST', headers: { origin: config.WEB_ORIGIN, cookie: 'session=valid-token' },
+    });
+    expect(response.status).toBe(503);
+    expect(response.headers.get('retry-after')).toBe('5');
+    expect(createForUser).not.toHaveBeenCalled();
+    expect(admit).toHaveBeenCalledWith('user-1', expect.any(Function));
   });
 
   afterAll(async () => {
@@ -163,6 +197,7 @@ describe('billing portal route', () => {
     });
     expect(response.status).toBe(401);
     expect(createForUser).not.toHaveBeenCalled();
+    expect(admit).not.toHaveBeenCalled();
   });
 
   it('uses only the authenticated user id and returns only the portal URL', async () => {
@@ -179,6 +214,7 @@ describe('billing portal route', () => {
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ url: 'https://sandbox-login.paddle.com/session' });
     expect(createForUser).toHaveBeenCalledWith('user-1');
+    expect(admit).toHaveBeenCalledWith('user-1', expect.any(Function));
   });
 
   it('blocks checkout and plan changes while leaving the customer portal available', async () => {
@@ -187,7 +223,8 @@ describe('billing portal route', () => {
     const subscriptionUpdate = { previewForUser, updateForUser } as unknown as SubscriptionUpdateService;
     const billingContext = { getForUser: getBillingContextForUser } as unknown as BillingContextService;
     const app = createServer(
-      [createBillingRoutes(service, checkout, subscriptionUpdate, billingContext, false)],
+      [createBillingRoutes(service, checkout, subscriptionUpdate, billingContext, false,
+        { run: admit } as unknown as PaddleBillingAdmissionService)],
       async () => ({ id: 'user-1', email: 'person@example.com', emailVerified: true, createdAt: new Date() }),
     );
     const disabledServer = app.listen(0);

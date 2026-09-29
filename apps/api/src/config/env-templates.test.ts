@@ -33,7 +33,13 @@ describe('optional and defaulted environment values', () => {
     // Deliberately never read .env or any deployed configuration.
     const template = dotenv.parse(readFileSync(file));
     expect(envSchema.safeParse({ ...template, ...base }).success).toBe(true);
-    expect(envSchema.safeParse({ ...template, ...base, NODE_ENV: 'production', WEB_ORIGIN: 'https://app.example.test' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...template, ...base,
+      NODE_ENV: 'production', WEB_ORIGIN: 'https://app.example.test',
+      BOT_PROVIDER: 'recall', RECALL_API_KEY: 'synthetic-key',
+      RECALL_BASE_URL: 'https://api.recall.test', RECALL_WEBHOOK_SECRET: 'synthetic-secret',
+      PUBLIC_WEBHOOK_URL: 'https://api.example.test', LIVE_TRANSCRIPT_ENABLED: 'false',
+      EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 'synthetic-key', RESEND_FROM: 'no-reply@example.test',
+    }).success).toBe(true);
   });
 
   it.each([

@@ -12,6 +12,9 @@ import {
 import { config } from '../../../config/env';
 import { createServer } from '../server';
 import { createAuthRoutes, hasVerifiedGoogleEmail } from './auth.routes';
+import { GoogleOAuthStateService } from '../../../application/google-oauth-state.service';
+import { LoginAdmissionService } from '../../../application/login-admission.service';
+import type { GoogleOAuthChallenge } from '../../../ports/google-oauth-state.port';
 
 describe('hasVerifiedGoogleEmail', () => {
   it('accepts only Google identities with a verified email', () => {
@@ -30,6 +33,66 @@ describe('hasVerifiedGoogleEmail', () => {
   });
 });
 
+describe('signup shared hash admission', () => {
+  const signup = vi.fn();
+  const admitSignup = vi.fn();
+  const admission = new LoginAdmissionService({ admit: async () => true, admitSignup }, 1);
+  let server: Server;
+  let baseUrl: string;
+
+  beforeAll(() => {
+    const auth = {
+      signup, login: vi.fn(), logout: vi.fn(), getUserForToken: vi.fn(), verifyEmail: vi.fn(),
+      resendVerification: vi.fn(), changePassword: vi.fn(), changeEmail: vi.fn(),
+      deleteAccount: vi.fn(), loginOrCreateGoogleUser: vi.fn(),
+    } as unknown as AuthService & AuthServiceApi;
+    server = createServer([createAuthRoutes(auth, undefined, undefined, admission)], async () => null).listen(0);
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  beforeEach(() => { signup.mockReset(); admitSignup.mockReset(); });
+  afterAll(async () => {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  });
+
+  const send = (email: string, ip: string) => fetch(`${baseUrl}/api/auth/signup`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN,
+      'x-forwarded-for': `${ip}, 10.0.0.1` },
+    body: JSON.stringify({ email, password: 'a-good-password', organizationName: 'Example AB',
+      businessUseConfirmed: true, termsVersion: config.LEGAL_POLICIES_VERSION }),
+  });
+
+  it('rejects a distributed signup before Argon2 when the shared budget is exhausted', async () => {
+    const wasEnabled = config.PUBLIC_REGISTRATION_ENABLED;
+    config.PUBLIC_REGISTRATION_ENABLED = true;
+    try {
+      admitSignup.mockResolvedValue(false);
+      const response = await send('new@example.com', '203.0.113.50');
+      expect(response.status).toBe(429);
+      expect(response.headers.get('retry-after')).toBe('900');
+      expect(signup).not.toHaveBeenCalled();
+    } finally { config.PUBLIC_REGISTRATION_ENABLED = wasEnabled; }
+  });
+
+  it('rejects a full hash slot and still permits the next legitimate signup', async () => {
+    const wasEnabled = config.PUBLIC_REGISTRATION_ENABLED;
+    config.PUBLIC_REGISTRATION_ENABLED = true;
+    const occupied = admission.acquireHashSlot();
+    try {
+      admitSignup.mockResolvedValue(true);
+      const blocked = await send('busy@example.com', '203.0.113.51');
+      expect(blocked.status).toBe(429);
+      expect(signup).not.toHaveBeenCalled();
+      occupied?.();
+      signup.mockResolvedValue({ user: { id: 'new-user', email: 'ok@example.com', emailVerified: false },
+        sessionToken: 'session-token', expiresAt: new Date(Date.now() + 60_000) });
+      const allowed = await send('ok@example.com', '203.0.113.52');
+      expect(allowed.status).toBe(201);
+      expect(signup).toHaveBeenCalledTimes(1);
+    } finally { occupied?.(); config.PUBLIC_REGISTRATION_ENABLED = wasEnabled; }
+  });
+});
+
 describe('auth routes', () => {
   const registrationEvidence = {
     organizationName: 'Example AB',
@@ -38,6 +101,7 @@ describe('auth routes', () => {
   } as const;
   const signup = vi.fn();
   const login = vi.fn();
+  const logout = vi.fn();
   const getUserForToken = vi.fn();
   const verifyEmail = vi.fn();
   const resendVerification = vi.fn();
@@ -45,10 +109,20 @@ describe('auth routes', () => {
   let baseUrl: string;
 
   beforeAll(() => {
+    const challenges = new Map<string, GoogleOAuthChallenge>();
+    const oauthStates = new GoogleOAuthStateService({
+      issue: async (challenge) => { challenges.set(challenge.stateHash, challenge); return true; },
+      claim: async (stateHash, now) => {
+        const challenge = challenges.get(stateHash);
+        if (!challenge || challenge.expiresAt <= now) return null;
+        challenges.delete(stateHash);
+        return challenge;
+      },
+    });
     const auth = {
       signup,
       login,
-      logout: vi.fn(),
+      logout,
       getUserForToken,
       verifyEmail,
       resendVerification,
@@ -57,7 +131,7 @@ describe('auth routes', () => {
       deleteAccount: vi.fn(),
       loginOrCreateGoogleUser: vi.fn(),
     } as unknown as AuthService & AuthServiceApi;
-    const app = createServer([createAuthRoutes(auth)], async () => null);
+    const app = createServer([createAuthRoutes(auth, undefined, oauthStates)], async () => null);
     server = app.listen(0);
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
@@ -65,6 +139,7 @@ describe('auth routes', () => {
   beforeEach(() => {
     signup.mockReset();
     login.mockReset();
+    logout.mockReset();
     getUserForToken.mockReset();
     verifyEmail.mockReset();
     resendVerification.mockReset();
@@ -80,7 +155,7 @@ describe('auth routes', () => {
     return fetch(`${baseUrl}/api/auth/verify-email`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: config.WEB_ORIGIN },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, newPassword: 'a-fresh-password' }),
     });
   }
 
@@ -143,6 +218,23 @@ describe('auth routes', () => {
     });
   });
 
+  it('does not clear the browser cookie or claim success when session revocation fails', async () => {
+    logout.mockRejectedValue(new Error('database unavailable'));
+    const failed = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST', headers: { origin: config.WEB_ORIGIN, cookie: 'session=still-live' },
+    });
+    expect(failed.status).toBe(500);
+    expect(failed.headers.get('set-cookie')).toBeNull();
+    expect(logout).toHaveBeenCalledWith('still-live');
+
+    logout.mockResolvedValue(undefined);
+    const retried = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST', headers: { origin: config.WEB_ORIGIN, cookie: 'session=still-live' },
+    });
+    expect(retried.status).toBe(204);
+    expect(retried.headers.get('set-cookie')).toContain('session=;');
+  });
+
   it('binds Google OAuth to a single-use browser state cookie', async () => {
     const previous = {
       clientId: config.GOOGLE_CLIENT_ID,
@@ -158,7 +250,7 @@ describe('auth routes', () => {
       expect(start.status).toBe(302);
       const location = new URL(start.headers.get('location') as string);
       const state = location.searchParams.get('state');
-      expect(state).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+      expect(state).toMatch(/^login\.[A-Za-z0-9_-]{43}$/);
 
       const setCookie = start.headers.get('set-cookie') as string;
       expect(setCookie).toContain(`oauth_state=${state}`);
@@ -181,6 +273,11 @@ describe('auth routes', () => {
       });
       expect(validState.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_failed`);
       expect(validState.headers.get('set-cookie')).toContain('oauth_state=;');
+
+      const replay = await fetch(`${baseUrl}/api/auth/google/callback?state=${state}`, {
+        redirect: 'manual', headers: { cookie: `oauth_state=${state}` },
+      });
+      expect(replay.headers.get('location')).toBe(`${config.WEB_ORIGIN}/login?error=oauth_state_invalid`);
     } finally {
       config.GOOGLE_CLIENT_ID = previous.clientId;
       config.GOOGLE_CLIENT_SECRET = previous.clientSecret;
@@ -203,7 +300,7 @@ describe('auth routes', () => {
     };
 
     expect(response.status).toBe(200);
-    expect(verifyEmail).toHaveBeenCalledWith('valid-token');
+    expect(verifyEmail).toHaveBeenCalledWith('valid-token', 'a-fresh-password');
     expect(body.user).toMatchObject({ email: 'person@example.com', emailVerified: true });
     expect(body.emailVerificationRequired).toBe(false);
   });

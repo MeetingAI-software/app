@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import crypto from 'crypto';
 import { AuthService } from './auth.service';
+import { StartMeetingService } from './start-meeting.service';
+import type { UsageMeterService } from './usage-meter.service';
 import {
   EMAIL_VERIFICATION_RESEND_COOLDOWN_MS,
   EmailVerificationTokenService,
@@ -10,6 +12,7 @@ import { EmailSendBudgetService } from './email-send-budget.service';
 import { Argon2Hasher } from '../adapters/auth/argon2.hasher';
 import {
   AccountDeletionBlockedError,
+  BotProviderError,
   EmailAlreadyVerifiedError,
   EmailSendBudgetExhaustedError,
   EmailTakenError,
@@ -20,6 +23,8 @@ import {
   VerificationNotPersistedError,
   WeakPasswordError,
   FeatureUnavailableError,
+  GoogleAccountLinkRequiredError,
+  GoogleLinkRejectedError,
 } from '../domain/errors';
 import type { EmailVerificationToken, User, Session, Meeting } from '../domain/types';
 import type {
@@ -48,16 +53,22 @@ const sha256 = (t: string) => crypto.createHash('sha256').update(t).digest('hex'
 // ---- Stateful fakes for the two repos AuthService fully owns ----
 class FakeUserRepo implements UserRepository {
   private seq = 0;
-  private byId = new Map<string, User & { passwordHash: string | null; googleId?: string | null }>();
+  private byId = new Map<string, User & {
+    passwordHash: string | null; googleId?: string | null; emailVersion: number; authVersion: number;
+    deletionStartedAt: Date | null;
+  }>();
   private byEmail = new Map<string, string>();
   private byGoogleId = new Map<string, string>();
-  async create(input: Parameters<UserRepository['create']>[0]): Promise<User> {
+  async create(input: Parameters<UserRepository['create']>[0]): ReturnType<UserRepository['create']> {
     const email = input.email.trim().toLowerCase();
     if (this.byEmail.has(email)) throw new EmailTakenError('taken');
     const rec = {
       id: `u${++this.seq}`,
       email,
       emailVerified: input.emailVerified ?? false,
+      emailVersion: 1,
+      authVersion: 1,
+      deletionStartedAt: null,
       passwordHash: input.passwordHash ?? null,
       googleId: input.googleId ?? null,
       organizationName: input.organizationName ?? null,
@@ -69,7 +80,7 @@ class FakeUserRepo implements UserRepository {
     this.byEmail.set(email, rec.id);
     if (input.googleId) this.byGoogleId.set(input.googleId, rec.id);
     return {
-      id: rec.id, email: rec.email, emailVerified: rec.emailVerified,
+      id: rec.id, email: rec.email, emailVerified: rec.emailVerified, authVersion: rec.authVersion,
       hasPassword: Boolean(rec.passwordHash), hasGoogleLogin: Boolean(rec.googleId), createdAt: rec.createdAt,
       organizationName: rec.organizationName,
       businessUseConfirmedAt: rec.businessUseConfirmedAt,
@@ -83,6 +94,7 @@ class FakeUserRepo implements UserRepository {
       id: r.id, email: r.email, emailVerified: r.emailVerified,
       hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId),
       createdAt: r.createdAt, passwordHash: r.passwordHash, googleId: r.googleId,
+      authVersion: r.authVersion,
     } : null;
   }
   async findByGoogleId(googleId: string) {
@@ -91,15 +103,16 @@ class FakeUserRepo implements UserRepository {
     return r ? {
       id: r.id, email: r.email, emailVerified: r.emailVerified,
       hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId), createdAt: r.createdAt,
+      authVersion: r.authVersion,
     } : null;
   }
-  async linkGoogleId(id: string, googleId: string) {
-    const r = this.byId.get(id);
-    if (r) {
-      r.googleId = googleId;
-      r.emailVerified = true;
-      this.byGoogleId.set(googleId, id);
-    }
+  async linkGoogleId(input: Parameters<UserRepository['linkGoogleId']>[0]) {
+    const r = this.byId.get(input.userId);
+    if (!r || !r.emailVerified || r.googleId || r.email !== input.email.trim().toLowerCase()
+      || r.authVersion !== input.expectedAuthVersion || this.byGoogleId.has(input.googleId)) return false;
+    r.googleId = input.googleId;
+    this.byGoogleId.set(input.googleId, input.userId);
+    return true;
   }
   async markEmailVerified(id: string) {
     const r = this.byId.get(id);
@@ -112,19 +125,32 @@ class FakeUserRepo implements UserRepository {
       hasPassword: Boolean(r.passwordHash), hasGoogleLogin: Boolean(r.googleId), createdAt: r.createdAt,
     } : null;
   }
-  async updatePassword(id: string, passwordHash: string) {
-    const r = this.byId.get(id);
-    if (r) r.passwordHash = passwordHash;
+  async beginDeletion(id: string) {
+    const user = this.byId.get(id);
+    if (!user) throw new InvalidCredentialsError('Account no longer exists');
+    user.deletionStartedAt ??= new Date();
   }
-  async updateEmail(id: string, email: string): Promise<User> {
+  deletionStartedAt(id: string) { return this.byId.get(id)?.deletionStartedAt; }
+  async updatePassword(id: string, passwordHash: string, expectedAuthVersion: number) {
+    const r = this.byId.get(id);
+    if (!r) throw new Error('missing user');
+    if (r.authVersion !== expectedAuthVersion) throw new InvalidCredentialsError('Credentials changed');
+    r.passwordHash = passwordHash;
+    return ++r.authVersion;
+  }
+  async updateEmail(id: string, email: string, expectedAuthVersion: number): Promise<User> {
     const normalized = email.trim().toLowerCase();
     const owner = this.byEmail.get(normalized);
     if (owner && owner !== id) throw new EmailTakenError('taken');
     const r = this.byId.get(id);
     if (!r) throw new Error('no such user');
+    if (r.authVersion !== expectedAuthVersion) throw new InvalidCredentialsError('Credentials changed');
     this.byEmail.delete(r.email);
     r.email = normalized;
     r.emailVerified = false;
+    if (r.googleId) this.byGoogleId.delete(r.googleId);
+    r.googleId = null;
+    r.emailVersion += 1;
     this.byEmail.set(normalized, id);
     return {
       id: r.id, email: r.email, emailVerified: r.emailVerified,
@@ -136,17 +162,26 @@ class FakeUserRepo implements UserRepository {
     if (r) { this.byEmail.delete(r.email); this.byId.delete(id); }
   }
   size() { return this.byId.size; }
+  addressVersion(id: string) { return this.byId.get(id)?.emailVersion; }
+  authVersion(id: string) { return this.byId.get(id)?.authVersion; }
 }
 
 class FakeSessionRepo implements SessionRepository {
   private seq = 0;
-  byHash = new Map<string, Session>();
-  async create(input: { userId: string; tokenHash: string; expiresAt: Date }): Promise<Session> {
-    const s = { id: `s${++this.seq}`, userId: input.userId, expiresAt: input.expiresAt, createdAt: new Date() };
+  byHash = new Map<string, Session & { authVersion: number }>();
+  constructor(private readonly users: FakeUserRepo) {}
+  async create(input: { userId: string; tokenHash: string; expiresAt: Date; authVersion?: number }): Promise<Session> {
+    const s = {
+      id: `s${++this.seq}`, userId: input.userId, expiresAt: input.expiresAt,
+      authVersion: input.authVersion ?? 1, createdAt: new Date(),
+    };
     this.byHash.set(input.tokenHash, s);
     return s;
   }
-  async findByTokenHash(h: string) { return this.byHash.get(h) ?? null; }
+  async findByTokenHash(h: string) {
+    const session = this.byHash.get(h);
+    return session && session.authVersion === this.users.authVersion(session.userId) ? session : null;
+  }
   async deleteByTokenHash(h: string) { this.byHash.delete(h); }
   async deleteAllForUser(userId: string) {
     for (const [h, s] of this.byHash) if (s.userId === userId) this.byHash.delete(h);
@@ -164,19 +199,29 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
   private byHash = new Map<string, EmailVerificationToken>();
 
   // Shares the suite's clock so `createdAt` moves with it — the resend cooldown reads that field.
-  constructor(private readonly users: FakeUserRepo, private readonly now: () => Date = () => new Date()) {}
+  constructor(
+    private readonly users: FakeUserRepo,
+    private readonly sessions: FakeSessionRepo,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   async replaceForUser(input: { userId: string; tokenHash: string; expiresAt: Date }) {
+    const user = await this.users.findById(input.userId);
+    const emailVersion = this.users.addressVersion(input.userId);
+    if (!user || emailVersion === undefined) throw new Error('missing user');
     for (const [hash, token] of this.byHash) {
       if (token.userId === input.userId) this.byHash.delete(hash);
     }
     this.byHash.set(input.tokenHash, {
       id: `v${++this.seq}`,
       userId: input.userId,
+      emailAtIssue: user.email,
+      emailVersion,
       expiresAt: input.expiresAt,
       consumedAt: null,
       createdAt: this.now(),
     });
+    return { email: user.email };
   }
 
   async findByTokenHash(tokenHash: string) {
@@ -202,7 +247,7 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
     return before - this.byHash.size;
   }
 
-  async consumeAndVerify(input: { tokenHash: string; now: Date }) {
+  async consumeAndVerify(input: { tokenHash: string; now: Date; passwordHash: string }) {
     const token = this.byHash.get(input.tokenHash);
     if (!token) return { status: 'invalid' as const };
     if (token.consumedAt) return { status: 'used' as const };
@@ -211,8 +256,13 @@ class FakeVerificationTokenRepo implements VerificationTokenRepository {
     token.consumedAt = input.now;
     const user = await this.users.findById(token.userId);
     if (!user) throw new Error('missing user');
+    if (token.emailAtIssue !== user.email || token.emailVersion !== this.users.addressVersion(user.id)) {
+      return { status: 'invalid' as const };
+    }
     if (user.emailVerified) return { status: 'already_verified' as const };
 
+    await this.users.updatePassword(user.id, input.passwordHash, this.users.authVersion(user.id)!);
+    await this.sessions.deleteAllForUser(user.id);
     await this.users.markEmailVerified(user.id);
     const verified = await this.users.findById(user.id);
     if (!verified) throw new Error('missing user');
@@ -242,13 +292,38 @@ class FakeVerificationMailer implements EmailVerificationMailer {
 class FakeEmailSendLedgerRepo implements EmailSendLedgerRepository {
   readonly rows: { userId: string | null; trigger: EmailSendTrigger; createdAt: Date }[] = [];
 
-  constructor(private readonly now: () => Date) {}
+  constructor(private readonly now: () => Date,
+    private readonly users: FakeUserRepo, private readonly tokens: FakeVerificationTokenRepo) {}
+
+  async tryReserveAndIssue(input: { userId: string; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number; cooldownMs: number;
+    tokenHash: string; expiresAt: Date }) {
+    const user = await this.users.findById(input.userId);
+    if (!user || user.emailVerified) return { status: 'already_verified' as const };
+    const previous = await this.tokens.findForUser(input.userId);
+    if (input.trigger === 'resend' && previous
+      && previous.createdAt.getTime() > input.now.getTime() - input.cooldownMs) {
+      return { status: 'cooldown' as const };
+    }
+    if (this.rows.filter(row => row.createdAt >= input.since).length >= input.limit) {
+      return { status: 'budget' as const };
+    }
+    const issued = await this.tokens.replaceForUser(input);
+    this.rows.push({ userId: input.userId, trigger: input.trigger, createdAt: input.now });
+    return { status: 'issued' as const, email: issued.email };
+  }
 
   async countSince(since: Date) {
     return this.rows.filter((row) => row.createdAt.getTime() >= since.getTime()).length;
   }
   async record(input: { userId: string | null; trigger: EmailSendTrigger }) {
     this.rows.push({ ...input, createdAt: this.now() });
+  }
+  async tryReserve(input: { userId: string | null; trigger: EmailSendTrigger;
+    since: Date; now: Date; limit: number }) {
+    if (this.rows.filter((row) => row.createdAt >= input.since).length >= input.limit) return false;
+    this.rows.push({ userId: input.userId, trigger: input.trigger, createdAt: input.now });
+    return true;
   }
   async deleteOlderThan(cutoff: Date) {
     const kept = this.rows.filter((row) => row.createdAt.getTime() >= cutoff.getTime());
@@ -265,10 +340,21 @@ const TEST_SEND_BUDGET = 50;
 function meetingRepoOver(store: Meeting[]): MeetingRepository {
   return {
     create: vi.fn(), findById: vi.fn(), findByBotId: vi.fn(),
+    claimBotTranscript: vi.fn(), releaseBotTranscript: vi.fn(),
     findByShareToken: vi.fn(), enableShare: vi.fn(), revokeShare: vi.fn(), findByTranscriptionJobId: vi.fn(),
     updateStatus: vi.fn(), setSummary: vi.fn(), setUploadInfo: vi.fn(),
+    markBotCreationRejected: vi.fn(),
+    bindCreatedBot: vi.fn(),
+    hasUnresolvedBotClaimForUser: vi.fn(async (uid: string) => store.some(m =>
+      m.ownerUserId === uid && m.source === 'bot' && !m.botId && !m.botStartRejectedAt)),
+    hasUnresolvedUploadClaimForUser: vi.fn(async (uid: string) => store.some(m =>
+      m.ownerUserId === uid && m.source === 'upload'
+      && m.status !== 'transcribed' && !m.uploadProviderExcludedAt)),
+    markUploadBeforeProviderFailed: vi.fn(), abortUploadIfDeleting: vi.fn(),
+    claimUploadSubmission: vi.fn(), bindTranscriptionJob: vi.fn(), failRejectedUploadSubmission: vi.fn(),
+    findFailedBotMediaOlderThan: vi.fn(), markBotMediaDeleted: vi.fn(),
     setShareEnabled: vi.fn(), rotateShareToken: vi.fn(),
-    countActive: vi.fn(), countActiveForUser: vi.fn(), list: vi.fn(), findByIdForUser: vi.fn(),
+    reserve: vi.fn(), countActive: vi.fn(), countActiveForUser: vi.fn(), list: vi.fn(), findByIdForUser: vi.fn(),
     listForUser: vi.fn(async (uid: string) => store.filter((m) => m.ownerUserId === uid)),
     deleteById: vi.fn(async (id: string) => {
       const i = store.findIndex((m) => m.id === id);
@@ -288,23 +374,26 @@ function makeMeeting(over: Partial<Meeting>): Meeting {
 
 function build(meetingStore: Meeting[] = []) {
   const users = new FakeUserRepo();
-  const sessions = new FakeSessionRepo();
+  const sessions = new FakeSessionRepo(users);
   const hasher = new Argon2Hasher();
   const meetings = meetingRepoOver(meetingStore);
   const transcripts: TranscriptRepository = { save: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
-  const documents: DocumentRepository = { upsertForMeeting: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
-  const chat: ChatMessageRepository = { add: vi.fn(), listByMeeting: vi.fn(), countUserMessages: vi.fn(), deleteByMeeting: vi.fn() };
+  const documents: DocumentRepository = { claimGeneration: vi.fn(), completeGeneration: vi.fn(),
+    failGeneration: vi.fn(), upsertForMeeting: vi.fn(), getByMeetingId: vi.fn(), deleteByMeeting: vi.fn() };
+  const chat: ChatMessageRepository = { claimQuestion: vi.fn(), completeQuestion: vi.fn(), releaseQuestion: vi.fn(),
+    add: vi.fn(), listByMeeting: vi.fn(), countUserMessages: vi.fn(), deleteByMeeting: vi.fn() };
   const usage: UsageRepository = { addSeconds: vi.fn(), monthlyTotalSeconds: vi.fn(), deleteByMeeting: vi.fn() };
-  const storage: AudioStoragePort = { upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
-  const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn(), fetchTranscript: vi.fn(), deleteRecording: vi.fn() };
+  const storage: AudioStoragePort = { pathForUpload: vi.fn(), upload: vi.fn(), getSignedUrl: vi.fn(), delete: vi.fn() };
+  const bot: MeetingBotPort = { createBot: vi.fn(), getBotStatus: vi.fn().mockResolvedValue('done'), fetchTranscript: vi.fn(),
+    getRecordedDurationSeconds: vi.fn(), deleteRecording: vi.fn() };
   const billing = { anonymizeCustomerForUser: vi.fn() } as unknown as PaddleBillingRepository;
   // Mutable clock: lets a test step past the resend cooldown without actually waiting a minute.
   const clock = { now: new Date() };
   const nowFn = () => clock.now;
-  const verificationTokenRepo = new FakeVerificationTokenRepo(users, nowFn);
+  const verificationTokenRepo = new FakeVerificationTokenRepo(users, sessions, nowFn);
   const verificationTokens = new EmailVerificationTokenService(verificationTokenRepo, { now: nowFn });
   const verificationMailer = new FakeVerificationMailer();
-  const sendLedger = new FakeEmailSendLedgerRepo(nowFn);
+  const sendLedger = new FakeEmailSendLedgerRepo(nowFn, users, verificationTokenRepo);
   const sendBudget = new EmailSendBudgetService(sendLedger, TEST_SEND_BUDGET, { now: nowFn });
   const verificationDelivery = new EmailVerificationDeliveryService(
     verificationTokens,
@@ -324,7 +413,7 @@ function build(meetingStore: Meeting[] = []) {
   };
   return {
     service, users, sessions, meetings, transcripts, documents, chat, usage, storage, bot, billing,
-    verificationTokenRepo, verificationMailer, clock, sendLedger, exhaustSendBudget,
+    verificationTokenRepo, verificationMailer, clock, sendLedger, sendBudget, exhaustSendBudget,
   };
 }
 
@@ -333,6 +422,18 @@ describe('AuthService', () => {
   beforeEach(() => { ctx = build(); });
 
   describe('signup', () => {
+    it('releases the CPU slot before persistence and email delivery', async () => {
+      let released = false;
+      const originalCreate = ctx.users.create.bind(ctx.users);
+      vi.spyOn(ctx.users, 'create').mockImplementationOnce(async input => {
+        expect(released).toBe(true);
+        return originalCreate(input);
+      });
+      await ctx.service.signup('slot@example.com', 'a-good-password', undefined, () => { released = true; });
+      expect(released).toBe(true);
+      expect(ctx.verificationMailer.sent).toHaveLength(1);
+    });
+
     it('records server-received B2B and terms evidence for an onboarded account', async () => {
       const before = Date.now();
       const result = await ctx.service.signup('business@example.com', 'a-good-password', {
@@ -445,7 +546,7 @@ describe('AuthService', () => {
     it('does not issue or deliver another token for an already verified user', async () => {
       const { user } = await ctx.service.signup('verified@example.com', 'a-good-password');
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
-      await ctx.service.verifyEmail(token);
+      await ctx.service.verifyEmail(token, 'new-safe-password');
 
       await ctx.service.resendVerification(user.email);
 
@@ -453,41 +554,54 @@ describe('AuthService', () => {
       expect(ctx.verificationTokenRepo.countForUser(user.id)).toBe(1);
     });
 
-    // This route returns early for unknown and already-verified addresses, so a budget check made
-    // any later than the lookup would raise for real accounts and stay silent for fake ones — a
-    // free account-existence oracle, exactly what the neutral 200 exists to prevent.
-    it('reports exhaustion identically for a known and an unknown address', async () => {
+    it('keeps exhaustion neutral for a known and an unknown address', async () => {
       const { user } = await ctx.service.signup('known@example.com', 'a-good-password');
       await ctx.exhaustSendBudget();
 
       await expect(ctx.service.resendVerification(user.email))
-        .rejects.toBeInstanceOf(EmailSendBudgetExhaustedError);
+        .resolves.toBeUndefined();
       await expect(ctx.service.resendVerification('never-registered@example.com'))
-        .rejects.toBeInstanceOf(EmailSendBudgetExhaustedError);
+        .resolves.toBeUndefined();
+      expect(ctx.verificationMailer.sent).toHaveLength(1);
+    });
+
+    it('stays neutral if another replica consumes the last slot after the probe', async () => {
+      const { user } = await ctx.service.signup('raced@example.com', 'a-good-password');
+      ctx.clock.now = new Date(ctx.clock.now.getTime() + EMAIL_VERIFICATION_RESEND_COOLDOWN_MS);
+      await ctx.exhaustSendBudget();
+      vi.spyOn(ctx.sendBudget, 'hasRemaining').mockResolvedValue(true);
+
+      await expect(ctx.service.resendVerification(user.email)).resolves.toBeUndefined();
+      expect(ctx.verificationMailer.sent).toHaveLength(1);
     });
   });
 
   describe('verifyEmail', () => {
     it('atomically consumes the token and marks the user as verified', async () => {
-      const { user } = await ctx.service.signup('verify@example.com', 'a-good-password');
+      const { user, sessionToken } = await ctx.service.signup('verify@example.com', 'a-good-password');
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
 
-      const verified = await ctx.service.verifyEmail(token);
+      const verified = await ctx.service.verifyEmail(token, 'new-safe-password');
 
       expect(verified).toMatchObject({ id: user.id, emailVerified: true });
       await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ emailVerified: true });
+      expect(await ctx.service.getUserForToken(sessionToken)).toBeNull();
+      await expect(ctx.service.login(user.email, 'a-good-password'))
+        .rejects.toBeInstanceOf(InvalidCredentialsError);
+      await expect(ctx.service.login(user.email, 'new-safe-password'))
+        .resolves.toMatchObject({ user: { id: user.id, emailVerified: true } });
     });
 
     it('rejects an already consumed token', async () => {
       await ctx.service.signup('used@example.com', 'a-good-password');
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
-      await ctx.service.verifyEmail(token);
+      await ctx.service.verifyEmail(token, 'new-safe-password');
 
-      await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(UsedVerificationTokenError);
+      await expect(ctx.service.verifyEmail(token, 'new-safe-password')).rejects.toBeInstanceOf(UsedVerificationTokenError);
     });
 
     it('rejects an unknown token', async () => {
-      await expect(ctx.service.verifyEmail('unknown-token'))
+      await expect(ctx.service.verifyEmail('unknown-token', 'new-safe-password'))
         .rejects.toBeInstanceOf(InvalidVerificationTokenError);
     });
 
@@ -496,7 +610,7 @@ describe('AuthService', () => {
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
       ctx.verificationTokenRepo.expire(token);
 
-      await expect(ctx.service.verifyEmail(token))
+      await expect(ctx.service.verifyEmail(token, 'new-safe-password'))
         .rejects.toBeInstanceOf(ExpiredVerificationTokenError);
     });
 
@@ -505,7 +619,7 @@ describe('AuthService', () => {
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
       await ctx.users.markEmailVerified(user.id);
 
-      await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(EmailAlreadyVerifiedError);
+      await expect(ctx.service.verifyEmail(token, 'new-safe-password')).rejects.toBeInstanceOf(EmailAlreadyVerifiedError);
     });
 
     // What Supabase's transaction pooler actually did to us: the transaction reported success and
@@ -524,7 +638,7 @@ describe('AuthService', () => {
         },
       });
 
-      await expect(ctx.service.verifyEmail(token)).rejects.toBeInstanceOf(VerificationNotPersistedError);
+      await expect(ctx.service.verifyEmail(token, 'new-safe-password')).rejects.toBeInstanceOf(VerificationNotPersistedError);
       await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ emailVerified: false });
     });
   });
@@ -546,14 +660,41 @@ describe('AuthService', () => {
   });
 
   describe('Google OAuth', () => {
-    it('blocks creation while still allowing an existing account to link', async () => {
+    it('requires the current password and a verified address before starting a link', async () => {
+      const { user } = await ctx.service.signup('link@example.com', 'a-good-password');
+      await expect(ctx.service.beginGoogleLink(user.id, 'wrong-password'))
+        .rejects.toBeInstanceOf(InvalidCredentialsError);
+      await expect(ctx.service.beginGoogleLink(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(GoogleLinkRejectedError);
+      await ctx.users.markEmailVerified(user.id);
+      expect(await ctx.service.beginGoogleLink(user.id, 'a-good-password')).toBe(1);
+    });
+
+    it('links only the same verified address and unchanged credential version', async () => {
+      const { user } = await ctx.service.signup('link-owner@example.com', 'a-good-password');
+      await ctx.users.markEmailVerified(user.id);
+      const version = await ctx.service.beginGoogleLink(user.id, 'a-good-password');
+      await expect(ctx.service.completeGoogleLink(user.id, 'google-1', 'other@example.com', version))
+        .rejects.toBeInstanceOf(GoogleLinkRejectedError);
+      await ctx.service.changePassword(user.id, 'a-good-password', 'a-new-password');
+      await expect(ctx.service.completeGoogleLink(user.id, 'google-1', user.email, version))
+        .rejects.toBeInstanceOf(GoogleLinkRejectedError);
+      const current = await ctx.service.beginGoogleLink(user.id, 'a-new-password');
+      await ctx.service.completeGoogleLink(user.id, 'google-1', user.email, current);
+      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ hasGoogleLogin: true });
+      await expect(ctx.service.completeGoogleLink(user.id, 'google-2', user.email, current))
+        .rejects.toBeInstanceOf(GoogleLinkRejectedError);
+    });
+
+    it('blocks creation and requires explicit linking for an existing account', async () => {
       await expect(ctx.service.loginOrCreateGoogleUser('new-google@example.com', 'google-new', false))
         .rejects.toBeInstanceOf(FeatureUnavailableError);
       expect(ctx.users.size()).toBe(0);
 
       const { user } = await ctx.service.signup('existing-google@example.com', 'a-good-password');
-      const linked = await ctx.service.loginOrCreateGoogleUser(user.email, 'google-existing', false);
-      expect(linked.user.id).toBe(user.id);
+      await expect(ctx.service.loginOrCreateGoogleUser(user.email, 'google-existing', false))
+        .rejects.toBeInstanceOf(GoogleAccountLinkRequiredError);
+      expect((await ctx.users.findById(user.id))?.hasGoogleLogin).toBe(false);
     });
 
     it('creates new Google users with a verified email', async () => {
@@ -563,16 +704,17 @@ describe('AuthService', () => {
       await expect(ctx.users.findById(result.user.id)).resolves.toMatchObject({ emailVerified: true });
     });
 
-    it('marks an existing password account verified when linking Google', async () => {
+    it('does not upgrade an attacker-held password account by matching a Google email', async () => {
       const { user } = await ctx.service.signup('linked@example.com', 'a-good-password');
 
-      const result = await ctx.service.loginOrCreateGoogleUser(user.email, 'google-2');
-
-      expect(result.user).toMatchObject({ id: user.id, emailVerified: true });
-      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({ emailVerified: true });
+      await expect(ctx.service.loginOrCreateGoogleUser(user.email, 'google-2'))
+        .rejects.toBeInstanceOf(GoogleAccountLinkRequiredError);
+      await expect(ctx.users.findById(user.id)).resolves.toMatchObject({
+        emailVerified: false, hasGoogleLogin: false,
+      });
     });
 
-    it('repairs verification status for a legacy Google account', async () => {
+    it('does not verify a changed address through a pre-existing Google subject', async () => {
       const legacy = await ctx.users.create({
         email: 'legacy-google@example.com',
         googleId: 'google-legacy',
@@ -581,8 +723,8 @@ describe('AuthService', () => {
 
       const result = await ctx.service.loginOrCreateGoogleUser(legacy.email, 'google-legacy');
 
-      expect(result.user.emailVerified).toBe(true);
-      await expect(ctx.users.findById(legacy.id)).resolves.toMatchObject({ emailVerified: true });
+      expect(result.user.emailVerified).toBe(false);
+      await expect(ctx.users.findById(legacy.id)).resolves.toMatchObject({ emailVerified: false });
     });
   });
 
@@ -635,12 +777,12 @@ describe('AuthService', () => {
     it('changes the email after verifying the password', async () => {
       const { user } = await ctx.service.signup('leo@example.com', 'a-good-password');
       const token = new URL(ctx.verificationMailer.sent[0].verificationUrl).searchParams.get('token') as string;
-      await ctx.service.verifyEmail(token);
-      const updated = await ctx.service.changeEmail(user.id, 'a-good-password', 'Leo-New@Example.com');
+      await ctx.service.verifyEmail(token, 'new-safe-password');
+      const updated = await ctx.service.changeEmail(user.id, 'new-safe-password', 'Leo-New@Example.com');
       expect(updated.email).toBe('leo-new@example.com');
       expect(updated.emailVerified).toBe(false);
       expect(ctx.verificationMailer.sent.at(-1)?.to).toBe('leo-new@example.com');
-      await expect(ctx.service.login('leo-new@example.com', 'a-good-password')).resolves.toBeTruthy();
+      await expect(ctx.service.login('leo-new@example.com', 'new-safe-password')).resolves.toBeTruthy();
     });
 
     it('rejects a wrong password', async () => {
@@ -682,6 +824,118 @@ describe('AuthService', () => {
   });
 
   describe('deleteAccount', () => {
+    it.each(['joining', 'in_call'])('keeps account and external references while a bot is %s', async status => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user } = await c.service.signup(`active-${status}@example.com`, 'a-good-password');
+      store.push(makeMeeting({ id: 'active-bot', ownerUserId: user.id, botId: 'bot-active',
+        status: 'failed', audioStoragePath: 'audio/active.webm' }));
+      vi.mocked(c.bot.getBotStatus).mockResolvedValueOnce(status as 'joining' | 'in_call');
+
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(c.bot.deleteRecording).not.toHaveBeenCalled();
+      expect(c.storage.delete).not.toHaveBeenCalled();
+      expect(c.billing.anonymizeCustomerForUser).not.toHaveBeenCalled();
+      expect(store).toHaveLength(1);
+      expect(c.users.size()).toBe(1);
+    });
+
+    it('fails closed when the bot state cannot be confirmed, then permits a terminal retry', async () => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user } = await c.service.signup('unknown-bot@example.com', 'a-good-password');
+      store.push(makeMeeting({ id: 'unknown-bot', ownerUserId: user.id, botId: 'bot-unknown' }));
+      vi.mocked(c.bot.getBotStatus).mockRejectedValueOnce(new Error('Recall unavailable'));
+
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(c.bot.deleteRecording).not.toHaveBeenCalled();
+      expect(store).toHaveLength(1);
+      await c.service.deleteAccount(user.id, 'a-good-password');
+      expect(c.bot.deleteRecording).toHaveBeenCalledWith('bot-unknown');
+      expect(c.users.size()).toBe(0);
+    });
+
+    it('does not purge a pending upload while storage or AssemblyAI work may still finish', async () => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user } = await c.service.signup('racing-upload@example.com', 'a-good-password');
+      store.push(makeMeeting({ id: 'pending-upload', ownerUserId: user.id, source: 'upload',
+        status: 'pending', botId: null, audioStoragePath: null }));
+
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(store).toHaveLength(1);
+      expect(c.users.size()).toBe(1);
+    });
+
+    it.each([false, true])('holds an in-flight bot claim until a late provider ID can be deleted (sweep=%s)', async swept => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user } = await c.service.signup('racing-bot@example.com', 'a-good-password');
+      let finishCreation!: (value: { botId: string }) => void;
+      const provider = { createBot: vi.fn(() => new Promise<{ botId: string }>(resolve => {
+        finishCreation = resolve;
+      })) } as unknown as MeetingBotPort;
+      const meter = { reserveMeeting: vi.fn(async () => {
+        const pending = makeMeeting({ id: 'racing-meeting', ownerUserId: user.id,
+          source: 'bot', status: 'pending', botId: null });
+        store.push(pending);
+        return { meeting: pending, entitlements: { maxMeetingSeconds: 900 } };
+      }) } as unknown as UsageMeterService;
+      vi.mocked(c.meetings.bindCreatedBot).mockImplementation(async (id, botId) => {
+        const current = store.find(meeting => meeting.id === id);
+        if (!current) throw new Error('Meeting disappeared before bot binding');
+        Object.assign(current, { status: current.status === 'failed' ? 'failed' : 'bot_joining', botId });
+        return current;
+      });
+      const start = new StartMeetingService(c.meetings, meter, provider);
+
+      const inFlight = start.start(user.id, 'https://us02web.zoom.us/j/123');
+      await vi.waitFor(() => expect(provider.createBot).toHaveBeenCalledOnce());
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(store).toHaveLength(1);
+      expect(c.users.size()).toBe(1);
+
+      if (swept) store[0].status = 'failed';
+      finishCreation({ botId: 'late-created-bot' });
+      if (swept) await expect(inFlight).rejects.toBeInstanceOf(BotProviderError);
+      else await expect(inFlight).resolves.toMatchObject({ botId: 'late-created-bot' });
+      await c.service.deleteAccount(user.id, 'a-good-password');
+      expect(c.bot.deleteRecording).toHaveBeenCalledWith('late-created-bot');
+      expect(store).toHaveLength(0);
+      expect(c.users.size()).toBe(0);
+    });
+
+    it('retains a pending bot claim whose provider outcome has not been reconciled', async () => {
+      const store: Meeting[] = [];
+      const c = build(store);
+      const { user } = await c.service.signup('pending-bot@example.com', 'a-good-password');
+      store.push(makeMeeting({ id: 'pending-bot', ownerUserId: user.id, source: 'bot',
+        status: 'pending', botId: null }));
+
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(c.users.size()).toBe(1);
+      expect(c.users.deletionStartedAt(user.id)).toBeInstanceOf(Date);
+      expect(store).toHaveLength(1);
+      expect(c.billing.anonymizeCustomerForUser).not.toHaveBeenCalled();
+
+      // A timeout sweep is not evidence that Recall never created a bot.
+      store[0].status = 'failed';
+      await expect(c.service.deleteAccount(user.id, 'a-good-password'))
+        .rejects.toBeInstanceOf(AccountDeletionBlockedError);
+      expect(store).toHaveLength(1);
+
+      // A documented pre-creation rejection is the only safe release for a missing bot ID.
+      store[0].botStartRejectedAt = new Date();
+      await c.service.deleteAccount(user.id, 'a-good-password');
+      expect(c.users.size()).toBe(0);
+      expect(store).toHaveLength(0);
+    });
+
     it('rejects a wrong password and keeps the account', async () => {
       const { user } = await ctx.service.signup('grace@example.com', 'a-good-password');
       await expect(ctx.service.deleteAccount(user.id, 'wrong-password')).rejects.toBeInstanceOf(InvalidCredentialsError);

@@ -22,17 +22,13 @@ export class EmailVerificationDeliveryService implements EmailVerificationDelive
   ) {}
 
   async sendTo(user: Pick<User, 'id' | 'email'>, trigger: EmailSendTrigger): Promise<void> {
-    // Before issueForUser, not after: issuing replaces the user's live token, so a budget-blocked
-    // send would otherwise invalidate a link already sitting in their inbox — breaking the one
-    // thing that still worked. Same invariant the resend cooldown protects.
-    await this.budget.reserve(trigger, user.id);
-
-    const issued = await this.tokens.issueForUser(user.id);
+    const issued = await this.tokens.issueForDelivery(user.id, trigger, this.budget);
+    if (!issued) return;
     const verificationUrl = new URL('/verify-email', this.webOrigin);
     verificationUrl.searchParams.set('token', issued.token);
 
     await this.mailer.sendVerificationEmail({
-      to: user.email,
+      to: issued.email,
       verificationUrl: verificationUrl.toString(),
       expiresAt: issued.expiresAt,
     });

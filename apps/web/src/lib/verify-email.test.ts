@@ -46,8 +46,8 @@ describe('verifyEmailOnce', () => {
     }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const firstRequest = verifyEmailOnce('same-token');
-    const secondRequest = verifyEmailOnce('same-token');
+    const firstRequest = verifyEmailOnce('same-token', 'new-safe-password');
+    const secondRequest = verifyEmailOnce('same-token', 'new-safe-password');
 
     expect(secondRequest).toBe(firstRequest);
     await expect(Promise.all([firstRequest, secondRequest])).resolves.toHaveLength(2);

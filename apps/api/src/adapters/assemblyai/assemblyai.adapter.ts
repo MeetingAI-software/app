@@ -3,14 +3,15 @@ import type { TranscriptionPort } from '../../ports/transcription.port';
 import type { TranscriptSegment } from '../../domain/types';
 import { normalizeAssemblyTranscript } from './assemblyai.normalizer';
 import { TRANSCRIPTION_WEBHOOK_HEADER } from './transcription-webhook.verifier';
+import { TranscriptionSubmitRejectedError } from '../../domain/errors';
 
 // Default endpoint for local/non-production use. Production in-room recording is fail-closed in
 // config/env.ts and accepts only the EU API origin plus an externally verified provisioned account.
 // A hostname alone is not evidence of the account's processing region.
 const DEFAULT_BASE_URL = 'https://api.assemblyai.com';
 
-// Same HTTP discipline as the Day 1 Recall adapter: abort a slow request, retry once on a transient
-// failure, then let the worker's event-level backoff take over.
+// Reads may retry after a transient failure. Paid POSTs cannot safely retry without a provider
+// idempotency key: a lost response can conceal a successfully created transcription job.
 const REQUEST_TIMEOUT_MS = 15000;
 const RETRY_DELAY_MS = 2000;
 
@@ -80,7 +81,7 @@ export class AssemblyAIAdapter implements TranscriptionPort {
     }
   }
 
-  /** 15s timeout per request; one retry on a 5xx response or a network/timeout error. */
+  /** 15s timeout per read; one retry on a 5xx response or a network/timeout error. */
   private async fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
     try {
       const response = await this.attempt(url, init);
@@ -96,7 +97,7 @@ export class AssemblyAIAdapter implements TranscriptionPort {
   }
 
   async submit(audioUrl: string, _meta: { meetingId: string }): Promise<{ jobId: string }> {
-    this.ensureConfigured();
+    if (!this.apiKey) throw new TranscriptionSubmitRejectedError('AssemblyAI is not configured');
 
     const body: Record<string, unknown> = {
       audio_url: audioUrl,
@@ -111,19 +112,21 @@ export class AssemblyAIAdapter implements TranscriptionPort {
       }
     }
 
-    const res = await this.fetchWithRetry(`${this.baseUrl}/v2/transcript`, {
+    const res = await this.attempt(`${this.baseUrl}/v2/transcript`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
-    });
+    }).catch(() => { throw new Error('AssemblyAI submit outcome unknown'); });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`AssemblyAI submit failed: ${res.status} ${res.statusText} ${text}`.trim());
+      if ([400, 401, 403, 404, 422].includes(res.status)) {
+        throw new TranscriptionSubmitRejectedError(`AssemblyAI submit rejected: ${res.status}`);
+      }
+      throw new Error(`AssemblyAI submit failed: ${res.status}`);
     }
 
-    const data = (await res.json()) as { id?: string };
-    if (!data.id) {
+    const data = await res.json().catch(() => null) as { id?: unknown } | null;
+    if (typeof data?.id !== 'string' || !data.id) {
       throw new Error('AssemblyAI submit response missing transcript id');
     }
     return { jobId: data.id };

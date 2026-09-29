@@ -13,11 +13,11 @@ export type VerifyEmailState =
 
 const verificationRequests = new Map<string, Promise<AuthUserResponse>>();
 
-/** Reuses the same request when React Strict Mode runs the page effect twice in development. */
-export function verifyEmailOnce(token: string): Promise<AuthUserResponse> {
+/** Coalesces concurrent submits without keeping passwords or settled results in memory. */
+export function verifyEmailOnce(token: string, newPassword: string): Promise<AuthUserResponse> {
   const existing = verificationRequests.get(token);
   if (existing) return existing;
-  const request = verifyEmail(token);
+  const request = verifyEmail(token, newPassword).finally(() => verificationRequests.delete(token));
   verificationRequests.set(token, request);
   return request;
 }

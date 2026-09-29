@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, migrateOnce, truncateAll } from '../pglite-harness';
 import { liveTranscriptSegments, meetings, users } from '../schema';
 import { DrizzleLiveTranscriptRepository } from './live-transcript.repository';
+import { DrizzleMeetingRepository } from './meeting.repository';
 import type { TranscriptSegment } from '../../../domain/types';
 
 // Real Postgres (PGlite) stands in for the live-DATABASE_URL singleton. See pglite-harness.ts for
@@ -50,6 +51,52 @@ describe('DrizzleLiveTranscriptRepository', () => {
   });
 
   describe('append', () => {
+    it('removes previously stored segments when a terminal status is committed directly', async () => {
+      await repo.append(meetingA, segment({ text: 'before completion' }));
+
+      await db.update(meetings).set({ status: 'failed' }).where(eq(meetings.id, meetingA));
+
+      expect(await repo.listSince(meetingA, 0)).toEqual([]);
+      expect(await repo.listSince(meetingB, 0)).toEqual([]);
+    });
+
+    it('rejects a direct insert from an older writer after terminal completion', async () => {
+      await db.update(meetings).set({ status: 'transcribed' }).where(eq(meetings.id, meetingA));
+
+      await expect(db.insert(liveTranscriptSegments).values({
+        meetingId: meetingA,
+        startMs: 0,
+        endMs: 1000,
+        speaker: 'Speaker 1',
+        text: 'old replica',
+      })).rejects.toThrow();
+      expect(await repo.listSince(meetingA, 0)).toEqual([]);
+    });
+
+    it('rejects a final segment after the meeting is terminal', async () => {
+      await db.update(meetings).set({ status: 'failed' }).where(eq(meetings.id, meetingA));
+
+      await expect(repo.append(meetingA, segment({ text: 'late final' }))).rejects.toThrow();
+      expect(await repo.listSince(meetingA, 0)).toEqual([]);
+    });
+
+    it.each(['failed', 'transcribed'] as const)(
+      'does not retain a final segment racing with %s completion', async status => {
+        if (status === 'transcribed') {
+          await db.update(meetings).set({ status: 'processing' }).where(eq(meetings.id, meetingA));
+        }
+        const meetingRepo = new DrizzleMeetingRepository();
+        const outcomes = await Promise.allSettled([
+          repo.append(meetingA, segment({ text: 'racing final' })),
+          meetingRepo.updateStatus(meetingA, status),
+        ]);
+
+        expect(outcomes[1].status).toBe('fulfilled');
+        expect((await meetingRepo.findById(meetingA))?.status).toBe(status);
+        expect(await repo.listSince(meetingA, 0)).toEqual([]);
+      },
+    );
+
     it('returns the segment with the sequence number the database assigned', async () => {
       const seg = segment({ text: 'first utterance' });
 

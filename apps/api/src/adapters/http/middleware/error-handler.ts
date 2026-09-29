@@ -23,6 +23,10 @@ import {
   FeatureUnavailableError,
   PaddleCustomerNotFoundError,
   PaddleNotConfiguredError,
+  PaddleOwnershipConflictError,
+  PaddleBillingAdmissionError,
+  OAuthCapacityError,
+  GoogleLinkRejectedError,
   BillingMutationsDisabledError,
   InvalidBillingPriceError,
   InvalidBillingQuantityError,
@@ -33,6 +37,16 @@ import { captureError } from '../../observability/sentry';
 
 export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
   const reqId = req.headers['x-request-id'];
+
+  // Express/body-parser rejects malformed or oversized JSON before route limiters run. These are
+  // client errors; never log/capture their attacker-controlled body or error message as a 5xx.
+  const parserError = err as Error & { type?: string; status?: number };
+  if (parserError.type === 'entity.parse.failed' && parserError.status === 400) {
+    return res.status(400).json({ error: { code: 'INVALID_JSON', message: 'Invalid JSON body' } });
+  }
+  if (parserError.type === 'entity.too.large' && parserError.status === 413) {
+    return res.status(413).json({ error: { code: 'BODY_TOO_LARGE', message: 'Request body is too large' } });
+  }
 
   // Day 6 §5: server-side failures (5xx) go to Sentry; 4xx are client errors and stay out of it.
   const report5xx = () =>
@@ -82,6 +96,26 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     return res.status(503).json({
       error: { code: 'PADDLE_NOT_CONFIGURED', message: err.message },
     });
+  }
+
+  if (err instanceof PaddleOwnershipConflictError) {
+    report5xx();
+    return res.status(409).json({ error: { code: 'PADDLE_OWNERSHIP_CONFLICT', message: err.message } });
+  }
+
+  if (err instanceof PaddleBillingAdmissionError) {
+    res.setHeader('Retry-After', err.reason === 'rate_limited' ? '60' : '5');
+    return res.status(err.reason === 'rate_limited' ? 429 : 503).json({
+      error: { code: 'PADDLE_ADMISSION', message: err.message },
+    });
+  }
+
+  if (err instanceof OAuthCapacityError) {
+    return res.status(429).json({ error: { code: 'OAUTH_CAPACITY', message: err.message } });
+  }
+
+  if (err instanceof GoogleLinkRejectedError) {
+    return res.status(409).json({ error: { code: 'GOOGLE_LINK_REJECTED', message: err.message } });
   }
 
   if (err instanceof BillingMutationsDisabledError) {
@@ -246,17 +280,17 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
   }
 
   if (err instanceof InvalidTransitionError) {
-    console.error(`[RequestId: ${reqId}] Invalid Transition Error:`, err);
+    console.error('Invalid Transition Error');
     report5xx();
     return res.status(500).json({
       error: {
         code: 'INVALID_TRANSITION',
-        message: err.message,
+        message: 'Invalid state transition',
       },
     });
   }
 
-  console.error(`[RequestId: ${reqId}] Internal Server Error:`, err);
+  console.error('Internal Server Error');
   report5xx();
   return res.status(500).json({
     error: {

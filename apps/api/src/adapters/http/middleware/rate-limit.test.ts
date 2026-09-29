@@ -89,6 +89,15 @@ describe('perUserRouteLimiter', () => {
 });
 
 describe('fixedWindowLimiter', () => {
+  it('stops allocating new active keys at the hard cap while admitting existing keys', () => {
+    const limiter = fixedWindowLimiter({ max: 2, windowMs: 60_000, keyOf: req => String(req.ip) });
+    for (let i = 0; i < 10_000; i++) {
+      expect(run(limiter, { ip: `source-${i}` } as any).allowed).toBe(true);
+    }
+    expect(run(limiter, { ip: 'new-source' } as any).status).toBe(429);
+    expect(run(limiter, { ip: 'source-0' } as any).allowed).toBe(true);
+  });
+
   // The Map was never pruned, so a key embedding an attacker-chosen value (signup's email) grew
   // one permanent entry per attempt — memory exhaustion outliving the rate limit it defeated.
   it('evicts expired buckets instead of growing without bound', () => {

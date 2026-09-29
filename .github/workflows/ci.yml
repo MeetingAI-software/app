@@ -38,6 +38,8 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+      - name: Install media decoder for upload tests
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: npm ci
       - name: Typecheck
         run: npm run typecheck --workspace api
@@ -69,6 +71,8 @@ jobs:
       # that plain TypeScript and ESLint do not exercise.
       - name: Build
         run: npm run build --workspace web
+        env:
+          NEXT_PUBLIC_API_URL: https://api.syncmemos.com
 
   # Ships the API on every merge to main, the way Vercel already ships the web app. The API is
   # deployed by CLI upload rather than Railway's GitHub integration, because that integration

@@ -8,4 +8,4 @@
 # Rather than fight the libc detection, give node-gyp what it asks for. Setting only aptPkgs here
 # merges with the Node provider's generated setup phase; the nixPkgs it picks are left alone.
 [phases.setup]
-aptPkgs = ["python3", "build-essential"]
+aptPkgs = ["python3", "build-essential", "ffmpeg"]

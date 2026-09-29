@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { callChatProvider, isRetryableProviderError } from './chat-retry';
 import { ChatProviderError } from '../domain/errors';
+import { logger } from '../config/logger';
 
 /** The exact shape @google/genai threw in production on 2026-08-26 — the failure that started this. */
 const geminiDeadline = Object.assign(
@@ -76,5 +77,17 @@ describe('callChatProvider', () => {
     await expect(callChatProvider('gemini', call, noSleep)).rejects.toThrow(
       /busy right now/i
     );
+  });
+
+  it('does not log a provider error that echoes private meeting text', async () => {
+    const secret = 'synthetic-private-meeting-secret';
+    const logged = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+    try {
+      await expect(callChatProvider('gemini', () => Promise.reject(new Error(secret)), noSleep))
+        .rejects.toThrow(ChatProviderError);
+      expect(JSON.stringify(logged.mock.calls)).not.toContain(secret);
+    } finally {
+      logged.mockRestore();
+    }
   });
 });

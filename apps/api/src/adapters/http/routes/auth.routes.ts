@@ -13,14 +13,20 @@ import {
   readDeletionGrantCookie,
 } from '../cookies';
 import { fixedWindowLimiter } from '../middleware/rate-limit';
-import { OAuth2Client } from 'google-auth-library';
+import { createGoogleOAuthClient } from '../google-oauth-client';
 import { config } from '../../../config/env';
 import type { User } from '../../../domain/types';
 import { DELETION_STATE_PREFIX, type DeletionAuthorizationService } from '../../../application/deletion-authorization.service';
-import { DeletionReauthenticationRequiredError } from '../../../domain/errors';
+import type { GoogleOAuthStateService } from '../../../application/google-oauth-state.service';
+import type { GoogleOAuthExchangeService } from '../../../application/google-oauth-exchange.service';
+import type { LoginAdmissionService } from '../../../application/login-admission.service';
+import {
+  DeletionReauthenticationRequiredError, GoogleAccountLinkRequiredError, GoogleLinkRejectedError, OAuthCapacityError,
+} from '../../../domain/errors';
 
 function authUserResponse(user: User) {
-  return { user, emailVerificationRequired: !user.emailVerified };
+  const { authVersion: _authVersion, ...publicUser } = user as User & { authVersion?: number };
+  return { user: publicUser, emailVerificationRequired: !user.emailVerified };
 }
 
 export function hasVerifiedGoogleEmail(payload: {
@@ -31,7 +37,9 @@ export function hasVerifiedGoogleEmail(payload: {
   return Boolean(payload?.email && payload.sub && payload.email_verified === true);
 }
 
-export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: DeletionAuthorizationService): Router {
+export function createAuthRoutes(auth: AuthService & AuthServiceApi,
+  deletion?: DeletionAuthorizationService, oauthStates?: GoogleOAuthStateService,
+  loginAdmission?: LoginAdmissionService, googleExchanges?: GoogleOAuthExchangeService): Router {
   const router = Router();
 
   const signupSchema = z.object({
@@ -53,7 +61,8 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
     newEmail: z.string().email(),
   });
 
-  // §2 login abuse: 10 attempts / 15 min per IP+email.
+  // Signup's identifier key is downstream from a separate per-IP ceiling. Both signup and login
+  // also use shared IP/account/global admission and a local Argon2 work slot before hashing.
   const authLimiter = fixedWindowLimiter({
     max: 10,
     windowMs: 15 * 60 * 1000,
@@ -106,6 +115,16 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
     windowMs: 15 * 60 * 1000,
     keyOf: (req) => `verify:${req.ip}`,
   });
+  const loginIpLimiter = fixedWindowLimiter({
+    max: 40, windowMs: 15 * 60_000, keyOf: req => `login:${req.ip}`,
+  });
+
+  const googleStartLimiter = fixedWindowLimiter({
+    max: 20, windowMs: 15 * 60_000, keyOf: (req) => `google-start:${req.ip}`,
+  });
+  const googleCallbackLimiter = fixedWindowLimiter({
+    max: 40, windowMs: 15 * 60_000, keyOf: (req) => `google-callback:${req.ip}`,
+  });
 
   router.post('/api/auth/signup', signupIpLimiter, authLimiter, async (req, res, next) => {
     try {
@@ -120,10 +139,22 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
           error: { code: 'POLICY_VERSION_MISMATCH', message: 'The legal terms changed; reload and confirm the current version' },
         });
       }
-      const { user, sessionToken, expiresAt } = await auth.signup(email, password, {
-        organizationName,
-        termsVersion,
-      });
+      if (!loginAdmission && config.NODE_ENV === 'production') {
+        return res.status(503).json({ error: { code: 'REGISTRATION_UNAVAILABLE', message: 'Registration is temporarily unavailable' } });
+      }
+      if (loginAdmission && !await loginAdmission.admitSignup(req.ip ?? '', email)) {
+        res.setHeader('Retry-After', '900');
+        return res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } });
+      }
+      const release = loginAdmission?.acquireHashSlot();
+      if (loginAdmission && !release) {
+        res.setHeader('Retry-After', '1');
+        return res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } });
+      }
+      let result;
+      try { result = await auth.signup(email, password, { organizationName, termsVersion }, release ?? undefined); }
+      finally { release?.(); }
+      const { user, sessionToken, expiresAt } = result;
       setSessionCookie(res, sessionToken, expiresAt);
       return res.status(201).json(authUserResponse(user));
     } catch (err) {
@@ -131,10 +162,25 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
     }
   });
 
-  router.post('/api/auth/login', authLimiter, async (req, res, next) => {
+  router.post('/api/auth/login', loginIpLimiter, async (req, res, next) => {
     try {
       const { email, password } = loginSchema.parse(req.body);
-      const { user, sessionToken, expiresAt } = await auth.login(email, password);
+      if (!loginAdmission && config.NODE_ENV === 'production') {
+        return res.status(503).json({ error: { code: 'LOGIN_UNAVAILABLE', message: 'Sign in is temporarily unavailable' } });
+      }
+      if (loginAdmission && !await loginAdmission.admit(req.ip ?? '', email)) {
+        res.setHeader('Retry-After', '900');
+        return res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } });
+      }
+      const release = loginAdmission?.acquireHashSlot();
+      if (loginAdmission && !release) {
+        res.setHeader('Retry-After', '1');
+        return res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } });
+      }
+      let result;
+      try { result = await auth.login(email, password); }
+      finally { release?.(); }
+      const { user, sessionToken, expiresAt } = result;
       setSessionCookie(res, sessionToken, expiresAt);
       return res.status(200).json(authUserResponse(user));
     } catch (err) {
@@ -213,21 +259,44 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
   });
 
   // --- Google OAuth 2.0 Routes ---
-  router.get('/api/auth/google', (req, res) => {
-    if (!config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET) {
-      return res.status(500).json({ error: { code: 'OAUTH_NOT_CONFIGURED', message: 'Google OAuth is not configured on backend.' } });
-    }
-    const client = new OAuth2Client(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, config.GOOGLE_REDIRECT_URI);
-    const state = setOAuthStateCookie(res);
-    const url = client.generateAuthUrl({
-      access_type: 'offline',
-      scope: ['https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
-      state,
-    });
-    return res.redirect(url);
+  router.get('/api/auth/google', googleStartLimiter, async (_req, res, next) => {
+    try {
+      if (!oauthStates || !config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET) {
+        return res.status(503).json({ error: { code: 'OAUTH_NOT_CONFIGURED', message: 'Google OAuth is unavailable.' } });
+      }
+      const { state, nonce } = await oauthStates.issue({ purpose: 'login' });
+      setOAuthStateCookie(res, state);
+      const client = createGoogleOAuthClient();
+      return res.redirect(client.generateAuthUrl({
+        access_type: 'offline',
+        scope: ['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+        state, nonce,
+      }));
+    } catch (error) { return next(error); }
   });
 
-  router.get('/api/auth/google/callback', async (req, res, next) => {
+  router.post('/api/auth/google/link', accountLimiter, googleStartLimiter, async (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      if (!oauthStates || !config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET) {
+        return res.status(503).json({ error: { code: 'OAUTH_NOT_CONFIGURED', message: 'Google OAuth is unavailable.' } });
+      }
+      const { currentPassword } = z.object({ currentPassword: z.string().min(1) }).parse(req.body);
+      const authVersion = await auth.beginGoogleLink(req.userId!, currentPassword);
+      const { state, nonce } = await oauthStates.issue({
+        purpose: 'link', userId: req.userId!, sessionToken: readSessionCookie(req) ?? '', authVersion,
+      });
+      setOAuthStateCookie(res, state);
+      const client = createGoogleOAuthClient();
+      return res.json({ url: client.generateAuthUrl({
+        access_type: 'offline', prompt: 'select_account',
+        scope: ['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+        state, nonce,
+      }) });
+    } catch (error) { return next(error); }
+  });
+
+  router.get('/api/auth/google/callback', googleCallbackLimiter, async (req, res, next) => {
     // Separate purpose before any login/link code. No account creation or session rotation here.
     if (typeof req.query.state === 'string' && req.query.state.startsWith(DELETION_STATE_PREFIX)) {
       res.setHeader('Cache-Control', 'no-store');
@@ -248,22 +317,37 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
         return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_state_invalid`);
       }
 
+      const challenge = typeof req.query.state === 'string'
+        ? await oauthStates?.claim(req.query.state, readSessionCookie(req)) : null;
+      if (!challenge) return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_state_invalid`);
+      const linkedUser = challenge.purpose === 'link'
+        ? await auth.getUserForToken(readSessionCookie(req) ?? '') : null;
+      if (challenge.purpose === 'link' && linkedUser?.id !== challenge.userId) {
+        return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_state_invalid`);
+      }
+
       const code = req.query.code as string;
       if (!code) {
         return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_failed`);
       }
-      const redirectUri = config.GOOGLE_REDIRECT_URI;
-      const client = new OAuth2Client(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, redirectUri);
-      const { tokens } = await client.getToken(code);
-      client.setCredentials(tokens);
-
-      const ticket = await client.verifyIdToken({
-        idToken: tokens.id_token as string,
-        audience: config.GOOGLE_CLIENT_ID,
+      if (!googleExchanges) throw new Error('Google exchange admission is unavailable');
+      const payload = await googleExchanges.run(async () => {
+        const client = createGoogleOAuthClient();
+        const { tokens } = await client.getToken(code);
+        if (!tokens.id_token) throw new Error('Missing Google identity token');
+        const ticket = await client.verifyIdToken({
+          idToken: tokens.id_token,
+          audience: config.GOOGLE_CLIENT_ID,
+        });
+        return ticket.getPayload();
       });
-      const payload = ticket.getPayload();
-      if (!hasVerifiedGoogleEmail(payload)) {
+      if (!hasVerifiedGoogleEmail(payload) || !oauthStates?.matchesNonce(challenge, payload.nonce)) {
         return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_payload_invalid`);
+      }
+
+      if (challenge.purpose === 'link') {
+        await auth.completeGoogleLink(challenge.userId!, payload.sub, payload.email, challenge.authVersion!);
+        return res.redirect(`${config.WEB_ORIGIN}/settings?google=linked`);
       }
 
       const { sessionToken, expiresAt } = await auth.loginOrCreateGoogleUser(
@@ -275,7 +359,16 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
       );
       setSessionCookie(res, sessionToken, expiresAt);
       return res.redirect(`${config.WEB_ORIGIN}/meetings`);
-    } catch {
+    } catch (error) {
+      if (error instanceof OAuthCapacityError) {
+        return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_busy`);
+      }
+      if (error instanceof GoogleAccountLinkRequiredError) {
+        return res.redirect(`${config.WEB_ORIGIN}/login?error=account_link_required`);
+      }
+      if (error instanceof GoogleLinkRejectedError) {
+        return res.redirect(`${config.WEB_ORIGIN}/settings?google=failed`);
+      }
       // OAuth library errors may embed authorization codes or provider response details.
       console.error('Google OAuth callback failed');
       return res.redirect(`${config.WEB_ORIGIN}/login?error=oauth_error`);
@@ -285,8 +378,11 @@ export function createAuthRoutes(auth: AuthService & AuthServiceApi, deletion?: 
   // --- Email Verification Routes ---
   router.post('/api/auth/verify-email', verifyEmailLimiter, async (req, res, next) => {
     try {
-      const { token } = z.object({ token: z.string().min(1) }).parse(req.body);
-      const user = await auth.verifyEmail(token);
+      const { token, newPassword } = z.object({
+        token: z.string().min(1), newPassword: z.string().min(10),
+      }).parse(req.body);
+      const user = await auth.verifyEmail(token, newPassword);
+      clearSessionCookie(res);
       return res.status(200).json(authUserResponse(user));
     } catch (err) {
       return next(err);

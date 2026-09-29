@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { isIP } from 'node:net';
 import { z } from 'zod';
 
 // Load local defaults without replacing values explicitly supplied by the process. Deployment
@@ -9,6 +10,11 @@ dotenv.config();
 // Normalize absence before Zod coercion: Number('') is 0, not a configured numeric value.
 const blankToUndefined = (value: unknown) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+function isLocalWebhookHost(raw: string): boolean {
+  const hostname = new URL(raw).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  return hostname === 'localhost' || hostname.endsWith('.localhost') || isIP(hostname) !== 0;
+}
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -108,6 +114,40 @@ export const envSchema = z.object({
   NEXT_PUBLIC_PADDLE_TEAM_MONTHLY_PRICE_ID: z.preprocess(blankToUndefined, z.string().optional()),
   NEXT_PUBLIC_PADDLE_TEAM_ANNUAL_PRICE_ID: z.preprocess(blankToUndefined, z.string().optional()),
 }).superRefine((cfg, ctx) => {
+  if (cfg.NODE_ENV === 'production' && cfg.BOT_PROVIDER === 'fake') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['BOT_PROVIDER'],
+      message: 'Fake bot provider is unavailable in production' });
+  }
+  if (cfg.NODE_ENV === 'production' && cfg.EMAIL_PROVIDER === 'log') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['EMAIL_PROVIDER'],
+      message: 'Log email provider is unavailable in production' });
+  }
+  if (cfg.NODE_ENV === 'production') {
+    const secureUrls = [
+      ['WEB_ORIGIN', cfg.WEB_ORIGIN, '/'],
+      ['RECALL_BASE_URL', cfg.RECALL_BASE_URL, '/'],
+      ['PUBLIC_WEBHOOK_URL', cfg.PUBLIC_WEBHOOK_URL, '/'],
+      ['ASSEMBLYAI_BASE_URL', cfg.ASSEMBLYAI_BASE_URL, '/'],
+      ['SUPABASE_URL', cfg.SUPABASE_URL, '/'],
+      ...(cfg.GOOGLE_CLIENT_ID || cfg.GOOGLE_CLIENT_SECRET
+        ? [['GOOGLE_REDIRECT_URI', cfg.GOOGLE_REDIRECT_URI, '/api/auth/google/callback']]
+        : []),
+    ] as Array<[string, string | undefined, string]>;
+    for (const [key, raw, expectedPath] of secureUrls) {
+      if (!raw) continue;
+      let url: URL;
+      try { url = new URL(raw); } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key],
+          message: `${key} must be a valid HTTPS URL in production` });
+        continue;
+      }
+      if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
+        || url.pathname !== expectedPath) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key],
+          message: `${key} must be an HTTPS URL with the expected path and no credentials, query or fragment in production` });
+      }
+    }
+  }
   if (cfg.NODE_ENV === 'production' && cfg.PUBLIC_REGISTRATION_ENABLED) {
     if (!cfg.LEGAL_POLICIES_PUBLISHED) {
       ctx.addIssue({
@@ -128,6 +168,7 @@ export const envSchema = z.object({
     const required = [
       ['ASSEMBLYAI_API_KEY', cfg.ASSEMBLYAI_API_KEY],
       ['TRANSCRIPTION_WEBHOOK_SECRET', cfg.TRANSCRIPTION_WEBHOOK_SECRET],
+      ['PUBLIC_WEBHOOK_URL', cfg.PUBLIC_WEBHOOK_URL],
       ['SUPABASE_URL', cfg.SUPABASE_URL],
       ['SUPABASE_SERVICE_ROLE_KEY', cfg.SUPABASE_SERVICE_ROLE_KEY],
     ] as const;
@@ -158,6 +199,13 @@ export const envSchema = z.object({
         });
       }
     }
+    if (cfg.PUBLIC_WEBHOOK_URL && isLocalWebhookHost(cfg.PUBLIC_WEBHOOK_URL)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PUBLIC_WEBHOOK_URL'],
+        message: 'PUBLIC_WEBHOOK_URL must be publicly reachable for in-room transcription callbacks',
+      });
+    }
   }
 
   // Same fail-fast standard as everything else: don't boot half-configured for a paid vendor.
@@ -184,7 +232,7 @@ export const envSchema = z.object({
     }
     // The provider calls us, so a loopback address means webhooks can never arrive and the
     // pipeline silently stalls at bot_joining. Fail at boot instead.
-    if (cfg.PUBLIC_WEBHOOK_URL && /localhost|127\.0\.0\.1/.test(cfg.PUBLIC_WEBHOOK_URL)) {
+    if (cfg.PUBLIC_WEBHOOK_URL && isLocalWebhookHost(cfg.PUBLIC_WEBHOOK_URL)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['PUBLIC_WEBHOOK_URL'],
@@ -317,7 +365,8 @@ const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
   console.error('❌ Environment validation failed:');
-  console.error(JSON.stringify(parsed.error.format(), null, 2));
+  // Zod messages can include rejected values. Environment values may be live credentials.
+  console.error('Invalid settings:', [...new Set(parsed.error.issues.map(issue => issue.path.join('.')))].join(', '));
   process.exit(1);
 }
 

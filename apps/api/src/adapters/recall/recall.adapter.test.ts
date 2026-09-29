@@ -8,7 +8,7 @@ import { sanitizeBotProviderEvent } from '../observability/sentry';
 
 const marker = 'SYNTHETIC_SENSITIVE_token_signed_url_customer_data';
 const safeRequestId = '12345678-1234-4234-8234-123456789abc';
-const media = `https://media.example.test/transcript?signature=${marker}`;
+const media = `https://recallai-production-bot-data.s3.amazonaws.com/transcript?signature=${marker}`;
 const bot = { recordings: [{ media_shortcuts: { transcript: { data: { download_url: media } } } }] };
 const adapter = new RecallAdapter();
 const operations = [
@@ -48,13 +48,13 @@ describe('Recall error boundary', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it.each(operations)('sanitizes %s network exceptions on the bounded retry', async (_name, operation) => {
+  it.each(operations)('sanitizes %s network exceptions without duplicating paid creation', async (name, operation) => {
     vi.useFakeTimers();
     fetchMock.mockRejectedValue(new Error(marker, { cause: { url: media, token: marker } }));
     const result = safeFailure(operation);
     await vi.advanceTimersByTimeAsync(2_001);
     await result;
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(name === 'create_bot' ? 1 : 2);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -77,6 +77,81 @@ describe('Recall error boundary', () => {
     }
   });
 
+  it.each([
+    'http://127.0.0.1/latest/meta-data',
+    'https://127.0.0.1/transcript',
+    'https://recallai-production-bot-data.s3.amazonaws.com.evil.test/transcript',
+    'https://attacker:secret@recallai-production-bot-data.s3.amazonaws.com/transcript',
+  ])('rejects an untrusted transcript URL before a second fetch: %s', async (downloadUrl) => {
+    fetchMock.mockResolvedValueOnce(Response.json({ recordings: [{ media_shortcuts: {
+      transcript: { data: { download_url: downloadUrl } },
+    } }] }));
+    await safeFailure(() => adapter.fetchTranscript(marker));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not follow a transcript redirect to an internal host', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(bot));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 302,
+      headers: { location: 'http://127.0.0.1/latest/meta-data' } }));
+    await safeFailure(() => adapter.fetchTranscript(marker));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][1].redirect).toBe('manual');
+  });
+
+  it('rejects an oversized transcript before reading its body', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(bot));
+    fetchMock.mockResolvedValueOnce(new Response('[{}]', { headers: { 'content-length': '9000000' } }));
+    await safeFailure(() => adapter.fetchTranscript(marker));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('still downloads a valid signed transcript without Recall credentials', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(bot));
+    fetchMock.mockResolvedValueOnce(Response.json([{ speaker: 'A',
+      words: [{ text: 'Hello', start_timestamp: 0, end_timestamp: 0.5 }],
+    }]));
+    await expect(adapter.fetchTranscript('synthetic-bot')).resolves.toMatchObject([
+      { speaker: 'A', text: 'Hello', startMs: 0, endMs: 500 },
+    ]);
+    expect(fetchMock.mock.calls[1][1].headers).toBeUndefined();
+  });
+
+  it('measures a silent recording from provider start and completion timestamps', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ recordings: [{
+      started_at: '2026-09-26T10:00:00.000Z', completed_at: '2026-09-26T10:30:00.100Z',
+    }] }));
+    await expect(adapter.getRecordedDurationSeconds('synthetic-bot')).resolves.toBe(1801);
+  });
+
+  it('uses the documented bot lifecycle span when recording timestamps are absent', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ status_changes: [
+      { code: 'joining_call', created_at: '2026-09-26T10:00:00Z' },
+      { code: 'in_call_recording', created_at: '2026-09-26T10:02:00Z' },
+      { code: 'done', created_at: '2026-09-26T10:30:00Z' },
+    ] }));
+    await expect(adapter.getRecordedDurationSeconds('synthetic-bot')).resolves.toBe(1800);
+  });
+
+  it('does not treat an unrecognized bot state as terminal', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ status_changes: [{ code: 'new_provider_state' }] }));
+    await expect(adapter.getBotStatus('synthetic-bot')).rejects.toMatchObject({ name: 'BotProviderError' });
+  });
+
+  it('uses the latest status change over a stale terminal field', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ status: { code: 'done' },
+      status_changes: [{ code: 'done' }, { code: 'in_call_recording' }] }));
+    await expect(adapter.getBotStatus('synthetic-bot')).resolves.toBe('in_call');
+  });
+
+  it('requires conservative quota settlement for malformed or missing provider timing', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ recordings: [{
+      started_at: '2026-09-26T10:00:00Z', completed_at: 'not-a-date',
+    }] })).mockResolvedValueOnce(Response.json({ recordings: [] }));
+    await expect(adapter.getRecordedDurationSeconds('synthetic-bot')).resolves.toBeNull();
+    await expect(adapter.getRecordedDurationSeconds('synthetic-bot')).resolves.toBeNull();
+  });
+
   it('keeps body reading inside the timeout and discards timeout causes', async () => {
     vi.useFakeTimers();
     fetchMock.mockImplementation(async (_url, options) => ({
@@ -90,16 +165,32 @@ describe('Recall error boundary', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('retries a 5xx once and preserves successful bot creation and recording deletion', async () => {
+  it('does not retry an ambiguous bot-create 5xx, but permits a later explicit start', async () => {
     vi.useFakeTimers();
     fetchMock.mockResolvedValueOnce(new Response(marker, { status: 503 })).mockResolvedValueOnce(Response.json({ id: 'synthetic-bot' }));
-    const created = operations[0][1]();
-    await vi.advanceTimersByTimeAsync(2_001);
-    expect(await created).toEqual({ botId: 'synthetic-bot' });
-    for (const status of [200, 404, 409]) {
+    await safeFailure(operations[0][1]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await operations[0][1]()).toEqual({ botId: 'synthetic-bot' });
+    for (const status of [200, 404]) {
       fetchMock.mockResolvedValueOnce(new Response('', { status }));
       await expect(adapter.deleteRecording('synthetic-bot')).resolves.toBeUndefined();
     }
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 409 }))
+      .mockResolvedValueOnce(new Response('', { status: 409 }));
+    const conflictedDeletion = adapter.deleteRecording('synthetic-bot');
+    const conflictResult = expect(conflictedDeletion).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(2_001);
+    await conflictResult;
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 409 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    const eventualDeletion = adapter.deleteRecording('synthetic-bot');
+    await vi.advanceTimersByTimeAsync(2_001);
+    await expect(eventualDeletion).resolves.toBeUndefined();
+    fetchMock.mockResolvedValueOnce(new Response(marker, { status: 503 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    const deletion = adapter.deleteRecording('synthetic-bot');
+    await vi.advanceTimersByTimeAsync(2_001);
+    await expect(deletion).resolves.toBeUndefined();
   });
 
   it('returns a stable HTTP error and restricts Sentry to permitted metadata even with contaminated SDK context', async () => {

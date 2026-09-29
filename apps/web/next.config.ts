@@ -1,11 +1,12 @@
 import type { NextConfig } from "next";
+import { resolveApiOrigin } from './src/lib/api-origin';
 
 const isDev = process.env.NODE_ENV === "development";
 
 // The browser talks to the API host directly (see the rewrite note below), so it has to be named
 // in connect-src or every fetch and the live-transcript SSE stream is blocked. Read at build time,
 // which is when Vercel's env is available to this file.
-const apiOrigin = process.env.NEXT_PUBLIC_API_URL || "https://api.syncmemos.com";
+const apiOrigin = resolveApiOrigin(process.env.NEXT_PUBLIC_API_URL, !isDev);
 
 /**
  * Content-Security-Policy.

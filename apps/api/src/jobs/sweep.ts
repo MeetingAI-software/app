@@ -31,13 +31,15 @@ export class SweepJob {
   start() {
     // Run on boot asynchronously
     this.runSweep().catch(err => {
-      logger.error({ err }, 'Sweep job boot run failed');
+      logger.error('Sweep job boot run failed');
+      captureError(err);
     });
 
     // Run every 6 hours
     this.intervalId = setInterval(() => {
       this.runSweep().catch(err => {
-        logger.error({ err }, 'Sweep job interval run failed');
+        logger.error('Sweep job interval run failed');
+        captureError(err);
       });
     }, 6 * 60 * 60 * 1000);
     logger.info('Sweep job scheduled to run every 6 hours');
@@ -69,17 +71,22 @@ export class SweepJob {
 
           // Clean up Recall recording
           if (meeting.source === 'bot' && meeting.botId) {
-            logger.info({ meetingId: meeting.id, botId: meeting.botId }, 'Deleting Recall bot recording');
+            const botStatus = await this.botAdapter.getBotStatus(meeting.botId);
+            if (botStatus !== 'done' && botStatus !== 'fatal') {
+              logger.warn({ meetingId: meeting.id }, 'Retained transcribed bot media while bot remains active');
+              continue;
+            }
+            logger.info({ meetingId: meeting.id }, 'Deleting Recall bot recording');
             await this.botAdapter.deleteRecording(meeting.botId);
             logger.info({ meetingId: meeting.id }, 'Recall bot recording deletion request complete');
           }
         } catch (mErr: any) {
-          logger.error({ err: mErr, meetingId: meeting.id }, 'Failed to clean up transcribed meeting');
+          logger.error({ meetingId: meeting.id }, 'Failed to clean up transcribed meeting');
           captureError(mErr, { meetingId: meeting.id });
         }
       }
     } catch (err: any) {
-      logger.error({ err }, 'Error cleaning up old transcribed meetings');
+      logger.error('Error cleaning up old transcribed meetings');
       captureError(err);
     }
 
@@ -106,6 +113,33 @@ export class SweepJob {
       captureError(err);
     }
 
+    // Failed bot recordings still exist at Recall even when no upload path exists locally.
+    // The marker is written only after Recall acknowledges deletion; a provider or DB error
+    // leaves the bot ID available for the next sweep. Recall accepts repeated deletion.
+    try {
+      const failedBotMedia = await this.meetingRepo.findFailedBotMediaOlderThan(1);
+      logger.info({ count: failedBotMedia.length }, 'Sweep found failed bot recordings');
+      for (const meeting of failedBotMedia) {
+        if (!meeting.botId) continue;
+        try {
+          const botStatus = await this.botAdapter.getBotStatus(meeting.botId);
+          if (botStatus !== 'done' && botStatus !== 'fatal') {
+            logger.warn({ meetingId: meeting.id }, 'Retained failed bot media while bot remains active');
+            continue;
+          }
+          await this.botAdapter.deleteRecording(meeting.botId);
+          await this.meetingRepo.markBotMediaDeleted(meeting.id, meeting.botId);
+          logger.info({ meetingId: meeting.id }, 'Sweep deleted failed bot recording');
+        } catch (mErr: any) {
+          logger.error({ meetingId: meeting.id }, 'Failed to delete failed bot recording');
+          captureError(mErr, { meetingId: meeting.id });
+        }
+      }
+    } catch (err: any) {
+      logger.error('Error cleaning up failed bot recordings');
+      captureError(err);
+    }
+
     // 2. Clean up stuck active meetings older than 15 minutes
     try {
       const stuckMeetings = await this.meetingRepo.findStuckActiveOlderThan!(15);
@@ -114,7 +148,7 @@ export class SweepJob {
         try {
           if (meeting.botId) {
             const botStatus = await this.botAdapter.getBotStatus(meeting.botId);
-            logger.info({ meetingId: meeting.id, botId: meeting.botId, botStatus }, 'Checking stuck bot status');
+            logger.info({ meetingId: meeting.id }, 'Checking stuck bot status');
 
             if (botStatus === 'joining') {
               assertTransition(meeting.status, 'failed');
@@ -140,6 +174,13 @@ export class SweepJob {
             }
           } else {
             // Stuck active meeting without botId (e.g., upload stuck in processing, or bot creation failed)
+            // Once an upload was submitted, AssemblyAI may still return a job ID or callback.
+            // Failing it here would make that callback unable to finish a terminal meeting.
+            if (meeting.source === 'upload' && meeting.uploadSubmissionClaimedAt
+              && !meeting.uploadProviderExcludedAt) {
+              logger.warn({ meetingId: meeting.id }, 'Retained upload with unresolved provider submission');
+              continue;
+            }
             assertTransition(meeting.status, 'failed');
             const msg = meeting.source === 'upload'
               ? 'Sweep: Upload processing timed out after 15 minutes'
@@ -150,12 +191,12 @@ export class SweepJob {
             logger.info({ meetingId: meeting.id }, 'Failed stuck meeting with no botId');
           }
         } catch (mErr: any) {
-          logger.error({ err: mErr, meetingId: meeting.id }, 'Failed to reconcile stuck meeting');
+          logger.error({ meetingId: meeting.id }, 'Failed to reconcile stuck meeting');
           captureError(mErr, { meetingId: meeting.id });
         }
       }
     } catch (err: any) {
-      logger.error({ err }, 'Error reconciling stuck active meetings');
+      logger.error('Error reconciling stuck active meetings');
       captureError(err);
     }
 
@@ -165,7 +206,7 @@ export class SweepJob {
       const removed = await this.sessionRepo.deleteExpired();
       logger.info({ count: removed }, 'Sweep deleted expired sessions');
     } catch (err: any) {
-      logger.error({ err }, 'Error deleting expired sessions');
+      logger.error('Error deleting expired sessions');
       captureError(err);
     }
 
@@ -175,7 +216,7 @@ export class SweepJob {
       const removed = await this.verificationTokenRepo.deleteExpired(new Date());
       logger.info({ count: removed }, 'Sweep deleted expired email verification tokens');
     } catch (err: any) {
-      logger.error({ err }, 'Error deleting expired email verification tokens');
+      logger.error('Error deleting expired email verification tokens');
       captureError(err);
     }
 
@@ -186,7 +227,7 @@ export class SweepJob {
       const removed = await this.emailSendLedgerRepo.deleteOlderThan(cutoff);
       logger.info({ count: removed }, 'Sweep pruned the email send ledger');
     } catch (err: any) {
-      logger.error({ err }, 'Error pruning the email send ledger');
+      logger.error('Error pruning the email send ledger');
       captureError(err);
     }
 

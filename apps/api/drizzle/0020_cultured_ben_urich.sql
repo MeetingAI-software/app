@@ -1,0 +1,1 @@
+CREATE INDEX "google_oauth_states_expiry_idx" ON "google_oauth_states" USING btree ("expires_at");

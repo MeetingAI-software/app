@@ -73,11 +73,9 @@ describe('verifyWebhookSignature', () => {
       config.RECALL_WEBHOOK_SECRET = undefined;
     });
 
-    // Deliberate: local development posts simulated webhooks by hand and cannot sign them. Pinned
-    // so the bypass stays tied to BOT_PROVIDER — the one switch that is 'recall' in production.
-    it('accepts anything, because nothing local can sign a request', () => {
-      expect(verifyWebhookSignature(delivery({}))).toBe(true);
-      expect(verifyWebhookSignature(delivery({ 'webhook-signature': 'v1,rubbish' }))).toBe(true);
+    it('rejects unsigned public requests even when the fake adapter is selected', () => {
+      expect(verifyWebhookSignature(delivery({}))).toBe(false);
+      expect(verifyWebhookSignature(delivery({ 'webhook-signature': 'v1,rubbish' }))).toBe(false);
     });
   });
 

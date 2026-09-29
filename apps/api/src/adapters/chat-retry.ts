@@ -25,8 +25,7 @@ export function isRetryableProviderError(err: unknown): boolean {
 /**
  * Runs a chat call, retries once if the failure looks transient, and converts whatever is left
  * into a ChatProviderError so the customer gets "the AI is busy" instead of the catch-all 500.
- * The provider's own message is logged, never returned — it is vendor noise, and occasionally
- * echoes back part of the prompt.
+ * Provider messages can echo the prompt, so only allowlisted operation metadata is logged.
  */
 export async function callChatProvider<T>(
   provider: string,
@@ -43,7 +42,6 @@ export async function callChatProvider<T>(
           provider,
           attempt,
           retrying: retryable,
-          providerError: (err as Error)?.message,
           operation: 'answerQuestion',
         },
         'Chat provider call failed'

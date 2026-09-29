@@ -1,4 +1,5 @@
 import type { TranscriptSegment } from './types';
+import { normalizeSpeakerLabel } from './speaker-label';
 
 /**
  * Rename diarized speakers (`Speaker A`, `Speaker B`, …) to the participant names the user
@@ -36,8 +37,8 @@ export function mapSpeakers(segments: TranscriptSegment[], names: string[]): Tra
   const nameForLabel = new Map<string, string>();
   orderedSpeakers.forEach((speaker, i) => {
     const name = names[i];
-    if (name !== undefined && name.trim() !== '') {
-      nameForLabel.set(speaker, name);
+    if (name !== undefined && normalizeSpeakerLabel(name)) {
+      nameForLabel.set(speaker, normalizeSpeakerLabel(name));
     }
   });
 

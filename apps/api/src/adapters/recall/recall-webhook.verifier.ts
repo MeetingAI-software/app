@@ -67,16 +67,14 @@ export function verifyRecallSignature(
 
     console.warn('⚠️ Webhook signature verification failed: signature mismatch');
     return false;
-  } catch (err: any) {
-    console.error('❌ Error during webhook signature verification:', err);
+  } catch {
+    console.error('❌ Error during webhook signature verification');
     return false;
   }
 }
 
 export function verifyWebhookSignature(req: any): boolean {
-  if (config.BOT_PROVIDER === 'fake') {
-    // Verification is bypassed when using fake provider to allow simulated local webhooks.
-    return true;
-  }
+  // FakeBotAdapter writes its synthetic event directly to the repository; no public webhook
+  // needs an unsigned mode. An accidental fake deployment therefore cannot open this endpoint.
   return verifyRecallSignature(req, config.RECALL_WEBHOOK_SECRET);
 }

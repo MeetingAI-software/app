@@ -19,6 +19,7 @@ import {
 import VerificationRequired from '@/components/VerificationRequired';
 import Rail from '@/components/console/Rail';
 import { SessionProvider } from '@/components/console/session';
+import { revokeSessionBeforeLeaving } from '@/lib/logout-flow';
 
 /**
  * Session shell for the protected app (/meetings*, /settings). Probes /api/auth/me on mount and
@@ -37,6 +38,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionSummary | null>(null);
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [logoutError, setLogoutError] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -82,13 +85,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleLogout = async () => {
-    try {
-      await logout();
-    } catch {
-      // even if the call fails, clear the client and move on
+    if (logoutPending) return;
+    setLogoutPending(true);
+    setLogoutError(false);
+    const revoked = await revokeSessionBeforeLeaving(logout, () => router.replace('/login'));
+    if (!revoked) {
+      setLogoutError(true);
+      setLogoutPending(false);
     }
-    router.replace('/login');
   };
+
+  const logoutFailure = logoutError ? (
+    <div role="alert" className="fixed inset-x-4 top-4 z-50 mx-auto max-w-lg rounded-lg border border-red-300 bg-white p-4 text-sm text-red-800 shadow-lg">
+      Sign out could not be confirmed. Your session may still be active.
+      <button type="button" onClick={handleLogout} disabled={logoutPending}
+        className="ml-3 font-semibold underline disabled:opacity-50">Retry sign out</button>
+    </div>
+  ) : null;
 
   // Avoid flashing protected content before the session is confirmed.
   if (!checked) {
@@ -99,16 +112,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // show a shell of failed requests. This is the client-side half of that gate, not the gate itself.
   if (shouldRequireEmailVerification(user) && user) {
     return (
-      <VerificationRequired
+      <>{logoutFailure}<VerificationRequired
         user={user}
         onLogout={handleLogout}
         onEmailChanged={setUser}
-      />
+      /></>
     );
   }
 
   return (
     <div className="sm-console h-screen flex overflow-hidden">
+      {logoutFailure}
       <Rail
         user={user}
         usage={usage}

@@ -185,7 +185,7 @@ describe('verifyEmail', () => {
       emailVerificationRequired: false,
     }), { status: 200, headers: { 'content-type': 'application/json' } })));
 
-    await expect(verifyEmail('valid-token')).resolves.toMatchObject({
+    await expect(verifyEmail('valid-token', 'new-safe-password')).resolves.toMatchObject({
       user: { emailVerified: true },
       emailVerificationRequired: false,
     });
@@ -199,7 +199,7 @@ describe('verifyEmail', () => {
       },
     }), { status: 410, headers: { 'content-type': 'application/json' } })));
 
-    await expect(verifyEmail('expired-token')).rejects.toMatchObject({
+    await expect(verifyEmail('expired-token', 'new-safe-password')).rejects.toMatchObject({
       name: 'ApiError',
       status: 410,
       code: 'VERIFICATION_TOKEN_EXPIRED',

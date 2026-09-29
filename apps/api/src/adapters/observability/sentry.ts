@@ -1,7 +1,10 @@
 import * as Sentry from '@sentry/node';
 import { config } from '../../config/env';
 import { logger } from '../../config/logger';
-import { BotProviderError, BOT_PROVIDER_MESSAGE, isSafeRequestId } from '../../domain/errors';
+import {
+  BotProviderError, BOT_PROVIDER_MESSAGE, ChatProviderError, DocumentGenerationError,
+  InvalidTransitionError, TranscriptionSubmitRejectedError, isSafeRequestId,
+} from '../../domain/errors';
 
 // Day 6 §5: the ONLY file that imports @sentry/node. App code depends on the two functions below,
 // never on the vendor directly (SOLID-D), so swapping monitoring providers is a one-file change.
@@ -17,8 +20,9 @@ export function initObservability(): void {
     dsn: config.SENTRY_DSN,
     environment: config.NODE_ENV,
     tracesSampleRate: 0, // errors only today; no performance tracing
-    beforeSend: (event, hint) => hint.originalException instanceof BotProviderError
-      ? sanitizeBotProviderEvent(event, hint.originalException) : event,
+    // SDK errors can contain prompts, transcripts, provider response bodies, and bearer URLs.
+    // Every event passes through an allowlist, including automatic captures and breadcrumbs.
+    beforeSend: (event, hint) => sanitizeErrorEvent(event, hint.originalException),
   });
   enabled = true;
   logger.info('Observability: Sentry initialised');
@@ -37,6 +41,31 @@ export function sanitizeBotProviderEvent(event: Sentry.ErrorEvent, error: BotPro
       ...(safe.status ? { status: String(safe.status) } : {}),
       ...(safe.requestId ? { providerRequestId: safe.requestId } : {}),
       ...(isSafeRequestId(event.tags?.requestId) ? { requestId: event.tags.requestId } : {}),
+    },
+  };
+}
+
+/** Only fixed error labels and validated identifiers leave the process. */
+export function sanitizeErrorEvent(event: Sentry.ErrorEvent, error: unknown): Sentry.ErrorEvent {
+  if (error instanceof BotProviderError) return sanitizeBotProviderEvent(event, error);
+  const tags = event.tags ?? {};
+  const errorType = error instanceof ChatProviderError ? 'ChatProviderError'
+    : error instanceof DocumentGenerationError ? 'DocumentGenerationError'
+    : error instanceof TranscriptionSubmitRejectedError ? 'TranscriptionSubmitRejectedError'
+    : error instanceof InvalidTransitionError ? 'InvalidTransitionError'
+    : error instanceof TypeError ? 'TypeError'
+    : error instanceof SyntaxError ? 'SyntaxError'
+    : error instanceof RangeError ? 'RangeError' : 'Error';
+  return {
+    type: undefined,
+    event_id: event.event_id, timestamp: event.timestamp, platform: event.platform,
+    level: 'error', environment: event.environment, release: event.release,
+    exception: { values: [{ type: errorType, value: 'Application error' }] },
+    tags: {
+      ...(isSafeRequestId(tags.requestId) ? { requestId: tags.requestId } : {}),
+      ...(isSafeRequestId(tags.meetingId) ? { meetingId: tags.meetingId } : {}),
+      ...(isSafeRequestId(tags.userId) ? { userId: tags.userId } : {}),
+      ...(tags.component === 'email-send-budget' ? { component: tags.component } : {}),
     },
   };
 }

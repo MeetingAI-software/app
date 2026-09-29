@@ -10,6 +10,7 @@ import {
   createBillingPortalSession,
   deleteAccount,
   startGoogleDeletionVerification,
+  startGoogleLink,
   getMe,
   getSubscription,
   previewSubscriptionChange,
@@ -40,6 +41,7 @@ export function SettingsPageClient({ legalPublished }: { legalPublished: boolean
       </div>
 
       <SubscriptionCard legalPublished={legalPublished} />
+      <GoogleLinkCard />
       <ChangePasswordCard />
       <ChangeEmailCard />
       <DeleteAccountCard />
@@ -49,6 +51,66 @@ export function SettingsPageClient({ legalPublished }: { legalPublished: boolean
           ← Back to meetings
         </Link>
       </div>
+    </div>
+  );
+}
+
+function GoogleLinkCard() {
+  const [linked, setLinked] = useState<boolean | null>(null);
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const result = new URLSearchParams(window.location.search).get('google');
+    const outcome = result === 'linked' ? 'Google account linked. You can now use Google sign-in.'
+      : result === 'failed' ? 'Google account linking failed. Check the account and try again.' : null;
+    if (outcome) queueMicrotask(() => setMessage(outcome));
+    getMe().then(({ user }) => setLinked(user.hasGoogleLogin === true))
+      .catch(() => setLinked(null));
+  }, []);
+
+  const link = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (loading) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const { url } = await startGoogleLink(password);
+      const destination = new URL(url);
+      if (destination.protocol !== 'https:' || destination.hostname !== 'accounts.google.com') {
+        throw new Error('Google authorization URL is invalid.');
+      }
+      window.location.assign(destination.toString());
+    } catch (error) {
+      setMessage(error instanceof ApiError && error.status === 401
+        ? 'Incorrect current password.'
+        : error instanceof Error ? error.message : 'Could not start Google linking.');
+      setLoading(false);
+    } finally {
+      setPassword('');
+    }
+  };
+
+  return (
+    <div className={CARD}>
+      <h2 className="text-slate-900 font-bold mb-1">Google sign-in</h2>
+      {linked === true ? <p className="text-sm text-on-surface-variant">A Google account is linked.</p>
+        : linked === false ? (
+          <form onSubmit={link} className="space-y-3">
+            <p className="text-sm text-on-surface-variant">
+              Confirm your current password, then choose your Google account. Its verified email must match this account.
+            </p>
+            <label htmlFor="google-link-password" className={LABEL}>Current password</label>
+            <input id="google-link-password" type="password" autoComplete="current-password" required
+              value={password} onChange={(event) => setPassword(event.target.value)} disabled={loading}
+              className={INPUT} />
+            <button type="submit" disabled={loading} className={PRIMARY_BTN}>
+              {loading ? 'Opening Google…' : 'Link Google account'}
+            </button>
+          </form>
+        ) : null}
+      {message && <p role="status" className="mt-3 text-sm text-slate-700">{message}</p>}
     </div>
   );
 }

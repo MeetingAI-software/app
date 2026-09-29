@@ -54,7 +54,9 @@ describe('Google deletion across HTTP, service and PostgreSQL', () => {
     };
     service = new DeletionAuthorizationService(new DrizzleDeletionAuthorizationRepository(), sessionRepo, userRepo, provider);
     auth = new AuthService(userRepo, sessionRepo, { hash: vi.fn(), verify: vi.fn(async (p) => p === 'right-password') }, 7,
-      { listForUser: meetingList, deleteById: vi.fn() } as never,
+      { listForUser: meetingList, deleteById: vi.fn(),
+        hasUnresolvedBotClaimForUser: vi.fn().mockResolvedValue(false),
+        hasUnresolvedUploadClaimForUser: vi.fn().mockResolvedValue(false) } as never,
       { deleteByMeeting: vi.fn() } as never, { deleteByMeeting: vi.fn() } as never,
       { deleteByMeeting: vi.fn() } as never, { deleteByMeeting: vi.fn() } as never,
       { delete: storageDelete } as never, { deleteRecording: vi.fn() } as never,

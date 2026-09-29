@@ -25,6 +25,8 @@ import {
   VerificationNotPersistedError,
   WeakPasswordError,
   FeatureUnavailableError,
+  GoogleAccountLinkRequiredError,
+  GoogleLinkRejectedError,
 } from '../domain/errors';
 import { logger } from '../config/logger';
 import type { EmailSendBudget } from './email-send-budget.service';
@@ -44,11 +46,11 @@ export interface AuthServiceApi {
   signup(email: string, password: string, registration?: {
     organizationName: string;
     termsVersion: string;
-  }): Promise<AuthResult>;
+  }, onPasswordHashed?: () => void): Promise<AuthResult>;
   login(email: string, password: string): Promise<AuthResult>;
   logout(sessionToken: string): Promise<void>;
   getUserForToken(sessionToken: string): Promise<User | null>;
-  verifyEmail(token: string): Promise<User>;
+  verifyEmail(token: string, newPassword: string): Promise<User>;
   resendVerification(email: string): Promise<void>;
   /** Verify current password, set a new one, rotate sessions (returns a fresh session for the caller). */
   changePassword(userId: string, currentPassword: string, newPassword: string): Promise<AuthResult>;
@@ -63,10 +65,6 @@ const SESSION_TOKEN_BYTES = 32;
 /** sha256 of the opaque token. Only the hash is ever persisted; a DB leak yields no live cookies. */
 function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
-}
-
-function msg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -100,11 +98,13 @@ export class AuthService implements AuthServiceApi {
   async signup(email: string, password: string, registration?: {
     organizationName: string;
     termsVersion: string;
-  }): Promise<AuthResult> {
+  }, onPasswordHashed?: () => void): Promise<AuthResult> {
     if (password.length < MIN_PASSWORD_LENGTH) {
       throw new WeakPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
     const passwordHash = await this.hasher.hash(password);
+    // Release the CPU slot before persistence and external email delivery can block.
+    onPasswordHashed?.();
     const user = await this.users.create({
       email,
       passwordHash,
@@ -121,13 +121,19 @@ export class AuthService implements AuthServiceApi {
       // the verification notice instead of returning an error that encourages a duplicate signup.
       // An exhausted send budget lands here too, deliberately: throwing would leave a ghost account
       // whose retry 409s, which is strictly worse than an unverified one they can resend from.
-      logger.error({ userId: user.id, err: msg(err) }, 'Initial verification email delivery failed');
+      logger.error({ userId: user.id }, 'Initial verification email delivery failed');
     }
-    return this.startSession(user);
+    return this.startSession(user, user.authVersion);
   }
 
-  async verifyEmail(token: string): Promise<User> {
-    const result = await this.verificationTokens.consumeAndVerify(token);
+  async verifyEmail(token: string, newPassword: string): Promise<User> {
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      throw new WeakPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    }
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token) || !(await this.verificationTokens.findByToken(token))) {
+      throw new InvalidVerificationTokenError();
+    }
+    const result = await this.verificationTokens.consumeAndVerify(token, await this.hasher.hash(newPassword));
     if (result.status === 'invalid') throw new InvalidVerificationTokenError();
     if (result.status === 'expired') throw new ExpiredVerificationTokenError();
     if (result.status === 'used') throw new UsedVerificationTokenError();
@@ -147,22 +153,20 @@ export class AuthService implements AuthServiceApi {
   }
 
   async resendVerification(email: string): Promise<void> {
-    // Before the lookup, not inside the send. This route returns early for unknown and already
-    // verified addresses, so a budget error raised further down would surface only for real
-    // unverified accounts — a free enumeration oracle, exactly what the neutral 200 exists to
-    // prevent. Exhaustion is a global condition, so answering it identically for every caller
-    // leaks nothing about any account.
-    if (!(await this.sendBudget.hasRemaining())) throw new EmailSendBudgetExhaustedError();
+    // The response stays neutral even if the budget fills between this probe and the atomic
+    // reservation. A budget error only for real accounts would disclose account existence.
+    if (!(await this.sendBudget.hasRemaining())) return;
 
     const user = await this.users.findByEmailWithHash(email);
     if (!user || user.emailVerified) return;
-    // Suppressed silently: the route always answers with the same neutral 200 regardless, so
-    // reporting the cooldown here would hand back an account-existence oracle for free.
-    if (await this.verificationTokens.isWithinResendCooldown(user.id)) {
-      logger.info({ userId: user.id }, 'Verification resend suppressed by cooldown');
-      return;
+    // The delivery transaction owns cooldown and budget admission. A separate read here raced
+    // parallel requests and let both replace the token before either mail was delivered.
+    try {
+      await this.verificationDelivery.sendTo(user, 'resend');
+    } catch (err) {
+      if (err instanceof EmailSendBudgetExhaustedError) return;
+      throw err;
     }
-    await this.verificationDelivery.sendTo(user, 'resend');
   }
 
   async login(email: string, password: string): Promise<AuthResult> {
@@ -179,7 +183,7 @@ export class AuthService implements AuthServiceApi {
     }
     const { passwordHash: _omit, ...user } = record;
     logger.info({ userId: user.id }, 'User logged in');
-    return this.startSession(user);
+    return this.startSession(user, record.authVersion);
   }
 
   async loginOrCreateGoogleUser(email: string, googleId: string, allowRegistration = true): Promise<AuthResult> {
@@ -189,10 +193,9 @@ export class AuthService implements AuthServiceApi {
       // 2. Try finding by email
       const existing = await this.users.findByEmailWithHash(email);
       if (existing) {
-        // Link existing user to Google ID
-        await this.users.linkGoogleId(existing.id, googleId);
-        const { passwordHash: _omit, ...existingUser } = existing;
-        user = { ...existingUser, emailVerified: true, hasGoogleLogin: true };
+        // A verified Google email proves control of the mailbox, not ownership of the app account
+        // or its pre-existing password/sessions. Linking is a separate authenticated action.
+        throw new GoogleAccountLinkRequiredError();
       } else {
         if (!allowRegistration) {
           throw new FeatureUnavailableError('New account registration is not available');
@@ -202,14 +205,25 @@ export class AuthService implements AuthServiceApi {
         logger.info({ userId: user.id }, 'User signed up via Google OAuth');
       }
     } else {
-      if (!user.emailVerified) {
-        // Repair legacy OAuth accounts created before verification status was persisted correctly.
-        await this.users.markEmailVerified(user.id);
-        user = { ...user, emailVerified: true };
-      }
+      // A linked Google subject may have changed the app email since linking. Sign-in with the
+      // subject remains valid, but it cannot verify a different current mailbox as a side effect.
       logger.info({ userId: user.id }, 'User logged in via Google OAuth');
     }
-    return this.startSession(user);
+    return this.startSession(user, user.authVersion);
+  }
+
+  async beginGoogleLink(userId: string, currentPassword: string): Promise<number> {
+    const record = await this.requirePassword(userId, currentPassword);
+    if (!record.emailVerified || record.googleId) throw new GoogleLinkRejectedError();
+    return record.authVersion;
+  }
+
+  async completeGoogleLink(userId: string, googleId: string, verifiedEmail: string,
+    expectedAuthVersion: number): Promise<void> {
+    if (!await this.users.linkGoogleId({
+      userId, googleId, email: verifiedEmail, expectedAuthVersion,
+    })) throw new GoogleLinkRejectedError();
+    logger.info({ userId }, 'Google account linked explicitly');
   }
 
   async logout(sessionToken: string): Promise<void> {
@@ -233,18 +247,18 @@ export class AuthService implements AuthServiceApi {
       throw new WeakPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
     const passwordHash = await this.hasher.hash(newPassword);
-    await this.users.updatePassword(userId, passwordHash);
+    const authVersion = await this.users.updatePassword(userId, passwordHash, record.authVersion);
     // Rotate every session (defence: a changed password logs out all other devices), then hand
     // the current caller a fresh session so they stay signed in on this one.
     await this.sessions.deleteAllForUser(userId);
     const { passwordHash: _omit, ...user } = record;
     logger.info({ userId }, 'Password changed; all sessions rotated');
-    return this.startSession(user);
+    return this.startSession(user, authVersion);
   }
 
   async changeEmail(userId: string, currentPassword: string, newEmail: string): Promise<User> {
-    await this.requirePassword(userId, currentPassword);
-    const updated = await this.users.updateEmail(userId, newEmail); // EmailTakenError bubbles up
+    const record = await this.requirePassword(userId, currentPassword);
+    const updated = await this.users.updateEmail(userId, newEmail, record.authVersion);
     logger.info({ userId }, 'Email changed');
     try {
       // No cooldown check here on purpose. This is the only escape hatch for a mistyped address on
@@ -253,7 +267,7 @@ export class AuthService implements AuthServiceApi {
       // user permanently. Bounded instead by the per-account route limiter and the global budget.
       await this.verificationDelivery.sendTo(updated, 'change_email');
     } catch (err) {
-      logger.error({ userId, err: msg(err) }, 'Verification email delivery after address change failed');
+      logger.error({ userId }, 'Verification email delivery after address change failed');
     }
     return updated;
   }
@@ -262,10 +276,38 @@ export class AuthService implements AuthServiceApi {
     // The shared boundary consumes Google grants before any provider or local deletion starts.
     await this.requireDeletionConfirmation(userId, confirmation, credentials);
 
+    // This write shares the owner-row lock with meeting admission. After it commits, no replica
+    // can reserve a new bot while we inspect existing claims. An unknown provider outcome stays
+    // represented by its meeting row, even if the sweep has marked that meeting failed.
+    await this.users.beginDeletion(userId);
+    if (await this.meetings.hasUnresolvedBotClaimForUser(userId)
+      || await this.meetings.hasUnresolvedUploadClaimForUser(userId)) {
+      throw new AccountDeletionBlockedError();
+    }
+
     // Delete external media first. Calls are idempotent, so a partial provider-side success can be
     // retried. No local reference or account row is removed unless every provider delete succeeds.
     const owned = await this.meetings.listForUser(userId);
     logger.info({ userId, meetingCount: owned.length }, 'Account erasure: begin');
+
+    // Recall's delete_media endpoint removes stored media, not a bot that is still in a call.
+    // Check every known bot, including locally failed meetings: a timeout sweep can mark a bot
+    // failed while it remains active at the provider. No local or external deletion starts until
+    // all known bots are confirmed terminal. A failed/unknown status lookup also blocks erasure.
+    for (const m of owned) {
+      if (m.source !== 'bot' || !m.botId) continue;
+      let status: Awaited<ReturnType<MeetingBotPort['getBotStatus']>>;
+      try {
+        status = await this.bot.getBotStatus(m.botId);
+      } catch {
+        logger.warn({ userId, meetingId: m.id }, 'Account erasure: bot status unavailable');
+        throw new AccountDeletionBlockedError();
+      }
+      if (status !== 'done' && status !== 'fatal') {
+        logger.warn({ userId, meetingId: m.id }, 'Account erasure: bot remains active');
+        throw new AccountDeletionBlockedError();
+      }
+    }
 
     let externalDeleteFailed = false;
     for (const m of owned) {
@@ -326,19 +368,21 @@ export class AuthService implements AuthServiceApi {
   }
 
   /** Load a user + verify a plaintext password against their hash, or throw InvalidCredentialsError. */
-  private async requirePassword(userId: string, password: string): Promise<User & { passwordHash: string }> {
+  private async requirePassword(userId: string, password: string): Promise<User & {
+    passwordHash: string; authVersion: number; googleId?: string | null;
+  }> {
     const user = await this.users.findById(userId);
     const record = user ? await this.users.findByEmailWithHash(user.email) : null;
     if (!record || !record.passwordHash || !(await this.hasher.verify(password, record.passwordHash))) {
       throw new InvalidCredentialsError('Invalid password');
     }
-    return record as User & { passwordHash: string };
+    return record as User & { passwordHash: string; authVersion: number; googleId?: string | null };
   }
 
-  private async startSession(user: User): Promise<AuthResult> {
+  private async startSession(user: User, authVersion: number): Promise<AuthResult> {
     const token = crypto.randomBytes(SESSION_TOKEN_BYTES).toString('base64url');
     const expiresAt = new Date(Date.now() + this.sessionTtlDays * 24 * 60 * 60 * 1000);
-    await this.sessions.create({ userId: user.id, tokenHash: hashToken(token), expiresAt });
+    await this.sessions.create({ userId: user.id, tokenHash: hashToken(token), expiresAt, authVersion });
     return { user, sessionToken: token, expiresAt };
   }
 

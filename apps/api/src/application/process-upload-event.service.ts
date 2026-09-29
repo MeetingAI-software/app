@@ -10,6 +10,7 @@ import type { TranscriptSegment } from '../domain/types';
 import { assertTransition } from '../domain/state-machine';
 import { mapSpeakers } from '../domain/speaker-mapping';
 import { logger } from '../config/logger';
+import { TranscriptionSubmitRejectedError } from '../domain/errors';
 
 export type UploadEventType = 'audio_uploaded' | 'transcription_ready';
 
@@ -49,24 +50,40 @@ export class ProcessUploadEventService {
 
     const meeting = await this.meetingRepo.findById(payload.meetingId);
     if (!meeting) throw new Error(`Meeting not found: ${payload.meetingId}`);
-    if (!meeting.audioStoragePath) throw new Error(`Meeting ${meeting.id} has no audioStoragePath`);
 
     // Idempotent: if we already submitted, do not create a second transcription job.
     if (meeting.transcriptionJobId) {
       logger.info({ meetingId: meeting.id }, 'audio_uploaded already submitted — skipping');
       return;
     }
-
-    if (meeting.status === 'pending') {
-      assertTransition('pending', 'processing');
-      await this.meetingRepo.updateStatus(meeting.id, 'processing');
-    }
+    if (!meeting.audioStoragePath) throw new Error(`Meeting ${meeting.id} has no audioStoragePath`);
 
     const url = await this.storage.getSignedUrl(meeting.audioStoragePath);
-    const { jobId } = await this.transcription.submit(url, { meetingId: meeting.id });
-    await this.meetingRepo.setUploadInfo(meeting.id, { transcriptionJobId: jobId });
+    // A committed claim is the durable boundary before the paid POST. If the response is lost,
+    // neither an event replay nor another worker may submit a second job without reconciliation.
+    if (!await this.meetingRepo.claimUploadSubmission(meeting.id)) {
+      if (await this.meetingRepo.abortUploadIfDeleting(meeting.id)) {
+        logger.info({ meetingId: meeting.id }, 'Upload submission cancelled during account deletion');
+        return;
+      }
+      logger.warn({ meetingId: meeting.id }, 'Transcription submission already claimed; awaiting reconciliation');
+      return;
+    }
+    let jobId: string;
+    try {
+      ({ jobId } = await this.transcription.submit(url, { meetingId: meeting.id }));
+    } catch (err) {
+      if (err instanceof TranscriptionSubmitRejectedError) {
+        await this.meetingRepo.failRejectedUploadSubmission(meeting.id, 'Transcription request rejected');
+        return;
+      }
+      throw err;
+    }
+    if (!await this.meetingRepo.bindTranscriptionJob(meeting.id, jobId)) {
+      throw new Error('Transcription job could not be bound to its claimed meeting');
+    }
 
-    logger.info({ meetingId: meeting.id, jobId }, 'Transcription submitted for uploaded audio');
+    logger.info({ meetingId: meeting.id }, 'Transcription submitted for uploaded audio');
   }
 
   /** Fetch result → map speakers → save → transcribed → usage → summary → GDPR delete. */
@@ -84,6 +101,9 @@ export class ProcessUploadEventService {
 
     // Idempotent: a replayed webhook must not produce a second transcript.
     if (meeting.status === 'transcribed') {
+      // A worker can crash after setting terminal status but before settling its claim.
+      await this.usageRepo.addSeconds(meeting.id,
+        meeting.durationSeconds && meeting.durationSeconds > 0 ? meeting.durationSeconds : null);
       logger.info({ meetingId: meeting.id }, 'transcription_ready for an already-transcribed meeting — skipping');
       return;
     }
@@ -93,9 +113,12 @@ export class ProcessUploadEventService {
 
     await this.transcriptRepo.save(meeting.id, segments, rawPayload);
 
-    const durationSeconds = segments.length
-      ? Math.ceil(Math.max(...segments.map((s) => s.endMs)) / 1000)
-      : 0;
+    // Admission decoded the actual media and stored this duration before the provider call.
+    // Speech timestamps omit silence; never let an empty transcript erase recording time.
+    // Pre-existing uploads have no trusted decoded duration. Keep them usable while settling
+    // the entire reserved maximum, never the speech-derived length or zero.
+    const durationSeconds = meeting.durationSeconds && meeting.durationSeconds > 0
+      ? meeting.durationSeconds : await this.usageRepo.addSeconds(meeting.id, null);
 
     // Upload path arrives here as 'processing'. Nudge from 'pending' if the events raced.
     let currentStatus = meeting.status;
@@ -119,7 +142,7 @@ export class ProcessUploadEventService {
       logger.info({ meetingId: meeting.id }, 'Summary generated (upload)');
     } catch (err) {
       logger.error(
-        { meetingId: meeting.id, err: err instanceof Error ? err.message : String(err) },
+        { meetingId: meeting.id },
         'Summary generation failed after retry — leaving summary null and continuing'
       );
     }
@@ -132,7 +155,7 @@ export class ProcessUploadEventService {
         logger.info({ meetingId: meeting.id }, 'Uploaded audio deleted from storage');
       } catch (err) {
         logger.warn(
-          { meetingId: meeting.id, err: err instanceof Error ? err.message : String(err) },
+          { meetingId: meeting.id },
           'Failed to delete uploaded audio — a sweep can retry'
         );
       }
@@ -144,7 +167,7 @@ export class ProcessUploadEventService {
     try {
       return await this.docGen.generateSummary(segments);
     } catch (err) {
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Summary failed, retrying once');
+      logger.warn('Summary failed, retrying once');
       return await this.docGen.generateSummary(segments);
     }
   }

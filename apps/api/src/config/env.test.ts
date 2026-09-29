@@ -5,9 +5,82 @@ const productionBase = {
   NODE_ENV: 'production',
   DATABASE_URL: 'postgres://test:test@localhost:5432/test',
   WEB_ORIGIN: 'https://www.syncmemos.com',
+  BOT_PROVIDER: 'recall',
+  RECALL_API_KEY: 'synthetic-recall-key',
+  RECALL_BASE_URL: 'https://api.recall.test',
+  RECALL_WEBHOOK_SECRET: 'synthetic-webhook-secret',
+  PUBLIC_WEBHOOK_URL: 'https://api.syncmemos.com',
+  LIVE_TRANSCRIPT_ENABLED: 'false',
+  EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 'synthetic-key', RESEND_FROM: 'no-reply@example.test',
 };
 
+describe('production mail delivery gate', () => {
+  it('rejects a log-only mailer even while registration is closed', () => {
+    const result = envSchema.safeParse({ ...productionBase, EMAIL_PROVIDER: 'log' });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.some(issue => issue.path[0] === 'EMAIL_PROVIDER')).toBe(true);
+  });
+});
+
+describe('fake provider production gate', () => {
+  it('rejects fake mode in production even with public registration disabled', () => {
+    const result = envSchema.safeParse({ ...productionBase, BOT_PROVIDER: 'fake' });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.some(issue => issue.path[0] === 'BOT_PROVIDER')).toBe(true);
+  });
+});
+
+describe('production transport URL validation', () => {
+  it.each([
+    ['WEB_ORIGIN', 'http://www.syncmemos.com'],
+    ['WEB_ORIGIN', 'https://user:secret@www.syncmemos.com'],
+    ['WEB_ORIGIN', 'https://www.syncmemos.com/path'],
+    ['RECALL_BASE_URL', 'http://api.recall.test'],
+    ['PUBLIC_WEBHOOK_URL', 'http://api.syncmemos.com'],
+    ['ASSEMBLYAI_BASE_URL', 'http://api.assemblyai.com'],
+    ['SUPABASE_URL', 'http://project.supabase.co'],
+    ['SUPABASE_URL', 'not-a-url'],
+    ['GOOGLE_REDIRECT_URI', 'http://api.syncmemos.com/api/auth/google/callback'],
+    ['GOOGLE_REDIRECT_URI', 'https://api.syncmemos.com/other'],
+  ])('rejects insecure %s=%s', (key, value) => {
+    const result = envSchema.safeParse({
+      ...productionBase, GOOGLE_CLIENT_ID: 'client', GOOGLE_CLIENT_SECRET: 'secret',
+      GOOGLE_REDIRECT_URI: 'https://api.syncmemos.com/api/auth/google/callback',
+      [key]: value,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.some(issue => issue.path[0] === key)).toBe(true);
+  });
+
+  it('accepts secure production origins and the exact Google callback', () => {
+    expect(envSchema.safeParse({
+      ...productionBase, GOOGLE_CLIENT_ID: 'client', GOOGLE_CLIENT_SECRET: 'secret',
+      GOOGLE_REDIRECT_URI: 'https://api.syncmemos.com/api/auth/google/callback',
+      RECALL_BASE_URL: 'https://api.recall.test',
+      PUBLIC_WEBHOOK_URL: 'https://api.syncmemos.com',
+      SUPABASE_URL: 'https://project.supabase.co',
+    }).success).toBe(true);
+  });
+});
+
 describe('in-room recording environment validation', () => {
+  it.each([undefined, 'https://localhost', 'https://127.0.0.1', 'https://10.0.0.1', 'https://[::1]'])
+    ('rejects an unreachable transcription callback origin %s', (origin) => {
+      const result = envSchema.safeParse({
+        ...productionBase,
+        PUBLIC_WEBHOOK_URL: origin,
+        IN_ROOM_RECORDING_ENABLED: 'true',
+        TRANSCRIPTION_PROVIDER: 'assemblyai',
+        ASSEMBLYAI_BASE_URL: 'https://api.eu.assemblyai.com',
+        ASSEMBLYAI_API_KEY: 'eu-key',
+        TRANSCRIPTION_WEBHOOK_SECRET: 'webhook-secret',
+        SUPABASE_URL: 'https://project.supabase.co',
+        SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.some(issue => issue.path[0] === 'PUBLIC_WEBHOOK_URL')).toBe(true);
+    });
+
   it('allows production to boot with the feature disabled and the default AssemblyAI endpoint', () => {
     const result = envSchema.safeParse({
       ...productionBase,

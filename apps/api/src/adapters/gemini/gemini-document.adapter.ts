@@ -6,6 +6,7 @@ import { documentContentSchema } from '../../domain/document.schema';
 import type { DocumentContent } from '../../domain/document';
 import type { DocumentGeneratorPort } from '../../ports/document-generator.port';
 import type { TranscriptSegment } from '../../domain/types';
+import { hasOnlyCanonicalOwners } from '../../domain/speaker-label';
 import type { GeminiClient } from './gemini-chat.adapter';
 import { buildDocumentPrompt, buildRetryPrompt, buildSummaryPrompt, renderTranscript } from './prompts';
 
@@ -40,7 +41,7 @@ type ValidationOutcome =
   | { ok: true; content: DocumentContent }
   | { ok: false; issues: string };
 
-function parseAndValidate(text: string): ValidationOutcome {
+function parseAndValidate(text: string, segments: TranscriptSegment[]): ValidationOutcome {
   let raw: unknown;
   try {
     raw = JSON.parse(extractJson(text));
@@ -54,6 +55,9 @@ function parseAndValidate(text: string): ValidationOutcome {
       .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
       .join('; ');
     return { ok: false, issues };
+  }
+  if (!hasOnlyCanonicalOwners(result.data, segments)) {
+    return { ok: false, issues: 'actionPoints.owner: must match a speaker label in the untrusted label list or be null' };
   }
   return { ok: true, content: result.data };
 }
@@ -144,7 +148,7 @@ export class GeminiDocumentAdapter implements DocumentGeneratorPort {
       inputTokens += response.usageMetadata?.promptTokenCount ?? 0;
       outputTokens += response.usageMetadata?.candidatesTokenCount ?? 0;
 
-      const outcome = parseAndValidate((response.text ?? '').trim());
+      const outcome = parseAndValidate((response.text ?? '').trim(), segments);
       if (outcome.ok) {
         logger.info(
           { model, inputTokens, outputTokens, attempts: attempt, latencyMs: Date.now() - startedAt, operation: 'generateDocument' },
@@ -154,14 +158,14 @@ export class GeminiDocumentAdapter implements DocumentGeneratorPort {
       }
 
       issues = outcome.issues;
-      logger.warn({ attempt, issues, operation: 'generateDocument' }, 'Gemini document failed validation');
+      logger.warn({ attempt, operation: 'generateDocument' }, 'Gemini document failed validation');
       prompt = buildRetryPrompt(basePrompt, issues);
     }
 
     logger.error(
-      { model, inputTokens, outputTokens, issues, operation: 'generateDocument' },
+      { model, inputTokens, outputTokens, operation: 'generateDocument' },
       'Gemini document failed validation after retry — nothing saved'
     );
-    throw new DocumentGenerationError(`document failed validation after retry: ${issues}`);
+    throw new DocumentGenerationError('document failed validation after retry');
   }
 }

@@ -1,5 +1,5 @@
 // adapters/db/schema.ts
-import { pgTable, uuid, text, integer, boolean, timestamp, jsonb, bigserial, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, boolean, timestamp, jsonb, bigserial, uniqueIndex, index, primaryKey } from 'drizzle-orm/pg-core';
 
 export const meetings = pgTable('meetings', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -8,6 +8,8 @@ export const meetings = pgTable('meetings', {
   status: text('status').notNull().default('pending'),
   source: text('source').notNull().default('bot'),                 // Day 3: 'bot' | 'upload'
   botId: text('bot_id'),
+  botStartRejectedAt: timestamp('bot_start_rejected_at', { withTimezone: true }),
+  botMediaDeletedAt: timestamp('bot_media_deleted_at', { withTimezone: true }),
   durationSeconds: integer('duration_seconds'),
   errorMessage: text('error_message'),
   summary: text('summary'),
@@ -19,12 +21,14 @@ export const meetings = pgTable('meetings', {
   recordingNoticeVersion: text('recording_notice_version'),
   audioStoragePath: text('audio_storage_path'),                   // Day 3: Supabase Storage path for uploads
   transcriptionJobId: text('transcription_job_id'),               // Day 3: AssemblyAI job id for uploads
+  uploadSubmissionClaimedAt: timestamp('upload_submission_claimed_at', { withTimezone: true }),
+  uploadProviderExcludedAt: timestamp('upload_provider_excluded_at', { withTimezone: true }),
   ownerUserId: uuid('owner_user_id').notNull().references(() => users.id),  // Day 6 §6: the DB is the guard — an ownerless meeting is invisible, so make it impossible
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   meetingsStatusIdx: index('meetings_status_idx').on(t.status),
-  meetingsBotIdIdx: index('meetings_bot_id_idx').on(t.botId),
+  meetingsBotIdUq: uniqueIndex('meetings_bot_id_uq').on(t.botId),
   meetingsOwnerUserIdIdx: index('meetings_owner_user_id_idx').on(t.ownerUserId),
   meetingsShareExpiryIdx: index('meetings_share_expiry_idx').on(t.shareEnabled, t.shareExpiresAt),
 }));
@@ -73,7 +77,29 @@ export const usageLedger = pgTable('usage_ledger', {
   meetingId: uuid('meeting_id').notNull().references(() => meetings.id),
   secondsRecorded: integer('seconds_recorded').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  usageLedgerMeetingUq: uniqueIndex('usage_ledger_meeting_uq').on(t.meetingId),
+}));
+
+// Internal worker coordination. Meeting rows are returned by API routes, so the claim token
+// must live outside the public meeting projection.
+export const botTranscriptClaims = pgTable('bot_transcript_claims', {
+  meetingId: uuid('meeting_id').primaryKey().references(() => meetings.id, { onDelete: 'cascade' }),
+  claimId: uuid('claim_id').notNull(),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// One durable claim per admitted meeting. An active claim counts against the current monthly
+// budget even when a request crashes before the provider returns, or crosses a month boundary.
+export const meetingQuotaReservations = pgTable('meeting_quota_reservations', {
+  meetingId: uuid('meeting_id').primaryKey().references(() => meetings.id, { onDelete: 'cascade' }),
+  ownerUserId: uuid('owner_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  reservedSeconds: integer('reserved_seconds').notNull(),
+  releasedAt: timestamp('released_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  ownerActiveIdx: index('meeting_quota_reservations_owner_active_idx').on(t.ownerUserId, t.releasedAt),
+}));
 
 export const documents = pgTable('documents', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -85,10 +111,19 @@ export const documents = pgTable('documents', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// A meeting row lock serializes claims across replicas. Attempts are never refunded after an
+// uncertain provider outcome, so repeated failures cannot create unlimited paid requests.
+export const documentGenerationBudgets = pgTable('document_generation_budgets', {
+  meetingId: uuid('meeting_id').primaryKey().references(() => meetings.id, { onDelete: 'cascade' }),
+  attempts: integer('attempts').notNull().default(0),
+  claimId: uuid('claim_id'),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+});
+
 export const chatMessages = pgTable('chat_messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   meetingId: uuid('meeting_id').notNull().references(() => meetings.id),
-  role: text('role').notNull(),                 // 'user' | 'assistant'
+  role: text('role').notNull(),                 // 'pending_user' | 'user' | 'assistant'
   content: text('content').notNull(),
   inputTokens: integer('input_tokens').notNull().default(0),
   outputTokens: integer('output_tokens').notNull().default(0),
@@ -104,6 +139,9 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash'),                            // nullable for OAuth users
   googleId: text('google_id').unique(),                           // Google OAuth sub ID
   emailVerified: boolean('email_verified').notNull().default(false), // true for OAuth / verified
+  emailVersion: integer('email_version').notNull().default(1),
+  authVersion: integer('auth_version').notNull().default(1),
+  deletionStartedAt: timestamp('deletion_started_at', { withTimezone: true }),
   organizationName: text('organization_name'),
   businessUseConfirmedAt: timestamp('business_use_confirmed_at', { withTimezone: true }),
   termsVersionAccepted: text('terms_version_accepted'),
@@ -114,6 +152,8 @@ export const emailVerificationTokens = pgTable('email_verification_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull().unique(),
+  emailAtIssue: text('email_at_issue'),
+  emailVersion: integer('email_version'),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   consumedAt: timestamp('consumed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -147,6 +187,7 @@ export const sessions = pgTable('sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id),
   tokenHash: text('token_hash').notNull().unique(),               // sha256(opaque token); raw token lives only in the cookie
+  authVersion: integer('auth_version').notNull().default(1),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -167,6 +208,58 @@ export const accountDeletionAuthorizations = pgTable('account_deletion_authoriza
   grantExpiresAt: timestamp('grant_expires_at', { withTimezone: true }),
   consumedAt: timestamp('consumed_at', { withTimezone: true }),
 });
+
+// One-time OAuth challenges. State and nonce are stored only as hashes; link challenges bind to a
+// particular logged-in session and credential version. Login challenges have no user binding.
+export const googleOAuthStates = pgTable('google_oauth_states', {
+  stateHash: text('state_hash').primaryKey(),
+  nonceHash: text('nonce_hash').notNull(),
+  purpose: text('purpose').notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  sessionHash: text('session_hash'),
+  authVersion: integer('auth_version'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+}, (t) => ({
+  googleOAuthStatesExpiryIdx: index('google_oauth_states_expiry_idx').on(t.expiresAt),
+}));
+
+// One atomic global budget across API replicas before an OAuth redirect/provider exchange.
+export const googleOAuthBudget = pgTable('google_oauth_budget', {
+  window: text('window').primaryKey(),
+  count: integer('count').notNull(),
+});
+
+// Fixed-size, shared provider slots. An expired lease can be reused after a crashed worker.
+export const googleOAuthExchangeSlots = pgTable('google_oauth_exchange_slots', {
+  slot: integer('slot').primaryKey(),
+  token: text('token'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+});
+
+// Shared billing admission. Leases limit concurrent Paddle workflows across API replicas;
+// budgets count attempts before provider calls, including uncertain outcomes.
+export const paddleBillingSlots = pgTable('paddle_billing_slots', {
+  slot: integer('slot').primaryKey(),
+  token: text('token'),
+  userId: uuid('user_id'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+});
+
+export const paddleBillingBudgets = pgTable('paddle_billing_budgets', {
+  scope: text('scope').notNull(),
+  window: integer('window').notNull(),
+  count: integer('count').notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.scope, t.window] }) }));
+
+// Cross-replica login admission before database user lookup and password hashing. Identifier
+// scopes contain only digests, never submitted addresses or client-supplied strings.
+export const loginAttemptBudgets = pgTable('login_attempt_budgets', {
+  scope: text('scope').notNull(),
+  window: integer('window').notNull(),
+  count: integer('count').notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.scope, t.window] }) }));
 
 // Paddle is the billing source of truth. Customer rows may be created as placeholders when
 // subscription webhooks arrive first; a later customer webhook fills in email/user ownership.

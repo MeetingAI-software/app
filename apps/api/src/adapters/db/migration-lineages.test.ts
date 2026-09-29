@@ -45,14 +45,130 @@ describe('immutable migration lineages', () => {
         'account_deletion_authorizations.session_id', 'account_deletion_authorizations.state_hash',
         'account_deletion_authorizations.nonce_hash', 'account_deletion_authorizations.grant_hash',
         'paddle_customers.anonymized_at',
+        'users.email_version', 'users.auth_version',
+        'google_oauth_states.state_hash', 'google_oauth_states.nonce_hash',
+        'google_oauth_states.session_hash', 'google_oauth_states.auth_version',
+        'google_oauth_budget.window', 'google_oauth_budget.count',
+        'google_oauth_exchange_slots.slot', 'google_oauth_exchange_slots.token',
+        'google_oauth_exchange_slots.expires_at',
+        'paddle_billing_slots.slot', 'paddle_billing_slots.token',
+        'paddle_billing_slots.user_id', 'paddle_billing_slots.expires_at',
+        'paddle_billing_budgets.scope', 'paddle_billing_budgets.window',
+        'paddle_billing_budgets.count',
+        'login_attempt_budgets.scope', 'login_attempt_budgets.window',
+        'login_attempt_budgets.count',
+        'document_generation_budgets.meeting_id',
+        'document_generation_budgets.attempts',
+        'bot_transcript_claims.meeting_id', 'bot_transcript_claims.claim_id',
       ]));
+      expect(names).not.toContain('meetings.transcript_claim_id');
+      const exchangeSlots = await client.query('SELECT slot FROM google_oauth_exchange_slots ORDER BY slot');
+      expect(exchangeSlots.rows).toEqual(Array.from({ length: 8 }, (_, index) => ({ slot: index + 1 })));
+      const billingSlots = await client.query('SELECT slot FROM paddle_billing_slots ORDER BY slot');
+      expect(billingSlots.rows).toEqual(Array.from({ length: 8 }, (_, index) => ({ slot: index + 1 })));
       const indexes = await client.query<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE tablename='meetings'");
       expect(indexes.rows.map(row => row.indexname)).toContain('meetings_share_expiry_idx');
+      expect(indexes.rows.map(row => row.indexname)).toContain('meetings_bot_id_uq');
       if (lineage !== 'empty') {
         const meetings = await client.query('SELECT share_enabled,share_expires_at,share_token FROM meetings');
         expect(meetings.rows).toEqual([{ share_enabled: false, share_expires_at: null, share_token: 'historical-token' }]);
         expect((await client.query('SELECT email FROM users')).rows).toEqual([{ email: 'migration@example.test' }]);
       }
+    } finally {
+      await client.close();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('seeds one paid attempt for each document created before the budget migration', async () => {
+    const client = new PGlite();
+    const db = drizzle(client);
+    const folder = mkdtempSync(join(tmpdir(), 'syncmemos-document-migration-'));
+    try {
+      const entries = journal.entries.slice(0, 23);
+      mkdirSync(join(folder, 'meta'));
+      writeFileSync(join(folder, 'meta/_journal.json'), JSON.stringify({ ...journal, entries }));
+      for (const entry of entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(folder, `${entry.tag}.sql`));
+      await migrate(db, { migrationsFolder: folder });
+      await client.exec(`
+        INSERT INTO users (id,email) VALUES ('00000000-0000-4000-8000-000000000001','document@example.test');
+        INSERT INTO meetings (id,owner_user_id,share_token,status)
+        VALUES ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001',
+          'document-migration-token','transcribed');
+        INSERT INTO documents (meeting_id,content,model)
+        VALUES ('00000000-0000-4000-8000-000000000002','{}'::jsonb,'historical-model');
+      `);
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      expect((await client.query('SELECT attempts FROM document_generation_budgets')).rows)
+        .toEqual([{ attempts: 1 }]);
+    } finally {
+      await client.close();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('purges historical terminal live transcripts and keeps active streams on upgrade', async () => {
+    const client = new PGlite();
+    const db = drizzle(client);
+    const folder = mkdtempSync(join(tmpdir(), 'syncmemos-live-retention-migration-'));
+    try {
+      const entries = journal.entries.slice(0, 30);
+      mkdirSync(join(folder, 'meta'));
+      writeFileSync(join(folder, 'meta/_journal.json'), JSON.stringify({ ...journal, entries }));
+      for (const entry of entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(folder, `${entry.tag}.sql`));
+      await migrate(db, { migrationsFolder: folder });
+      await client.exec(`
+        INSERT INTO users (id,email) VALUES
+          ('00000000-0000-4000-8000-000000000001','live-upgrade@example.test');
+        INSERT INTO meetings (id,owner_user_id,share_token,status) VALUES
+          ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','failed-live','failed'),
+          ('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','done-live','transcribed'),
+          ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','active-live','recording');
+        INSERT INTO live_transcript_segments (meeting_id,start_ms,end_ms,speaker,text) VALUES
+          ('00000000-0000-4000-8000-000000000002',0,1000,'Speaker 1','failed secret'),
+          ('00000000-0000-4000-8000-000000000003',0,1000,'Speaker 1','done secret'),
+          ('00000000-0000-4000-8000-000000000004',0,1000,'Speaker 1','active words');
+      `);
+
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      await migrate(db, { migrationsFolder: 'drizzle' });
+      expect((await client.query('SELECT text FROM live_transcript_segments')).rows)
+        .toEqual([{ text: 'active words' }]);
+      await expect(client.query(`INSERT INTO live_transcript_segments
+        (meeting_id,start_ms,end_ms,speaker,text) VALUES
+        ('00000000-0000-4000-8000-000000000002',0,1000,'Speaker 1','late secret')`))
+        .rejects.toThrow();
+    } finally {
+      await client.close();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('refuses ambiguous historical bot bindings without choosing an owner', async () => {
+    const client = new PGlite();
+    const db = drizzle(client);
+    const folder = mkdtempSync(join(tmpdir(), 'syncmemos-bot-binding-migration-'));
+    try {
+      const entries = journal.entries.slice(0, 24);
+      mkdirSync(join(folder, 'meta'));
+      writeFileSync(join(folder, 'meta/_journal.json'), JSON.stringify({ ...journal, entries }));
+      for (const entry of entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(folder, `${entry.tag}.sql`));
+      await migrate(db, { migrationsFolder: folder });
+      await client.exec(`
+        INSERT INTO users (id,email) VALUES
+          ('00000000-0000-4000-8000-000000000001','bot-a@example.test'),
+          ('00000000-0000-4000-8000-000000000002','bot-b@example.test');
+        INSERT INTO meetings (id,owner_user_id,share_token,bot_id) VALUES
+          ('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','bot-a-token','ambiguous-bot'),
+          ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000002','bot-b-token','ambiguous-bot');
+      `);
+      await expect(migrate(db, { migrationsFolder: 'drizzle' })).rejects.toThrow();
+      expect((await client.query('SELECT owner_user_id FROM meetings WHERE bot_id = $1',
+        ['ambiguous-bot'])).rows).toHaveLength(2);
+      expect((await client.query<{ indexname: string }>(
+        "SELECT indexname FROM pg_indexes WHERE tablename = 'meetings'"))
+        .rows.map(row => row.indexname)).toContain('meetings_bot_id_idx');
     } finally {
       await client.close();
       rmSync(folder, { recursive: true, force: true });

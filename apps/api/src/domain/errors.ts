@@ -34,6 +34,13 @@ export class PaddleNotConfiguredError extends Error {
   }
 }
 
+export class PaddleOwnershipConflictError extends Error {
+  constructor() {
+    super('Billing customer ownership requires support');
+    this.name = 'PaddleOwnershipConflictError';
+  }
+}
+
 export class BillingMutationsDisabledError extends Error {
   constructor(message = 'Billing changes are temporarily unavailable. Existing subscriptions can still be managed in Settings.') {
     super(message);
@@ -98,6 +105,29 @@ export class BotProviderError extends Error {
   }
 }
 
+/** A late Recall utterance must not recreate disposable text after terminal cleanup. */
+export class LiveTranscriptClosedError extends Error {
+  constructor() {
+    super('Live transcript is closed');
+    this.name = 'LiveTranscriptClosedError';
+  }
+}
+
+export class PaddleBillingAdmissionError extends Error {
+  constructor(readonly reason: 'rate_limited' | 'busy') {
+    super(reason === 'rate_limited' ? 'Too many billing requests; try again shortly' : 'Billing is busy; try again shortly');
+    this.name = 'PaddleBillingAdmissionError';
+  }
+}
+
+/** The transcription request was definitely rejected before a paid job could be created. */
+export class TranscriptionSubmitRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TranscriptionSubmitRejectedError';
+  }
+}
+
 export class DocumentGenerationError extends Error {
   constructor(message: string) {
     super(message);
@@ -159,6 +189,27 @@ export class WeakPasswordError extends Error {          // → HTTP 400
   constructor(message: string) {
     super(message);
     this.name = 'WeakPasswordError';
+  }
+}
+
+export class GoogleAccountLinkRequiredError extends Error {
+  constructor() {
+    super('Sign in to the existing account before linking Google');
+    this.name = 'GoogleAccountLinkRequiredError';
+  }
+}
+
+export class OAuthCapacityError extends Error {
+  constructor() {
+    super('Google sign-in is temporarily busy; try again later');
+    this.name = 'OAuthCapacityError';
+  }
+}
+
+export class GoogleLinkRejectedError extends Error {
+  constructor() {
+    super('Google account could not be linked to this account');
+    this.name = 'GoogleLinkRejectedError';
   }
 }
 

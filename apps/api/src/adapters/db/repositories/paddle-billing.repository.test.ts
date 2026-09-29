@@ -79,6 +79,7 @@ describe('DrizzlePaddleBillingRepository delivery convergence', () => {
       emailVerified: true,
     }).returning();
     await repository.upsertCustomer({ customerId: 'ctm_erase', email: user.email });
+    expect(await repository.attachCustomerToUser({ customerId: 'ctm_erase', email: user.email, userId: user.id })).toBe(true);
 
     await repository.anonymizeCustomerForUser(user.id);
 
@@ -91,6 +92,7 @@ describe('DrizzlePaddleBillingRepository delivery convergence', () => {
   it('does not reidentify an anonymized customer through late, repeated or concurrent customer events', async () => {
     const [user] = await db.insert(users).values({ email: 'erased@example.test' }).returning();
     await repository.upsertCustomer({ customerId: 'ctm_1', email: user.email });
+    expect(await repository.attachCustomerToUser({ customerId: 'ctm_1', email: user.email, userId: user.id })).toBe(true);
     await processPaddleEvent(subscriptionEvent('active', '2026-09-11T10:00:00Z'), repository);
     const event = { eventType: 'customer.updated', occurredAt: '2026-09-11T10:01:00Z',
       data: { id: 'ctm_1', email: user.email } } as EventEntity;
@@ -99,12 +101,13 @@ describe('DrizzlePaddleBillingRepository delivery convergence', () => {
     // A future account with the same email must not acquire the old billing identity.
     await db.insert(users).values({ email: user.email });
     await Promise.all(Array.from({ length: 6 }, () => processPaddleEvent(event, repository)));
-    await repository.upsertCustomer({ customerId: 'ctm_1', email: user.email }); // checkout's shared boundary
+    await repository.upsertCustomer({ customerId: 'ctm_1', email: user.email });
     await processPaddleEvent(subscriptionEvent('canceled', '2026-09-11T11:00:00Z'), repository);
     const [customer] = await db.select().from(paddleCustomers);
     expect(customer).toMatchObject({ customerId: 'ctm_1', email: null, userId: null });
     expect(customer.anonymizedAt).toBeInstanceOf(Date);
-    expect(await repository.findCustomerByEmail(user.email)).toBeNull();
+    const [replacement] = await db.select().from(users).where(eq(users.email, user.email));
+    expect(await repository.attachCustomerToUser({ customerId: 'ctm_1', email: user.email, userId: replacement.id })).toBe(false);
     expect(await db.select().from(paddleSubscriptions)).toMatchObject([{ subscriptionId: 'sub_1', customerId: 'ctm_1', status: 'canceled' }]);
   });
 
@@ -112,8 +115,47 @@ describe('DrizzlePaddleBillingRepository delivery convergence', () => {
     await processPaddleEvent(subscriptionEvent('active', '2026-09-11T10:00:00Z'), repository);
     const [user] = await db.insert(users).values({ email: 'placeholder@example.test' }).returning();
     await repository.upsertCustomer({ customerId: 'ctm_1', email: user.email });
+    expect(await repository.attachCustomerToUser({ customerId: 'ctm_1', email: user.email, userId: user.id })).toBe(true);
     expect(await db.select().from(paddleCustomers)).toMatchObject([
       { customerId: 'ctm_1', email: user.email, userId: user.id, anonymizedAt: null },
     ]);
+  });
+
+  it('does not transfer an owned customer when its former email is reused', async () => {
+    const [original] = await db.insert(users).values({ email: 'former@example.test', emailVerified: true }).returning();
+    expect(await repository.attachCustomerToUser({ customerId: 'ctm_owned', email: original.email, userId: original.id })).toBe(true);
+    await db.update(users).set({ email: 'current@example.test' }).where(eq(users.id, original.id));
+    const [replacement] = await db.insert(users).values({ email: 'former@example.test', emailVerified: true }).returning();
+
+    await repository.upsertCustomer({ customerId: 'ctm_owned', email: replacement.email });
+    expect(await repository.attachCustomerToUser({ customerId: 'ctm_owned', email: replacement.email, userId: replacement.id })).toBe(false);
+    await repository.upsertSubscription({
+      subscriptionId: 'sub_owned', customerId: 'ctm_owned', status: 'active',
+      priceId: null, productId: null, quantity: 1, currentPeriodStart: null,
+      currentPeriodEnd: null, scheduledChangeAction: null, scheduledChangeAt: null,
+      occurredAt: new Date(),
+    });
+
+    const [customer] = await db.select().from(paddleCustomers)
+      .where(eq(paddleCustomers.customerId, 'ctm_owned'));
+    expect(customer.userId).toBe(original.id);
+    expect(await repository.findCustomerForUser(replacement.id)).toBeNull();
+    expect(await repository.listSubscriptionsForUser(replacement.id)).toEqual([]);
+    expect(await repository.listSubscriptionsForUser(original.id)).toMatchObject([{ subscriptionId: 'sub_owned' }]);
+  });
+
+  it('allows only one concurrent claimant of an unowned customer', async () => {
+    const [a] = await db.insert(users).values({ email: 'first@example.test' }).returning();
+    const [b] = await db.insert(users).values({ email: 'second@example.test' }).returning();
+    await repository.upsertCustomer({ customerId: 'ctm_placeholder', email: a.email });
+
+    const results = await Promise.all([
+      repository.attachCustomerToUser({ customerId: 'ctm_placeholder', email: a.email, userId: a.id }),
+      repository.attachCustomerToUser({ customerId: 'ctm_placeholder', email: b.email, userId: b.id }),
+    ]);
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const [customer] = await db.select().from(paddleCustomers);
+    expect(customer.userId).toBe(results[0] ? a.id : b.id);
   });
 });

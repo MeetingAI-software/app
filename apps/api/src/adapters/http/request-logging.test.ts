@@ -20,6 +20,55 @@ describe('safe request logging', () => {
     expect(sanitizeRequestUrl('/callback?query-key-secret=query-value-secret&state=browser-state'))
       .toBe('/callback?[Redacted]');
     expect(sanitizeRequestUrl('/healthz')).toBe('/healthz');
+    expect(sanitizeRequestUrl('/api/share/synthetic-bearer?view=1'))
+      .toBe('/api/share/:token?[Redacted]');
+    expect(sanitizeRequestUrl('/api/Share/synthetic-bearer?view=1'))
+      .toBe('/api/share/:token?[Redacted]');
+    expect(sanitizeRequestUrl('/s/synthetic-bearer')).toBe('/s/:token');
+    expect(sanitizeRequestUrl('/S/synthetic-bearer')).toBe('/s/:token');
+  });
+
+  it('redacts bearer share paths on both successful and failed requests', async () => {
+    const lines: string[] = [];
+    const stream: DestinationStream = { write: chunk => { lines.push(chunk); } };
+    const router = express.Router();
+    router.get('/api/share/:token', (req, res, next) => {
+      if (req.params.token === 'failure-bearer-secret') return next(new Error('synthetic failure'));
+      return res.status(200).json({ ok: true });
+    });
+    const app = createServer([router], async () => null, { requestLogStream: stream });
+    server = app.listen(0);
+    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    expect((await fetch(`${baseUrl}/api/share/success-bearer-secret`)).status).toBe(200);
+    expect((await fetch(`${baseUrl}/api/share/failure-bearer-secret`)).status).toBe(500);
+    await vi.waitFor(() => expect(lines.length).toBeGreaterThanOrEqual(2));
+    const log = lines.join('');
+    expect(log).not.toContain('success-bearer-secret');
+    expect(log).not.toContain('failure-bearer-secret');
+    expect(log).toContain('/api/share/:token');
+  });
+
+  it('redacts mixed-case share paths even when authentication rejects the request', async () => {
+    const lines: string[] = [];
+    const stream: DestinationStream = { write: chunk => { lines.push(chunk); } };
+    const router = express.Router();
+    router.get('/api/share/:token', (_req, res) => res.status(200).json({ ok: true }));
+    const app = createServer([router], async token => token === 'valid-token'
+      ? { id: 'owner', email: 'owner@example.test', emailVerified: true, createdAt: new Date() }
+      : null, { requestLogStream: stream });
+    server = app.listen(0);
+    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    expect((await fetch(`${baseUrl}/api/Share/rejected-bearer-secret`)).status).toBe(401);
+    expect((await fetch(`${baseUrl}/api/Share/success-bearer-secret`, {
+      headers: { cookie: 'session=valid-token' },
+    })).status).toBe(200);
+    await vi.waitFor(() => expect(lines.length).toBeGreaterThanOrEqual(2));
+
+    const log = lines.join('');
+    expect(log).not.toContain('rejected-bearer-secret');
+    expect(log).not.toContain('success-bearer-secret');
+    expect(log).toContain('/api/share/:token');
   });
 
   it('never writes cookies, secret headers, query values or Set-Cookie values', async () => {
@@ -47,6 +96,7 @@ describe('safe request logging', () => {
         'x-transcription-secret': 'transcription-secret',
         'webhook-signature': 'webhook-signature-secret',
         'paddle-signature': 'paddle-signature-secret',
+        'x-request-id': 'request-id-secret',
       },
       body: '{}',
     });
@@ -62,9 +112,28 @@ describe('safe request logging', () => {
       'paddle-signature-secret',
       'query-secret',
       'oauth-secret',
+      'request-id-secret',
     ]) {
       expect(log).not.toContain(secret);
     }
     expect(log).toContain('/webhooks/log-probe?[Redacted]');
+  });
+
+  it('keeps a valid correlation ID while replacing arbitrary header text', async () => {
+    const lines: string[] = [];
+    const stream: DestinationStream = { write: chunk => { lines.push(chunk); } };
+    const router = express.Router();
+    router.get('/healthz', (_req, res) => res.status(200).end());
+    server = createServer([router], async () => null, { requestLogStream: stream }).listen(0);
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/healthz`;
+    const valid = '12345678-1234-1234-1234-123456789abc';
+    expect((await fetch(url, { headers: { 'x-request-id': valid } })).headers.get('x-request-id')).toBe(valid);
+    const invalid = 'PRIVATE-MEETING-SPEECH-and-bearer-token';
+    const replacement = (await fetch(url, { headers: { 'x-request-id': invalid } })).headers.get('x-request-id');
+    expect(replacement).not.toBe(invalid);
+    expect(replacement).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    await vi.waitFor(() => expect(lines.length).toBeGreaterThanOrEqual(2));
+    expect(lines.join('')).toContain(valid);
+    expect(lines.join('')).not.toContain(invalid);
   });
 });
