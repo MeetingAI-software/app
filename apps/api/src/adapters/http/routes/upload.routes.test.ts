@@ -9,6 +9,7 @@ import type { UsageMeterService } from '../../../application/usage-meter.service
 import { createServer } from '../server';
 import { createUploadRoutes } from './upload.routes';
 import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
+import { MAX_PARTICIPANT_NAMES } from './upload-inputs';
 
 /** Passes the content sniffer: an EBML header, which is what a real WebM recording opens with. */
 const WEBM_BYTES = (() => {
@@ -251,5 +252,145 @@ describe('in-room upload content validation', () => {
     // The reason sniffing runs before the meter: no meeting row, and nothing billable downstream.
     expect(assertCanStartMeeting).not.toHaveBeenCalled();
     expect(meetingCreate).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('in-room multipart parser security', () => {
+  let server: Server;
+  let baseUrl: string;
+  let requestNumber = 0;
+  const originalUploadLimit = config.MAX_UPLOAD_MB;
+  const meeting = { id: 'security-test-meeting', source: 'upload', status: 'pending' };
+  const meetingCreate = vi.fn().mockResolvedValue(meeting);
+  const setUploadInfo = vi.fn().mockResolvedValue(undefined);
+  const assertCanStartMeeting = vi.fn().mockResolvedValue(undefined);
+  const uploadAudio = vi.fn().mockResolvedValue({ path: 'recordings/security-test.webm' });
+  const insertIfNew = vi.fn().mockResolvedValue(true);
+
+  beforeAll(() => {
+    config.MAX_UPLOAD_MB = 1;
+    const route = createUploadRoutes(
+      { create: meetingCreate, setUploadInfo } as unknown as MeetingRepository,
+      { insertIfNew } as unknown as WebhookEventRepository,
+      { assertCanStartMeeting } as unknown as UsageMeterService,
+      { upload: uploadAudio } as unknown as AudioStoragePort,
+    );
+    const app = createServer([route], async (token) => ({
+      id: token, email: 'person@example.com', emailVerified: true, createdAt: new Date(),
+    }));
+    server = app.listen(0);
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  beforeEach(() => vi.clearAllMocks());
+
+  afterAll(() => {
+    config.MAX_UPLOAD_MB = originalUploadLimit;
+    return new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  });
+
+  function audioForm(bytes: Uint8Array = WEBM_BYTES, mime = 'audio/webm'): FormData {
+    const body = new FormData();
+    body.append('audio', new Blob([new Uint8Array(bytes)], { type: mime }), 'recording');
+    return body;
+  }
+
+  function post(body: FormData): Promise<Response> {
+    return fetch(`${baseUrl}/api/meetings/upload`, {
+      method: 'POST',
+      headers: {
+        origin: config.WEB_ORIGIN,
+        cookie: `session=multipart-security-${++requestNumber}`,
+        'x-recording-notice-confirmed': 'true',
+        'x-recording-notice-version': RECORDING_NOTICE_VERSION,
+      },
+      body,
+      signal: AbortSignal.timeout(3000),
+    });
+  }
+
+  it.each([
+    ['maximum array length followed by append', ['items[4294967294]', 'items[]']],
+    ['sparse array converted to an object', ['items[4294967294]', 'items[key]']],
+    ['unknown base with out-of-policy index', ['items[50]']],
+    ['index just beyond the participant limit', [`participantNames[${MAX_PARTICIPANT_NAMES}]`]],
+    ['index with leading zeroes', ['participantNames[00050]']],
+    ['nested field representation', ['items[0][1]']],
+  ])('rejects %s before storage or billing and releases capacity', async (_label, fieldNames) => {
+    const body = audioForm();
+    for (const name of fieldNames) body.append(name, 'value');
+    const response = await post(body);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'UPLOAD_ERROR' } });
+    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(meetingCreate).not.toHaveBeenCalled();
+    expect(uploadAudio).not.toHaveBeenCalled();
+    expect(insertIfNew).not.toHaveBeenCalled();
+
+    const control = audioForm();
+    control.append('participantNames', '[" Ada ","Grace"]');
+    expect((await post(control)).status).toBe(201);
+    expect(meetingCreate).toHaveBeenCalledWith(expect.objectContaining({ participantNames: ['Ada', 'Grace'] }));
+  });
+
+  it.each(['indexed', 'empty-bracket'] as const)('preserves all 50 %s participants with audio first and last', async (form) => {
+    const names = Array.from({ length: MAX_PARTICIPANT_NAMES }, (_, i) => `Person ${i}`);
+    for (const fileFirst of [true, false]) {
+      vi.clearAllMocks();
+      const body = fileFirst ? audioForm() : new FormData();
+      names.forEach((name, i) => body.append(form === 'indexed' ? `participantNames[${i}]` : 'participantNames[]', name));
+      if (!fileFirst) body.append('audio', new Blob([WEBM_BYTES], { type: 'audio/webm' }), 'recording');
+      expect((await post(body)).status).toBe(201);
+      expect(meetingCreate).toHaveBeenCalledWith(expect.objectContaining({ participantNames: names }));
+      expect(setUploadInfo).toHaveBeenCalledWith(meeting.id, { audioStoragePath: 'recordings/security-test.webm' });
+      expect(insertIfNew).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'audio_uploaded' }));
+    }
+  });
+
+  it('rejects a 51st empty-bracket text field before storage or billing', async () => {
+    const body = audioForm();
+    for (let i = 0; i <= MAX_PARTICIPANT_NAMES; i++) body.append('participantNames[]', `Person ${i}`);
+    const response = await post(body);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'UPLOAD_ERROR' } });
+    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(uploadAudio).not.toHaveBeenCalled();
+    expect(meetingCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects indexed-plus-appended participants beyond the schema limit', async () => {
+    const body = audioForm();
+    body.append('participantNames[49]', 'Ada');
+    body.append('participantNames[]', 'Grace');
+    const response = await post(body);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expect(uploadAudio).not.toHaveBeenCalled();
+    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+  });
+
+  it('preserves MP4 recordings and trimmed participants', async () => {
+    const mp4 = new Uint8Array(16);
+    mp4.set([0x66, 0x74, 0x79, 0x70], 4);
+    const body = audioForm(mp4, 'audio/mp4');
+    body.append('participantNames[]', ' Ada ');
+    body.append('participantNames[]', 'Grace');
+    expect((await post(body)).status).toBe(201);
+    expect(meetingCreate).toHaveBeenCalledWith(expect.objectContaining({ participantNames: ['Ada', 'Grace'] }));
+    expect(uploadAudio).toHaveBeenCalledWith(meeting.id, expect.any(Buffer), 'audio/mp4', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+
+  it('continues to reject oversized audio with FILE_TOO_LARGE', async () => {
+    const bytes = new Uint8Array(1024 * 1024 + 1);
+    bytes.set(WEBM_BYTES);
+    const response = await post(audioForm(bytes));
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'FILE_TOO_LARGE' } });
+    expect(assertCanStartMeeting).not.toHaveBeenCalled();
+    expect(uploadAudio).not.toHaveBeenCalled();
   });
 });
