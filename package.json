@@ -8,7 +8,13 @@
     "apps/*"
   ],
   "overrides": {
-    "qs": "6.16.0"
+    "qs": "6.16.0",
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    },
+    "@next/eslint-plugin-next": {
+      "fast-glob": "$fast-glob"
+    }
   },
   "scripts": {
     "dev": "npm run dev -w api",
@@ -20,5 +26,8 @@
     "billing:check": "npm run billing:check -w api",
     "legal:smoke": "npm run legal:smoke -w web --",
     "security:secrets": "node scripts/secret-scan.mjs"
+  },
+  "devDependencies": {
+    "fast-glob": "file:tools/eslint-root-glob"
   }
 }
