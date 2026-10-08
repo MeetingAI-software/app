@@ -20,6 +20,54 @@ Run `npm audit` from the repository root together with both applications' normal
 lint, and build commands. Do not use `npm audit fix --force`: major-version changes must be reviewed
 and tested explicitly.
 
+## October 2026 security refresh
+
+On 2026-10-08, the recovered security branch was based on main commit `603094d`.
+A fresh audit reported 15 affected packages (two critical, eight high, five moderate).
+After remediation, both the full and production-only audits report zero vulnerabilities.
+These results supersede the historical development-only exception below.
+
+Runtime dependency floors are Next and eslint-config-next `^16.3.8` and Multer `^2.4.0`.
+The lockfile also resolves Sharp `0.35.5`, proxy-addr `2.0.8`, source-map-js `1.2.2`,
+and brace-expansion `1.1.21`/`5.0.12` to address newly published advisories.
+Native Next and Sharp packages move with their parent releases.
+See [Next RCE](https://github.com/advisories/GHSA-vcvr-r3jv-pc5j),
+[Multer abort cleanup](https://github.com/advisories/GHSA-3pph-fpjx-jg34),
+[Sharp SVG processing](https://github.com/advisories/GHSA-wq5f-xc86-pv6w),
+[proxy subnet matching](https://github.com/advisories/GHSA-jqcg-44mw-7w3h),
+[source-map-js](https://github.com/advisories/GHSA-68fv-2mgg-jv7q), and
+[brace expansion](https://github.com/advisories/GHSA-q2hr-2g5m-vwhr).
+
+The scoped core-utils override selects esbuild `0.25.12` without downgrading Drizzle Kit.
+It closes [esbuild development-server cross-origin access](https://github.com/advisories/GHSA-67mh-4wv8-2f99).
+API/tsx and Vitest retain compatible esbuild `0.28.2` instances.
+
+Braces `3.0.3` has no published fix for
+[GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm).
+Next's ESLint plugin only consumes fast-glob's named `globSync` for configured project roots.
+A scoped override resolves that dependency to the local `tools/eslint-root-glob` adapter,
+using tinyglobby `0.2.15` without braces. The adapter disables directory expansion and preserves
+absolute paths and directory result strings. It deliberately implements only the interface
+consumed by this plugin. The root development dependency supplies a portable local package link;
+it is not a published registry package or a general fast-glob replacement.
+Tests exercise the actual Next helper with default, wildcard, brace, literal, array and unmatched roots.
+Recheck the helper's imports and API whenever upgrading eslint-config-next.
+
+Resolve updates with npm `11.18.0`, then run a clean installation. Workspace resolver reuse can
+retain vulnerable packages even when overrides declare patched versions. The lock includes matching
+esbuild native binaries and required optional WASM dependencies; dependency and peer ranges were
+checked across the whole lock. Actual execution was on macOS ARM64, not every platform.
+
+Verification on Node `20.20.2`: API 916 tests passed and five opt-in live AI provider tests skipped;
+web 143 tests passed. Both typechecks and builds, web lint and the secret scan passed.
+Focused HTTP tests reject huge/padded/unknown-base numeric indices and excessive nesting before
+append-field, retain all 50 participants with either part ordering, preserve JSON/WebM/MP4 uploads,
+and verify capacity recovery and error semantics. See [upload bounds](upload-limits.md).
+Drizzle schema export, loader CJS/ESM/source maps, esbuild origin handling, proxy subnet controls,
+Sharp SVG/PNG/WebP/AVIF roundtrips and source-map-js ordinary mappings also passed.
+No production exploit, external provider call, deployment or database migration was performed.
+GitHub alerts on the default branch may remain open until this branch is merged and rescanned.
+
 ## September 2026 security refresh
 
 The security branch updates Browserslist to `4.28.9`, covering
@@ -66,7 +114,7 @@ Drizzle Kit's stable registry version is still `0.31.10`; the forced downgrade t
 inappropriate. The manual update policy and `qs@6.16.0` override are retained. Repeat audit on the
 final PR head and sequential integration because the advisory database can change independently.
 
-## Accepted development-only advisory (rechecked 2026-09-11)
+## Historical development-only advisory (resolved 2026-10-08)
 
 As of 2026-08-13, npm reports four moderate findings through this development-only chain:
 
