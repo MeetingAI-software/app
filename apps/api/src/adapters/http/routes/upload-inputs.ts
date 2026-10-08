@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** A sane ceiling so a malformed field cannot allocate an enormous names array. */
-const MAX_NAMES = 50;
+export const MAX_PARTICIPANT_NAMES = 50;
 
 /** The array cap alone bounds the count, not the size — one "name" could still be megabytes. */
 const MAX_NAME_LENGTH = 80;
@@ -25,7 +25,7 @@ const participantNamesSchema = z.preprocess(
   },
   z
     .array(z.string().max(MAX_NAME_LENGTH))
-    .max(MAX_NAMES)
+    .max(MAX_PARTICIPANT_NAMES)
     .transform((arr) => arr.map((s) => s.trim()).filter((s) => s.length > 0))
 );
 

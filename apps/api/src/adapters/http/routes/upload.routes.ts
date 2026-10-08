@@ -6,7 +6,7 @@ import { logger } from '../../../config/logger';
 import type { MeetingRepository, WebhookEventRepository } from '../../../ports/repositories.port';
 import type { UsageMeterService } from '../../../application/usage-meter.service';
 import type { AudioStoragePort } from '../../../ports/audio-storage.port';
-import { parseParticipantNames, isAudioMime, detectAudioFormat } from './upload-inputs';
+import { parseParticipantNames, isAudioMime, detectAudioFormat, MAX_PARTICIPANT_NAMES } from './upload-inputs';
 import { perUserRouteLimiter, SPEND_LIMITS } from '../middleware/rate-limit';
 import { RECORDING_NOTICE_VERSION } from '../../../domain/recording-notice';
 
@@ -43,9 +43,19 @@ export function createUploadRoutes(
     next();
   };
 
+  // Reject sparse bracket arrays before append-field allocates or walks them.
+  // Keep JSON, indexed and empty-bracket forms for all 50 permitted participants.
+  const uploadLimits = {
+    fileSize: config.MAX_UPLOAD_MB * 1024 * 1024,
+    files: 1,
+    fields: MAX_PARTICIPANT_NAMES,
+    parts: MAX_PARTICIPANT_NAMES + 1,
+    fieldNestingDepth: 1,
+    fieldArrayIndexLimit: MAX_PARTICIPANT_NAMES - 1,
+  };
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: config.MAX_UPLOAD_MB * 1024 * 1024, files: 1 },
+    limits: uploadLimits,
     fileFilter: (_req, file, cb) => {
       if (isAudioMime(file.mimetype)) {
         cb(null, true);
