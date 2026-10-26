@@ -33,22 +33,16 @@ interface Props {
 
 export default function AuthForm(props: Props) {
   const [showPassword, setShowPassword] = useState(false);
-  // Pre-launch gate: the form and the Google button stay on screen but never submit.
+  // Pause new registrations while preserving access for existing accounts.
   const [showComingSoon, setShowComingSoon] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
-    if (LAUNCH_PAUSED) {
+    if (LAUNCH_PAUSED && props.mode === 'signup') {
       e.preventDefault();
       setShowComingSoon(true);
       return;
     }
     props.onSubmit(e);
-  };
-
-  const handleGoogleClick = (e: React.MouseEvent) => {
-    if (!LAUNCH_PAUSED) return;
-    e.preventDefault();
-    setShowComingSoon(true);
   };
 
   const handleMagneticMouseMove = (e: React.MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
@@ -280,7 +274,6 @@ export default function AuthForm(props: Props) {
                 {/* Social Login Button */}
                 <a
                   href={googleOAuthUrl()}
-                  onClick={handleGoogleClick}
                   className="w-full bg-surface-container-lowest border border-slate-200 text-slate-900 font-label-mono text-xs uppercase tracking-wider font-semibold py-3 px-6 rounded transition-all hover:bg-slate-50 flex justify-center items-center gap-3 shadow-xs cursor-pointer no-underline"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">

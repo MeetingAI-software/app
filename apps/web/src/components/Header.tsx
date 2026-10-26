@@ -10,7 +10,7 @@ import { ComingSoonDialog } from '@/components/ComingSoonDialog';
 export function Header() {
   const [showComingSoon, setShowComingSoon] = useState(false);
 
-  // While the launch gate is on, the sign-in entry points explain the wait instead of navigating.
+  // Keep acquisition paused; existing accounts can still use Sign In.
   const handleSignInClick = (e: React.MouseEvent) => {
     if (!LAUNCH_PAUSED) return;
     e.preventDefault();
@@ -66,7 +66,6 @@ export function Header() {
         <div className="flex items-center gap-4">
           <Link
             href="/meetings"
-            onClick={handleSignInClick}
             className="hidden sm:inline-block text-slate-900 font-medium hover:text-blue-600 transition-colors duration-200 text-sm"
           >
             Sign In

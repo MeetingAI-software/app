@@ -11,7 +11,7 @@ import { ComingSoonDialog } from '@/components/ComingSoonDialog';
 import { HowItWorks } from '@/components/HowItWorks';
 
 export function LandingPageClient({ legalPublished }: { legalPublished: boolean }) {
-  // Pre-launch gate: the sign-in entry points open a notice instead of the app.
+  // Keep acquisition paused; existing accounts can still use Sign In.
   const [showComingSoon, setShowComingSoon] = useState(false);
 
   const handleSignInClick = (e: React.MouseEvent) => {
@@ -234,7 +234,6 @@ export function LandingPageClient({ legalPublished }: { legalPublished: boolean 
             <div className="flex items-center gap-4 lg:mr-6">
               <Link
                 href="/meetings"
-                onClick={handleSignInClick}
                 className="hidden sm:inline-block text-slate-900 font-medium hover:text-secondary transition-colors duration-200"
               >
                 Sign In

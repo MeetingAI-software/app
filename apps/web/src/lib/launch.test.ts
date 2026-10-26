@@ -20,7 +20,7 @@ describe('LAUNCH_PAUSED', () => {
     else process.env.NEXT_PUBLIC_LAUNCH_PAUSED = originalValue;
   });
 
-  it('stays paused when the variable is missing, so a misconfigured deploy never opens sign-in', async () => {
+  it('stays paused when the variable is missing, so a misconfigured deploy never opens registration or checkout', async () => {
     await expect(loadFlag(undefined)).resolves.toBe(true);
   });
 
