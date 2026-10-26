@@ -35,6 +35,17 @@ describe('parseParticipantNames', () => {
     expect(() => parseParticipantNames(many)).toThrow(ZodError);
   });
 
+  it('rejects oversized invalid collections without accumulating an error per entry', () => {
+    const manyInvalidNames = JSON.stringify(Array(10_000).fill(null));
+    try {
+      parseParticipantNames(manyInvalidNames);
+      expect.fail('Oversized participant names must be rejected');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ZodError);
+      expect((error as ZodError).issues.length).toBeLessThan(10);
+    }
+  });
+
   it('rejects a single absurdly long name', () => {
     // The array cap bounds the count, not the size — without a per-name cap one entry could be
     // megabytes of text, stored and then rendered as the meeting's title.

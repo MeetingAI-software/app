@@ -29,6 +29,12 @@ describe('documentContentSchema', () => {
     expect(parsed.success).toBe(false);
   });
 
+  it('bounds validation errors for an oversized collection of invalid model output', () => {
+    const parsed = documentContentSchema.safeParse(validContent({ decisions: Array(10_000).fill(null) }));
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) expect(parsed.error.issues.length).toBeLessThan(10);
+  });
+
   it('rejects an over-long missed5 entry', () => {
     const missed5 = [...validContent().missed5.slice(0, 2), 'x'.repeat(501)];
     expect(documentContentSchema.safeParse(validContent({ missed5 })).success).toBe(false);

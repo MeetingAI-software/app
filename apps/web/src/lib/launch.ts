@@ -1,9 +1,9 @@
 // Pre-launch gate for the public site.
 //
 // While this is on, the deployed build keeps every existing flow intact but refuses to let
-// visitors start one: sign-in/sign-up submits and Paddle checkout are intercepted and answered
+// visitors register or purchase: sign-up submits and Paddle checkout are intercepted and answered
 // with a "coming soon" dialog instead. Nothing below the gate is modified — flipping
-// NEXT_PUBLIC_LAUNCH_PAUSED to `false` restores the product exactly as it was.
+// NEXT_PUBLIC_LAUNCH_PAUSED to `false` opens those flows. Existing-account login stays available.
 export const LAUNCH_PAUSED = process.env.NEXT_PUBLIC_LAUNCH_PAUSED !== 'false';
 
 export type ComingSoonVariant = 'signin' | 'upgrade';
@@ -23,8 +23,8 @@ export const COMING_SOON_COPY: Record<ComingSoonVariant, ComingSoonCopy> = {
     eyebrow: 'Snart lansering',
     title: 'Kontona öppnar inom kort',
     body:
-      'Syncmemos är i slutskedet av att byggas. Inloggningen håller stängt tills de sista bitarna är på plats, så att inget går sönder mitt i ditt första möte.',
-    note: 'Titta gärna runt på sajten under tiden — priserna och ett exempelmemo finns redan här.',
+      'Syncmemos är i slutskedet av att byggas. Nyregistreringen håller stängt tills de sista bitarna är på plats.',
+    note: 'Har du redan ett konto? Välj Sign In för att logga in. Priserna och ett exempelmemo finns också på sajten.',
     dismiss: 'Jag förstår',
   },
   upgrade: {
